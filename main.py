@@ -28,6 +28,7 @@ from conversation_state import (
 )
 from date_parser import parse_all, validate_datetime
 from scheduler import get_due_tasks
+import debug_system as dbg
 from datetime import datetime, timedelta
 import pytz
 
@@ -581,6 +582,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"Intent:{intent} | Entities:{entities} | Missing:{missing}")
     add_history(user_id, "assistant", response_text)
+    dbg.log_interaction(user_id, user_input, intent, entities, response_text)
+    if dbg.is_debug_on(user_id):
+        import json as _json
+        await update.message.reply_text(
+            f"\U0001f41e *Debug*\n"
+            f"Intent: `{intent}`\n"
+            f"Entities: `{_json.dumps(entities, ensure_ascii=False)}`\n"
+            f"Date parsed: `{parsed.get('date')}` Time: `{parsed.get('time')}` "
+            f"Ambiguous: `{parsed.get('time_ambiguous')}`",
+            parse_mode="Markdown"
+        )
 
     # ── Handle parse errors first ──
     if parsed["errors"] and intent in ["TASK", "MULTIPLE"]:
@@ -808,8 +820,110 @@ async def ask_for_task(update, user_id):
     )
 
 
+
+# ── DEBUG SYSTEM COMMANDS (v1.0) ──────────────────────
+async def debug_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    on = dbg.toggle_debug(user_id)
+    await update.message.reply_text(
+        f"🐞 Debug mode is now *{'ON' if on else 'OFF'}*.\n"
+        + ("I'll show you the detected intent and entities after each message."
+           if on else "Back to normal responses."),
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "🐞 *Report a bug*\nUsage: /report <what went wrong>\n"
+            "Example: /report it saved 3 baje as 3 AM instead of asking",
+            parse_mode="Markdown"
+        )
+        return
+    desc = " ".join(context.args)
+    bug_id = dbg.report_bug(user_id, desc)
+    await update.message.reply_text(
+        f"✅ Bug #{bug_id} saved with full context!\n"
+        f"I captured your last message and what I understood from it.\n"
+        f"Use /bugs to see all reports.",
+        reply_markup=main_menu()
+    )
+
+async def bugs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    bugs = dbg.get_open_bugs(user_id)
+    if not bugs:
+        await update.message.reply_text("🎉 No open bugs!", reply_markup=main_menu())
+        return
+    msg = "🐞 *Open Bugs:*\n\n"
+    for b in bugs:
+        icon = "💥" if b[1] == "auto_exception" else "📝"
+        msg += f"{icon} *#{b[0]}* — {b[2][:60]}\n"
+        if b[3]:
+            msg += f"     _on: {b[3][:50]}_\n"
+        msg += "\n"
+    msg += "Use /resolve <id> to close one."
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+async def resolve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /resolve <bug_id>")
+        return
+    try:
+        bug_id = int(context.args[0])
+        if dbg.resolve_bug(bug_id):
+            await update.message.reply_text(f"✅ Bug #{bug_id} marked resolved!", reply_markup=main_menu())
+        else:
+            await update.message.reply_text(f"❌ Bug #{bug_id} not found.")
+    except ValueError:
+        await update.message.reply_text("Usage: /resolve <number>")
+
+async def trace_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    trace = dbg.get_last_trace(user_id)
+    if not trace:
+        await update.message.reply_text("No interaction traced yet. Send a message first.")
+        return
+    import json as _json
+    await update.message.reply_text(
+        f"🔍 *Last Interaction Trace:*\n\n"
+        f"📥 You said: `{trace['user_input']}`\n"
+        f"🎯 Intent: `{trace['intent']}`\n"
+        f"📦 Entities:\n`{_json.dumps(trace['entities'], indent=2, ensure_ascii=False)}`\n"
+        f"📤 Reply: {trace['response'][:200]}\n"
+        f"🕐 Time: {trace['time']}",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🧪 *Self-Test Checklist*\n\n"
+        "Send each of these messages one by one and check the result.\n"
+        "If any behaves wrong, reply with /report <what went wrong>.\n",
+        parse_mode="Markdown"
+    )
+    msg = "*Test messages to try:*\n\n"
+    for i, (test_msg, expected) in enumerate(dbg.SELFTEST_MESSAGES, 1):
+        msg += f"{i}. `{test_msg}`\n     ✓ _{expected}_\n\n"
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
+    try:
+        if update and update.message:
+            uid = update.message.from_user.id
+            user_text = update.message.text or ""
+            bug_id = dbg.log_exception(uid, user_text, context.error)
+            await update.message.reply_text(
+                f"\u26a0\ufe0f Something went wrong (auto-logged as bug #{bug_id}).\n"
+                f"Use /bugs to see it or /report to add notes.",
+                reply_markup=main_menu()
+            )
+            return
+    except Exception:
+        pass
     try:
         if update and update.message:
             await update.message.reply_text(
@@ -822,6 +936,7 @@ async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     init_db()
+    dbg.init_bugs_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -837,6 +952,12 @@ def main():
     app.add_handler(CommandHandler("analyze", analyze_cmd))
     app.add_handler(CommandHandler("suggest", suggest_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("debug", debug_cmd))
+    app.add_handler(CommandHandler("report", report_cmd))
+    app.add_handler(CommandHandler("bugs", bugs_cmd))
+    app.add_handler(CommandHandler("resolve", resolve_cmd))
+    app.add_handler(CommandHandler("trace", trace_cmd))
+    app.add_handler(CommandHandler("selftest", selftest_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
 
