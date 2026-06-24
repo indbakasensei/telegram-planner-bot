@@ -2,17 +2,19 @@ import os
 import re
 import logging
 from dotenv import load_dotenv
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    filters, ContextTypes
+    filters, ContextTypes, CallbackQueryHandler
 )
 from database import (
     init_db, add_task, get_tasks, get_tasks_by_date, get_tasks_by_week,
     mark_done, delete_task, update_task, get_task_by_id,
     search_tasks_by_title, task_exists,
     save_memory, get_memory, get_all_memories, search_memories,
-    add_goal, get_goals
+    add_goal, get_goals,
+    snooze_task, postpone_task, pause_task, resume_task,
+    mark_reminded, get_paused_tasks
 )
 from jarvis_brain import (
     get_jarvis_response, check_api_status,
@@ -995,6 +997,109 @@ async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
 
+
+# ── v1.1: Inline button callback handler ──────────────
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    parts = data.split(":")
+    action = parts[0]
+    task_id = int(parts[1]) if len(parts) > 1 else None
+
+    if action == "done":
+        task = get_task_by_id(task_id, user_id)
+        if task:
+            mark_done(task_id, user_id)
+            await query.edit_message_text(
+                f"✅ *Done!* Completed:\n📌 {task[1]}",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text("❌ Task not found.")
+
+    elif action == "snooze":
+        minutes = int(parts[2]) if len(parts) > 2 else 10
+        from datetime import datetime as _dt, timedelta as _td
+        snooze_until = (_dt.now(IST) + _td(minutes=minutes)).strftime("%Y-%m-%d %H:%M")
+        snooze_task(task_id, user_id, snooze_until)
+        label = f"{minutes} minutes" if minutes < 60 else "1 hour"
+        await query.edit_message_text(
+            f"⏰ Snoozed for {label}. I'll remind you again at {snooze_until.split()[1]}.",
+        )
+
+    elif action == "postpone":
+        from datetime import datetime as _dt, timedelta as _td
+        tomorrow = (_dt.now(IST) + _td(days=1)).strftime("%Y-%m-%d")
+        postpone_task(task_id, user_id, tomorrow)
+        task = get_task_by_id(task_id, user_id)
+        await query.edit_message_text(
+            f"📅 Moved to tomorrow ({tomorrow}).\n📌 {task[1] if task else ''}",
+        )
+
+    elif action == "pause":
+        pause_task(task_id, user_id)
+        await query.edit_message_text("⏸ Task paused. Reminders stopped until you resume it.")
+
+    elif action == "resume":
+        resume_task(task_id, user_id)
+        await query.edit_message_text("▶️ Task resumed. Reminders are back on.")
+
+
+# ── v1.1: Pause / Resume commands ─────────────────────
+async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text("Usage: /pause <task_id>")
+        return
+    try:
+        tid = int(context.args[0])
+        task = get_task_by_id(tid, user_id)
+        if not task:
+            await update.message.reply_text(f"❌ Task [{tid}] not found.")
+            return
+        pause_task(tid, user_id)
+        await update.message.reply_text(
+            f"⏸ Paused: *{task[1]}*\nReminders stopped. Use /resume {tid} to turn back on.",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /pause <number>")
+
+async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text("Usage: /resume <task_id>")
+        return
+    try:
+        tid = int(context.args[0])
+        task = get_task_by_id(tid, user_id)
+        if not task:
+            await update.message.reply_text(f"❌ Task [{tid}] not found.")
+            return
+        resume_task(tid, user_id)
+        await update.message.reply_text(
+            f"▶️ Resumed: *{task[1]}*\nReminders are back on.",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /resume <number>")
+
+async def paused_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    tasks = get_paused_tasks(user_id)
+    if not tasks:
+        await update.message.reply_text("No paused tasks.", reply_markup=main_menu())
+        return
+    msg = "⏸ *Paused Tasks:*\n\n"
+    for t in tasks:
+        msg += f"*[{t[0]}]* {t[1]} — 📅 {t[2] or 'No date'}\n"
+    msg += "\nUse /resume <id> to reactivate."
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -1044,6 +1149,10 @@ def main():
     app.add_handler(CommandHandler("resolve", resolve_cmd))
     app.add_handler(CommandHandler("trace", trace_cmd))
     app.add_handler(CommandHandler("selftest", selftest_cmd))
+    app.add_handler(CommandHandler("pause", pause_cmd))
+    app.add_handler(CommandHandler("resume", resume_cmd))
+    app.add_handler(CommandHandler("paused", paused_cmd))
+    app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
 
@@ -1052,13 +1161,25 @@ def main():
         for task in due:
             task_id, uid, title, due_date, due_time = task
             try:
+                buttons = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Done", callback_data=f"done:{task_id}"),
+                        InlineKeyboardButton("⏰ Snooze 10m", callback_data=f"snooze:{task_id}:10"),
+                    ],
+                    [
+                        InlineKeyboardButton("🕐 Snooze 1h", callback_data=f"snooze:{task_id}:60"),
+                        InlineKeyboardButton("📅 Tomorrow", callback_data=f"postpone:{task_id}"),
+                    ],
+                ])
                 await context.bot.send_message(
                     chat_id=uid,
                     text=f"🔔 *Reminder!*\n\n📌 *{title}*\n"
-                         f"📅 {due_date} ⏰ {due_time}\n\n"
-                         f"/done {task_id} to mark complete!",
-                    parse_mode="Markdown"
+                         f"📅 {due_date or 'No date'} ⏰ {due_time or 'No time'}",
+                    parse_mode="Markdown",
+                    reply_markup=buttons
                 )
+                from datetime import datetime as _dt
+                mark_reminded(task_id, _dt.now(IST).strftime("%Y-%m-%d %H:%M"))
             except Exception as e:
                 logger.error(f"Reminder failed: {e}")
 

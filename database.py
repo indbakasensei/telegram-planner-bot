@@ -27,6 +27,9 @@ def init_db():
         ("recurrence_type", "TEXT DEFAULT NULL"),
         ("recurrence_weekday", "INTEGER DEFAULT NULL"),
         ("recurrence_day", "INTEGER DEFAULT NULL"),
+        ("paused", "INTEGER DEFAULT 0"),
+        ("snooze_until", "TEXT DEFAULT NULL"),
+        ("last_reminded", "TEXT DEFAULT NULL"),
     ]:
         try:
             c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
@@ -257,3 +260,49 @@ def get_goals(user_id):
     goals = c.fetchall()
     conn.close()
     return goals
+
+# ── v1.1: Snooze / Pause / Postpone ───────────────────
+def snooze_task(task_id, user_id, snooze_until):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET snooze_until=? WHERE id=? AND user_id=?",
+              (snooze_until, task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def postpone_task(task_id, user_id, new_date):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET due_date=?, snooze_until=NULL WHERE id=? AND user_id=?",
+              (new_date, task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def pause_task(task_id, user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET paused=1 WHERE id=? AND user_id=?", (task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def resume_task(task_id, user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET paused=0 WHERE id=? AND user_id=?", (task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def mark_reminded(task_id, timestamp):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET last_reminded=? WHERE id=?", (timestamp, task_id))
+    conn.commit()
+    conn.close()
+
+def get_paused_tasks(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT id, title, due_date, due_time, category FROM tasks WHERE user_id=? AND paused=1 AND done=0", (user_id,))
+    tasks = c.fetchall()
+    conn.close()
+    return tasks
