@@ -558,9 +558,71 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
+    # ── Bug 10: answer "what time/date is it" directly with correct IST ──
+    low = user_input.lower()
+    if any(p in low for p in ["what time is it", "what's the time", "current time",
+                               "time kya", "kitne baje", "abhi kitne",
+                               "what is the time", "what date", "today's date",
+                               "what day is it", "aaj kya"]):
+        n = datetime.now(IST)
+        await update.message.reply_text(
+            f"🕐 It's *{n.strftime('%I:%M %p')}* on *{n.strftime('%A, %d %B %Y')}* (IST).",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+        return
+
+    # ── Quick-match VIEW requests so LLM can't misclassify them as TASK ──
+    _low = user_input.lower()
+    _view_words = ["show", "list", "dikhao", "batao", "what do i have",
+                   "what's pending", "my tasks", "mera task", "mere task",
+                   "show plan", "show schedule", "kya hai aaj", "aaj kya hai",
+                   "what is scheduled", "what are my tasks"]
+    _period_words = {
+        "today": ["today", "aaj", "aj"],
+        "tomorrow": ["tomorrow", "kal"],
+        "week": ["week", "hafte", "this week"],
+        "month": ["month", "mahine", "this month"],
+        "year": ["year", "saal", "this year"],
+    }
+    if any(vw in _low for vw in _view_words):
+        _period = "all"
+        for p, words in _period_words.items():
+            if any(w in _low for w in words):
+                _period = p
+                break
+        if _period == "today":
+            tasks = get_tasks_by_date(user_id, datetime.now(IST).strftime("%Y-%m-%d"))
+            label = f"Today ({datetime.now(IST).strftime('%Y-%m-%d')})"
+        elif _period == "tomorrow":
+            tmrw = (datetime.now(IST) + timedelta(days=1)).strftime("%Y-%m-%d")
+            tasks = get_tasks_by_date(user_id, tmrw)
+            label = f"Tomorrow ({tmrw})"
+        elif _period == "week":
+            n = datetime.now(IST)
+            tasks = get_tasks_by_week(user_id, n.strftime("%Y-%m-%d"),
+                                      (n + timedelta(days=7)).strftime("%Y-%m-%d"))
+            label = "This Week"
+        elif _period == "month":
+            n = datetime.now(IST)
+            tasks = get_tasks_by_week(user_id, n.strftime("%Y-%m-%d"),
+                                      (n + timedelta(days=30)).strftime("%Y-%m-%d"))
+            label = "This Month"
+        elif _period == "year":
+            n = datetime.now(IST)
+            tasks = get_tasks_by_week(user_id, n.strftime("%Y-%m-%d"),
+                                      f"{n.year}-12-31")
+            label = "This Year"
+        else:
+            tasks = get_tasks(user_id)
+            label = "All Pending"
+        await update.message.reply_text(
+            format_tasks(tasks, label), parse_mode="Markdown", reply_markup=main_menu()
+        )
+        return
+
     # ── Idle — JARVIS ──
     now = datetime.now(IST)
-    parsed = parse_all(user_input, now.replace(tzinfo=None))
+    parsed = parse_all(user_input, now)
     memories = get_all_memories(user_id)
     existing_tasks = get_tasks(user_id)
 
@@ -572,13 +634,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response_text = result.get("response", "")
     confirm_summary = result.get("confirm_summary")
 
-    # Merge local parser results (more reliable than AI for dates)
-    if parsed["date"] and not entities.get("date"):
-        entities["date"] = parsed["date"]
-    if parsed["time"] and not entities.get("time"):
-        entities["time"] = parsed["time"]
-    if parsed["recurrence"] and not entities.get("recurrence"):
-        entities["recurrence"] = parsed["recurrence"]["type"]
+    # Merge local parser results — ONLY for task-like intents.
+    # Bug 13: don't let a stray "today" in casual chat turn CHAT into a task.
+    if intent in ["TASK", "EDIT", "MULTIPLE"]:
+        if parsed["date"] and not entities.get("date"):
+            entities["date"] = parsed["date"]
+        if parsed["time"] and not entities.get("time"):
+            entities["time"] = parsed["time"]
+        if parsed["recurrence"] and not entities.get("recurrence"):
+            entities["recurrence"] = parsed["recurrence"]["type"]
 
     logger.info(f"Intent:{intent} | Entities:{entities} | Missing:{missing}")
     add_history(user_id, "assistant", response_text)
@@ -595,9 +659,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     # ── Handle parse errors first ──
-    if parsed["errors"] and intent in ["TASK", "MULTIPLE"]:
+    if parsed["errors"] and intent in ["TASK", "EDIT", "MULTIPLE"]:
+        # past date or invalid time — only warn when actually making a task
         await update.message.reply_text(
-            f"{'  '.join(parsed['errors'])}\n\nPlease correct the date/time and try again.",
+            "  ".join(parsed["errors"]) + "\n\nPlease give me a valid future date/time.",
             reply_markup=main_menu()
         )
         return
@@ -642,10 +707,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(response_text or "What task would you like to add?",
                 reply_markup=ReplyKeyboardRemove())
             return
-        # Merge parsed date into all tasks
+        # Merge parsed date into all tasks; parse per-task time from title text
+        from date_parser import parse_time as _pt
         for t in tasks_list:
             if not t.get("date") and parsed["date"]:
                 t["date"] = parsed["date"]
+            if not t.get("time"):
+                # try to pull a time out of this task's own title
+                tt, _, _ = _pt(t.get("title", ""), now)
+                if tt:
+                    t["time"] = tt
 
         summary = "*Multiple tasks detected:*\n\n"
         for i, t in enumerate(tasks_list, 1):
@@ -657,6 +728,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(summary, parse_mode="Markdown", reply_markup=yes_no_menu())
 
     elif intent == "TASK":
+        # Bug 7: recurring tasks don't need a specific date
+        if entities.get("recurrence") and "date" in (missing or []):
+            missing = [m for m in missing if m != "date"]
+
+        # Bug 12: a title that is just the reminder phrasing is NOT a real title
+        _title = (entities.get("title") or "").strip().lower()
+        _bad_titles = ["remind me", "remind", "yaad dila dena", "yaad dila",
+                       "reminder", "set reminder", "task", "schedule task",
+                       "remind me in", "remind me to"]
+        title_is_real = bool(_title) and _title not in _bad_titles and len(_title) > 2
+        if not title_is_real:
+            entities["title"] = None
+            if "title" not in (missing or []):
+                missing = (missing or []) + ["title"]
+
         if parsed.get("time_ambiguous") and entities.get("title"):
             raw_h = parsed["time"].split(":")[0] if parsed.get("time") else "?"
             set_pending_action(user_id, "create_task", {

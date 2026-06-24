@@ -6,6 +6,13 @@ instead of silently defaulting to AM.
 """
 import re
 from datetime import datetime, timedelta
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
+
+def _now():
+    """Always return IST-aware current time (system clock is UTC)."""
+    return datetime.now(IST)
 
 WEEKDAY_MAP = {
     "monday": 0, "mon": 0, "somvar": 0,
@@ -36,7 +43,7 @@ MONTH_MAP = {
 def parse_date(text: str, now: datetime = None) -> tuple:
     """Returns (date_str YYYY-MM-DD or None, error_msg or None)"""
     if now is None:
-        now = datetime.now()
+        now = _now()
     t = text.lower().strip()
 
     if re.search(r'\b(today|aaj|aj|tonight|abhi|is raat|is shaam|aaj raat)\b', t):
@@ -107,7 +114,7 @@ def parse_time(text: str, now: datetime = None) -> tuple:
     ambiguous=True means "X baje" with no AM/PM context — caller should ask.
     """
     if now is None:
-        now = datetime.now()
+        now = _now()
     t = text.lower().strip()
 
     # Relative time
@@ -155,6 +162,17 @@ def parse_time(text: str, now: datetime = None) -> tuple:
         mn = int(m.group(2)) if m.group(2) else 0
         if h < 12: h += 12
         return f"{h:02d}:{mn:02d}", None, False
+
+    # Military time '1400' -> 14:00, ONLY with a time context word
+    # (at/by/around before, or hrs/hours after) so years like 2026 don't match.
+    m = re.search(r'\b(?:at|by|around)\s+(\d{4})\b', t)
+    if not m:
+        m = re.search(r'\b(\d{4})\s*(?:hrs|hours|hr)\b', t)
+    if m:
+        digits = m.group(1)
+        h, mn = int(digits[:2]), int(digits[2:])
+        if h <= 23 and mn <= 59:
+            return f"{h:02d}:{mn:02d}", None, False
 
     # HH:MM — always unambiguous
     m = re.search(r'\b(\d{1,2}):(\d{2})\b', t)
@@ -214,7 +232,7 @@ def might_have_multiple_tasks(text: str) -> bool:
 
 def validate_datetime(date_str, time_str, now: datetime = None) -> list:
     if now is None:
-        now = datetime.now()
+        now = _now()
     errors = []
     if date_str:
         try:
@@ -236,7 +254,7 @@ def validate_datetime(date_str, time_str, now: datetime = None) -> list:
 
 def parse_all(text: str, now: datetime = None) -> dict:
     if now is None:
-        now = datetime.now()
+        now = _now()
     date_str, date_err = parse_date(text, now)
     time_str, time_err, time_ambiguous = parse_time(text, now)
     recurrence = detect_recurrence(text)
