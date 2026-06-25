@@ -63387,3 +63387,276 @@ telegram.error.NetworkError: httpx.ReadError:
 2026-06-25 18:52:00,476 - INFO - Added job "check_deadlines" to job store "default"
 2026-06-25 18:52:00,477 - INFO - Scheduler started
 2026-06-25 18:52:00,477 - INFO - Application started
+2026-06-25 18:52:19,282 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 18:52:19,283 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 18:52:19,286 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 18:52:19,286 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 18:52:19,286 - INFO - 🤖 JARVIS is online!
+2026-06-25 18:52:19,815 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getMe "HTTP/1.1 200 OK"
+2026-06-25 18:52:19,979 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/deleteWebhook "HTTP/1.1 200 OK"
+2026-06-25 18:52:19,981 - INFO - Added job "check_reminders" to job store "default"
+2026-06-25 18:52:19,981 - INFO - Added job "check_followups" to job store "default"
+2026-06-25 18:52:19,981 - INFO - Added job "daily_carry_forward" to job store "default"
+2026-06-25 18:52:19,981 - INFO - Added job "check_deadlines" to job store "default"
+2026-06-25 18:52:19,981 - INFO - Scheduler started
+2026-06-25 18:52:19,982 - INFO - Application started
+2026-06-25 18:52:29,292 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:53:29 UTC)" (scheduled at 2026-06-25 18:52:29.281225+00:00)
+2026-06-25 18:52:29,294 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:53:29 UTC)" executed successfully
+2026-06-25 18:52:30,450 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:52:40,612 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:52:50,769 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:00,927 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:09,222 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:09,227 - INFO - User 793991074 [idle]: Remind me in 1 min
+2026-06-25 18:53:11,867 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:53:11,885 - INFO - Intent:TASK | Entities:{'title': None, 'date': '2026-06-26', 'time': '01:00', 'category': None, 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:['title']
+2026-06-25 18:53:12,571 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:53:19,291 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-25 18:58:19 UTC)" (scheduled at 2026-06-25 18:53:19.283119+00:00)
+2026-06-25 18:53:19,296 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-25 18:58:19 UTC)" executed successfully
+2026-06-25 18:53:22,048 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:24,194 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:24,195 - INFO - User 793991074 [gathering]: Remind me to drink water in 1 min
+2026-06-25 18:53:26,735 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:53:27,416 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:53:28,594 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:28,596 - INFO - User 793991074 [confirming]: ✅ Yes, save it!
+2026-06-25 18:53:28,945 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:53:29,282 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:54:29 UTC)" (scheduled at 2026-06-25 18:53:29.281225+00:00)
+2026-06-25 18:53:29,285 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:54:29 UTC)" executed successfully
+2026-06-25 18:53:38,757 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:40,843 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:40,846 - INFO - User 793991074 [idle]: Delete 56
+2026-06-25 18:53:41,597 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:53:41,599 - INFO - Intent:DELETE | Entities:{} | Missing:[]
+2026-06-25 18:53:42,287 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:53:45,527 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:45,530 - INFO - User 793991074 [confirming]: ✅ Yes, save it!
+2026-06-25 18:53:45,877 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:53:46,442 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:53:46,445 - INFO - User 793991074 [idle]: ✅ Yes, save it!
+2026-06-25 18:53:47,595 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:53:47,597 - INFO - Intent:MEMORY_GET | Entities:{} | Missing:[]
+2026-06-25 18:53:47,953 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:53:57,770 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:54:03,259 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:54:03,260 - INFO - User 793991074 [idle]: Remind me to drink water in 1 min from current time
+2026-06-25 18:54:03,915 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:54:13,421 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:54:17,252 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:54:17,254 - INFO - User 793991074 [idle]: Remind me to drink water at 12:15 today
+2026-06-25 18:54:20,182 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:54:20,184 - INFO - Intent:TASK | Entities:{'title': 'Drink water', 'date': '2026-06-25', 'time': '12:15', 'category': 'Health', 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:[]
+2026-06-25 18:54:20,201 - INFO - Running job "check_deadlines (trigger: interval[1:00:00], next run at: 2026-06-25 19:54:19 UTC)" (scheduled at 2026-06-25 18:54:19.286127+00:00)
+2026-06-25 18:54:20,853 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:54:20,889 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:54:21,235 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:54:21,578 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:54:21,579 - INFO - Job "check_deadlines (trigger: interval[1:00:00], next run at: 2026-06-25 19:54:19 UTC)" executed successfully
+2026-06-25 18:54:23,519 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:54:23,521 - INFO - User 793991074 [confirming]: ✅ Yes, save it!
+2026-06-25 18:54:23,856 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:54:29,290 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:55:29 UTC)" (scheduled at 2026-06-25 18:54:29.281225+00:00)
+2026-06-25 18:54:29,293 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:55:29 UTC)" executed successfully
+2026-06-25 18:54:33,679 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:54:43,836 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:54:53,992 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:00,089 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:00,090 - INFO - User 793991074 [idle]: Remind me to drink water at 00:26 26-06-2026
+2026-06-25 18:55:03,696 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:55:03,698 - INFO - Intent:TASK | Entities:{'title': 'Drink water', 'date': '2026-06-26', 'time': '00:26', 'category': 'Health', 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:[]
+2026-06-25 18:55:04,389 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:55:05,805 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:05,807 - INFO - User 793991074 [confirming]: ✅ Yes, save it!
+2026-06-25 18:55:06,170 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:55:15,985 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:26,138 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:29,286 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:56:29 UTC)" (scheduled at 2026-06-25 18:55:29.281225+00:00)
+2026-06-25 18:55:29,289 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:56:29 UTC)" executed successfully
+2026-06-25 18:55:34,462 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:34,465 - INFO - User 793991074 [idle]: Remember I have test today at 2pm
+2026-06-25 18:55:35,782 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:55:35,783 - INFO - Intent:MEMORY_SAVE | Entities:{} | Missing:[]
+2026-06-25 18:55:36,241 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:55:36,923 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:55:46,409 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:46,814 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:46,817 - INFO - User 793991074 [idle]: Forget test
+2026-06-25 18:55:47,510 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:55:52,156 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:52,158 - INFO - User 793991074 [idle]: Memory
+2026-06-25 18:55:54,665 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:55:54,667 - INFO - Intent:MEMORY_GET | Entities:{} | Missing:[]
+2026-06-25 18:55:55,089 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:55:55,328 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:55:55,329 - INFO - User 793991074 [idle]: 🧠 Memory
+2026-06-25 18:55:55,675 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:56:05,243 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:56:05,655 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:56:05,658 - INFO - User 793991074 [idle]: Forget save
+2026-06-25 18:56:06,347 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:56:12,945 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:56:12,947 - INFO - User 793991074 [idle]: Forget doctor
+2026-06-25 18:56:13,617 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:56:19,519 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:56:19,522 - INFO - User 793991074 [idle]: Forget exam
+2026-06-25 18:56:20,239 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:56:29,291 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:57:29 UTC)" (scheduled at 2026-06-25 18:56:29.281225+00:00)
+2026-06-25 18:56:29,691 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:56:29,989 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:56:29,998 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:57:29 UTC)" executed successfully
+2026-06-25 18:56:39,851 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:56:49,437 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:56:49,439 - INFO - User 793991074 [idle]: Snooze 57 2
+2026-06-25 18:56:51,204 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:56:51,206 - INFO - Intent:EDIT | Entities:{'recurrence': 'daily', 'priority': 'medium'} | Missing:['title', 'date', 'time', 'category', 'priority', 'recurrence_day']
+2026-06-25 18:56:51,892 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:57:01,368 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:57:11,526 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:57:21,682 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:57:29,290 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:58:29 UTC)" (scheduled at 2026-06-25 18:57:29.281225+00:00)
+2026-06-25 18:57:29,291 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:58:29 UTC)" executed successfully
+2026-06-25 18:57:31,846 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:57:41,242 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:57:41,245 - INFO - User 793991074 [idle]: Remind me on 15 july evening and again in night that I have my dental appointment on 16 july
+2026-06-25 18:57:45,321 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:57:45,323 - INFO - Intent:TASK | Entities:{'title': 'Dental appointment', 'date': '2026-07-16', 'time': '18:00', 'category': 'Health', 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:[]
+2026-06-25 18:57:45,990 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:57:53,479 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:57:53,482 - INFO - User 793991074 [confirming]: ✅ Yes, save it!
+2026-06-25 18:57:54,171 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:58:03,650 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:58:05,707 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:58:05,710 - INFO - User 793991074 [idle]: Change date to 15 july
+2026-06-25 18:58:06,429 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:58:06,431 - INFO - Intent:EDIT | Entities:{'date': '2026-07-15', 'priority': 'medium'} | Missing:[]
+2026-06-25 18:58:07,130 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:58:10,904 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:58:10,906 - INFO - User 793991074 [idle]: ✏️ Edit
+2026-06-25 18:58:11,252 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:58:19,292 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-25 19:03:19 UTC)" (scheduled at 2026-06-25 18:58:19.283119+00:00)
+2026-06-25 18:58:19,297 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-25 19:03:19 UTC)" executed successfully
+2026-06-25 18:58:21,062 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:58:24,174 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:58:24,851 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:58:29,287 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:59:29 UTC)" (scheduled at 2026-06-25 18:58:29.281225+00:00)
+2026-06-25 18:58:29,289 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 18:59:29 UTC)" executed successfully
+2026-06-25 18:58:32,447 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:58:32,450 - INFO - User 793991074 [editing]: Change date to 15 july
+2026-06-25 18:58:34,908 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:58:35,606 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:58:45,082 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:58:55,251 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:05,409 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:07,495 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:07,497 - INFO - User 793991074 [idle]: Done 53
+2026-06-25 18:59:10,370 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:59:10,371 - INFO - Intent:EDIT | Entities:{'title': None, 'date': '2026-06-25', 'time': '23:21', 'category': None, 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:[]
+2026-06-25 18:59:11,069 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:59:12,355 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:12,357 - INFO - User 793991074 [idle]: Done 52
+2026-06-25 18:59:13,048 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:59:13,049 - INFO - Intent:DELETE | Entities:{} | Missing:[]
+2026-06-25 18:59:13,415 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:59:18,312 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:18,314 - INFO - User 793991074 [confirming]: Yes
+2026-06-25 18:59:18,686 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:59:28,479 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:29,283 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:00:29 UTC)" (scheduled at 2026-06-25 18:59:29.281225+00:00)
+2026-06-25 18:59:29,285 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:00:29 UTC)" executed successfully
+2026-06-25 18:59:32,119 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:32,121 - INFO - User 793991074 [idle]: Done 57
+2026-06-25 18:59:33,753 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 18:59:33,754 - INFO - Intent:TASK | Entities:{'title': 'Drink water', 'date': '2026-06-26', 'time': '00:26', 'category': 'Health', 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:[]
+2026-06-25 18:59:34,438 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:59:41,575 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 18:59:41,576 - INFO - User 793991074 [confirming]: ❌ No, cancel
+2026-06-25 18:59:42,236 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 18:59:51,730 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:00,233 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:00,234 - INFO - User 793991074 [idle]: Remind me to drink water at 00:31
+2026-06-25 19:00:03,336 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 19:00:03,337 - INFO - Intent:TASK | Entities:{'title': 'Drink water', 'date': '2026-06-26', 'time': '00:31', 'category': 'Health', 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:[]
+2026-06-25 19:00:04,004 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 19:00:06,606 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:06,608 - INFO - User 793991074 [confirming]: ✅ Yes, save it!
+2026-06-25 19:00:06,951 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 19:00:15,864 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:25,496 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:26,194 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 19:00:29,285 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:01:29 UTC)" (scheduled at 2026-06-25 19:00:29.281225+00:00)
+2026-06-25 19:00:29,289 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:01:29 UTC)" executed successfully
+2026-06-25 19:00:35,667 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:40,740 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:40,742 - INFO - User 793991074 [idle]: Remind me to drink water at 00:31
+2026-06-25 19:00:44,726 - INFO - HTTP Request: POST https://integrate.api.nvidia.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-06-25 19:00:44,727 - INFO - Intent:TASK | Entities:{'title': 'Drink water', 'date': '2026-06-26', 'time': '00:31', 'category': 'Health', 'priority': 'medium', 'recurrence': None, 'recurrence_day': None} | Missing:[]
+2026-06-25 19:00:45,425 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 19:00:46,713 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:00:46,715 - INFO - User 793991074 [confirming]: ✅ Yes, save it!
+2026-06-25 19:00:47,080 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 19:00:56,882 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:01:07,040 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:01:17,201 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:01:27,362 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:01:29,284 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:02:29 UTC)" (scheduled at 2026-06-25 19:01:29.281225+00:00)
+2026-06-25 19:01:29,970 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-25 19:01:29,979 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:02:29 UTC)" executed successfully
+2026-06-25 19:01:37,521 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:01:47,677 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:01:57,832 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:02:03,426 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:02:04,090 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/answerCallbackQuery "HTTP/1.1 200 OK"
+2026-06-25 19:02:04,450 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/editMessageText "HTTP/1.1 200 OK"
+2026-06-25 19:02:13,586 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:02:23,746 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:02:29,288 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:03:29 UTC)" (scheduled at 2026-06-25 19:02:29.281225+00:00)
+2026-06-25 19:02:29,289 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:03:29 UTC)" executed successfully
+2026-06-25 19:02:33,905 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:02:44,061 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:02:54,226 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:03:04,391 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:03:14,543 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:03:19,289 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-25 19:08:19 UTC)" (scheduled at 2026-06-25 19:03:19.283119+00:00)
+2026-06-25 19:03:19,290 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-25 19:08:19 UTC)" executed successfully
+2026-06-25 19:03:24,700 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:03:29,286 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:04:29 UTC)" (scheduled at 2026-06-25 19:03:29.281225+00:00)
+2026-06-25 19:03:29,287 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:04:29 UTC)" executed successfully
+2026-06-25 19:03:34,854 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:03:45,010 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:03:55,171 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:04:05,329 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:04:15,487 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:04:25,654 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:04:29,285 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:05:29 UTC)" (scheduled at 2026-06-25 19:04:29.281225+00:00)
+2026-06-25 19:04:29,286 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:05:29 UTC)" executed successfully
+2026-06-25 19:04:35,823 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:04:45,982 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:04:56,138 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:05:06,303 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:05:16,460 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:05:26,631 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:05:29,284 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:06:29 UTC)" (scheduled at 2026-06-25 19:05:29.281225+00:00)
+2026-06-25 19:05:29,285 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-25 19:06:29 UTC)" executed successfully
+2026-06-25 19:05:36,785 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:05:46,943 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:05:51,064 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:05:51,065 - INFO - Application is stopping. This might take a moment.
+2026-06-25 19:05:51,066 - INFO - Scheduler has been shut down
+2026-06-25 19:05:51,076 - INFO - Application.stop() complete
+2026-06-25 19:05:57,362 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 19:05:57,362 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 19:05:57,367 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 19:05:57,367 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-25 19:05:57,367 - INFO - 🤖 JARVIS is online!
+2026-06-25 19:05:57,873 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getMe "HTTP/1.1 200 OK"
+2026-06-25 19:05:58,039 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/deleteWebhook "HTTP/1.1 200 OK"
+2026-06-25 19:05:58,041 - INFO - Added job "check_reminders" to job store "default"
+2026-06-25 19:05:58,042 - INFO - Added job "check_followups" to job store "default"
+2026-06-25 19:05:58,042 - INFO - Added job "daily_carry_forward" to job store "default"
+2026-06-25 19:05:58,042 - INFO - Added job "check_deadlines" to job store "default"
+2026-06-25 19:05:58,042 - INFO - Scheduler started
+2026-06-25 19:05:58,043 - INFO - Application started
+2026-06-25 19:06:01,992 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-25 19:06:01,994 - INFO - Application is stopping. This might take a moment.
+2026-06-25 19:06:01,994 - INFO - Scheduler has been shut down
+2026-06-25 19:06:02,005 - INFO - Application.stop() complete

@@ -742,11 +742,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Merge local parser results — ONLY for task-like intents.
     # Bug 13: don't let a stray "today" in casual chat turn CHAT into a task.
     if intent in ["TASK", "EDIT", "MULTIPLE"]:
-        # Bug 14: if AI returned a relative phrase like "1 min" as time,
-        # always prefer the parser's resolved absolute time
+        # Bug 14 + 19b: if user said "in N min/hour" or "after N min/hour"
+        # parser's resolved time MUST win — AI often interprets "1" as 01:00.
+        _has_relative_time = bool(re.search(
+            r"\b(in|after)\s+\d+\s+(min|minute|mins|minutes|hour|hours|hr|hrs)\b",
+            user_input.lower()
+        ))
         ai_time = entities.get("time", "")
-        if ai_time and not re.match(r"^\d{2}:\d{2}$", ai_time):
-            entities["time"] = None  # invalid format — let parser win
+        if _has_relative_time and parsed.get("time"):
+            entities["time"] = parsed["time"]
+        elif ai_time and not re.match(r"^\d{2}:\d{2}$", ai_time):
+            entities["time"] = None
         if parsed["date"] and not entities.get("date"):
             entities["date"] = parsed["date"]
         if parsed["time"] and not entities.get("time"):
@@ -1570,6 +1576,40 @@ async def snooze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("Usage: /snooze <task_id> <minutes>")
 
+
+# ── v3.3: Reminder diagnostic command ─────────────────
+async def checktasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Diagnose why reminders may not be firing."""
+    user_id = update.message.from_user.id
+    import sqlite3
+    conn = sqlite3.connect("planner.db")
+    c = conn.cursor()
+    c.execute("""SELECT id, title, due_date, due_time, done, paused,
+                 snooze_until, last_reminded, reminder_count
+                 FROM tasks WHERE user_id=? AND done=0
+                 ORDER BY due_date, due_time""", (user_id,))
+    tasks = c.fetchall()
+    conn.close()
+    if not tasks:
+        await update.message.reply_text("No active tasks.", reply_markup=main_menu())
+        return
+    now = datetime.now(IST)
+    current_dt = now.strftime("%Y-%m-%d %H:%M")
+    msg = f"\U0001f50d *Task Diagnostics* (now: {current_dt})\n\n"
+    for t in tasks:
+        tid, title, dd, dt_, done, paused, snz, last_r, rcnt = t
+        msg += f"*[{tid}]* {title}\n"
+        msg += f"  \U0001f4c5 {dd or 'no date'} \u23f0 {dt_ or 'no time'}\n"
+        if paused:
+            msg += f"  \u23f8 PAUSED — no reminders\n"
+        if snz:
+            status = "\u23f0 active" if snz > current_dt else "\u26a0\ufe0f EXPIRED (should fire!)"
+            msg += f"  \U0001f4a4 Snooze until: {snz} [{status}]\n"
+        if last_r:
+            msg += f"  \U0001f4ec Last reminded: {last_r}\n"
+        msg += f"  \U0001f504 Reminders sent: {rcnt or 0}\n\n"
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -1634,6 +1674,7 @@ def main():
     app.add_handler(CommandHandler("delreminder", delreminder_cmd))
     app.add_handler(CommandHandler("forget", forget_cmd))
     app.add_handler(CommandHandler("snooze", snooze_cmd))
+    app.add_handler(CommandHandler("checktasks", checktasks_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
