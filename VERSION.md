@@ -1,6 +1,28 @@
 # JARVIS Bot — Version History
 
-## v1.1 — Snooze / Postpone / Pause + Persistent Reminder Buttons (current)
+## v1.2 — Overdue Task Handling + Deadline Warnings + Tags (current)
+Phase 1 completion — the bot now tracks time and warns you proactively.
+
+Added:
+- /overdue — list all overdue tasks with red indicators
+- /deadlines — show tasks due in the next 3 days with urgency labels
+- /carryforward — move all overdue tasks to today in one command
+- /tag <id> <tags> — add searchable tags to any task
+- /tagged <tag> — find all tasks with a specific tag
+- Overdue tasks marked with ⏰ OVERDUE in all task lists
+- Automatic deadline warnings every hour (tasks due today get flagged)
+- Automatic overdue notifications (summarizes what you missed)
+- Tasks lists now show urgency: 🔴 TODAY, 🟡 1d left, 🟢 2d+ left
+- Tags stored in database, searchable by keyword
+
+New DB column: tags
+New functions: get_overdue_tasks, get_upcoming_deadlines, set_tags,
+  get_tasks_by_tag, carry_forward_overdue
+Modified: main.py, database.py, scheduler.py
+
+---
+
+## v1.1 — Snooze / Postpone / Pause + Persistent Reminder Buttons
 Phase 1 of the roadmap — making reminders actionable instead of ignorable.
 
 Added:

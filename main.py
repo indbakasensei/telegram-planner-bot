@@ -14,7 +14,9 @@ from database import (
     save_memory, get_memory, get_all_memories, search_memories,
     add_goal, get_goals,
     snooze_task, postpone_task, pause_task, resume_task,
-    mark_reminded, get_paused_tasks
+    mark_reminded, get_paused_tasks,
+    get_overdue_tasks, get_upcoming_deadlines, set_tags,
+    get_tasks_by_tag, carry_forward_overdue
 )
 from jarvis_brain import (
     get_jarvis_response, check_api_status,
@@ -65,12 +67,15 @@ def format_tasks(tasks, label):
     if not tasks:
         return f"✅ No tasks for {label}!"
     msg = f"📋 *Tasks for {label}:*\n\n"
+    _today = datetime.now(IST).strftime("%Y-%m-%d")
     for t in tasks:
         priority = t[5] if len(t) > 5 else "medium"
         recurrence = t[6] if len(t) > 6 else None
-        emoji = "🔴" if priority == "high" else "🟢" if priority == "low" else "🟡"
+        is_overdue = t[2] and t[2] < _today
+        emoji = "⏰" if is_overdue else "🔴" if priority == "high" else "🟢" if priority == "low" else "🟡"
+        overdue_tag = " *(OVERDUE)*" if is_overdue else ""
         rec_icon = " 🔄" if recurrence else ""
-        msg += f"{emoji} *[{t[0]}]* {t[1]}{rec_icon}\n"
+        msg += f"{emoji} *[{t[0]}]* {t[1]}{rec_icon}{overdue_tag}\n"
         msg += f"      📅 {t[2] or 'No date'}  ⏰ {t[3] or 'No time'}  🏷 {t[4] if len(t) > 4 else 'General'}\n\n"
     return msg
 
@@ -575,7 +580,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Quick-match VIEW requests so LLM can't misclassify them as TASK ──
     _low = user_input.lower()
-    _view_words = ["show", "list", "dikhao", "batao", "what do i have",
+    _view_words = ["show", "list", "dikhao", "batao", "what do i have", "overdue", "deadline",
                    "what's pending", "my tasks", "mera task", "mere task",
                    "show plan", "show schedule", "kya hai aaj", "aaj kya hai",
                    "what is scheduled", "what are my tasks"]
@@ -1100,6 +1105,91 @@ async def paused_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
 
+
+# ── v1.2: Overdue / Deadline / Tag commands ───────────
+async def overdue_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    n = datetime.now(IST)
+    tasks = get_overdue_tasks(user_id, n.strftime("%Y-%m-%d"), n.strftime("%H:%M"))
+    if not tasks:
+        await update.message.reply_text("✅ No overdue tasks!", reply_markup=main_menu())
+        return
+    msg = "⚠️ *Overdue Tasks:*\n\n"
+    for t in tasks:
+        msg += f"🔴 *[{t[0]}]* {t[1]}\n"
+        msg += f"      📅 {t[2]} ⏰ {t[3] or 'No time'}\n\n"
+    msg += "Use /done <id> to complete or /carryforward to move all to today."
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+async def carryforward_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    count = carry_forward_overdue(user_id, today)
+    if count > 0:
+        await update.message.reply_text(
+            f"📅 Moved {count} overdue task(s) to today ({today}).",
+            reply_markup=main_menu()
+        )
+    else:
+        await update.message.reply_text("✅ No overdue tasks to carry forward!", reply_markup=main_menu())
+
+async def deadlines_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    tasks = get_upcoming_deadlines(user_id, today, days_ahead=3)
+    if not tasks:
+        await update.message.reply_text("✅ No upcoming deadlines in the next 3 days!", reply_markup=main_menu())
+        return
+    msg = "🔥 *Upcoming Deadlines (next 3 days):*\n\n"
+    for t in tasks:
+        days_left = (datetime.strptime(t[2], "%Y-%m-%d") - datetime.strptime(today, "%Y-%m-%d")).days
+        urgency = "🔴 TODAY" if days_left == 0 else f"🟡 {days_left}d left" if days_left == 1 else f"🟢 {days_left}d left"
+        msg += f"{urgency} *[{t[0]}]* {t[1]}\n"
+        msg += f"      📅 {t[2]} ⏰ {t[3] or 'No time'}\n\n"
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+async def tag_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "🏷 *Tags*\n\n"
+            "Add tags: /tag <task_id> <tag1> <tag2> ...\n"
+            "Example: /tag 5 exam urgent\n\n"
+            "View by tag: /tagged <tag>\n"
+            "Example: /tagged exam",
+            parse_mode="Markdown"
+        )
+        return
+    try:
+        tid = int(context.args[0])
+        tags = " ".join(context.args[1:]).lower()
+        task = get_task_by_id(tid, user_id)
+        if not task:
+            await update.message.reply_text(f"❌ Task [{tid}] not found.")
+            return
+        set_tags(tid, user_id, tags)
+        await update.message.reply_text(
+            f"🏷 Tags set for *{task[1]}*: `{tags}`",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /tag <task_id> <tags>")
+
+async def tagged_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text("Usage: /tagged <tag>\nExample: /tagged exam")
+        return
+    tag = context.args[0].lower()
+    tasks = get_tasks_by_tag(user_id, tag)
+    if not tasks:
+        await update.message.reply_text(f"No tasks tagged with \"{tag}\".", reply_markup=main_menu())
+        return
+    msg = f"🏷 *Tasks tagged \"{tag}\":*\n\n"
+    for t in tasks:
+        msg += f"*[{t[0]}]* {t[1]} — 📅 {t[2] or 'No date'} 🏷 `{t[6] or ''}`\n"
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -1152,6 +1242,11 @@ def main():
     app.add_handler(CommandHandler("pause", pause_cmd))
     app.add_handler(CommandHandler("resume", resume_cmd))
     app.add_handler(CommandHandler("paused", paused_cmd))
+    app.add_handler(CommandHandler("overdue", overdue_cmd))
+    app.add_handler(CommandHandler("carryforward", carryforward_cmd))
+    app.add_handler(CommandHandler("deadlines", deadlines_cmd))
+    app.add_handler(CommandHandler("tag", tag_cmd))
+    app.add_handler(CommandHandler("tagged", tagged_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
@@ -1184,6 +1279,49 @@ def main():
                 logger.error(f"Reminder failed: {e}")
 
     app.job_queue.run_repeating(check_reminders, interval=60, first=10)
+
+    async def check_deadlines(context):
+        """v1.2: Warn users about tasks due within 24 hours — runs every hour."""
+        try:
+            import sqlite3
+            conn = sqlite3.connect("planner.db")
+            c = conn.cursor()
+            c.execute("SELECT DISTINCT user_id FROM tasks WHERE done=0")
+            users = [r[0] for r in c.fetchall()]
+            conn.close()
+
+            n = datetime.now(IST)
+            today = n.strftime("%Y-%m-%d")
+            for uid in users:
+                # Overdue check
+                overdue = get_overdue_tasks(uid, today, n.strftime("%H:%M"))
+                if overdue:
+                    msg = f"\u26a0\ufe0f *You have {len(overdue)} overdue task(s):*\n\n"
+                    for t in overdue[:3]:
+                        msg += f"\U0001f534 *[{t[0]}]* {t[1]} (was due {t[2]})\n"
+                    if len(overdue) > 3:
+                        msg += f"...and {len(overdue)-3} more.\n"
+                    msg += "\nUse /overdue to see all or /carryforward to move to today."
+                    try:
+                        await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+                    except Exception:
+                        pass
+
+                # Deadline warning (tasks due today that haven't been reminded yet)
+                deadlines = get_upcoming_deadlines(uid, today, days_ahead=1)
+                upcoming = [t for t in deadlines if t[2] == today]
+                if upcoming:
+                    msg = f"\U0001f525 *Deadline today:*\n\n"
+                    for t in upcoming[:3]:
+                        msg += f"\U0001f534 *[{t[0]}]* {t[1]} \u23f0 {t[3] or 'No time'}\n"
+                    try:
+                        await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"Deadline check failed: {e}")
+
+    app.job_queue.run_repeating(check_deadlines, interval=3600, first=120)
     logger.info("🤖 JARVIS is online!")
     print("🤖 JARVIS is running! Check bot.log for logs.")
     app.run_polling(drop_pending_updates=True)

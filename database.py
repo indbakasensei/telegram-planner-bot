@@ -30,6 +30,7 @@ def init_db():
         ("paused", "INTEGER DEFAULT 0"),
         ("snooze_until", "TEXT DEFAULT NULL"),
         ("last_reminded", "TEXT DEFAULT NULL"),
+        ("tags", "TEXT DEFAULT NULL"),
     ]:
         try:
             c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
@@ -306,3 +307,64 @@ def get_paused_tasks(user_id):
     tasks = c.fetchall()
     conn.close()
     return tasks
+
+# ── v1.2: Overdue / Deadline / Tags ───────────────────
+def get_overdue_tasks(user_id, current_date, current_time):
+    """Tasks where due_date < today, or due_date = today and due_time < now."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT id, title, due_date, due_time, category, priority
+        FROM tasks WHERE user_id=? AND done=0 AND paused=0
+        AND due_date IS NOT NULL
+        AND (due_date < ? OR (due_date = ? AND due_time IS NOT NULL AND due_time < ?))
+        ORDER BY due_date ASC, due_time ASC""",
+        (user_id, current_date, current_date, current_time))
+    tasks = c.fetchall()
+    conn.close()
+    return tasks
+
+def get_upcoming_deadlines(user_id, current_date, days_ahead=2):
+    """Tasks due within the next N days (for deadline warnings)."""
+    from datetime import datetime, timedelta
+    end = (datetime.strptime(current_date, "%Y-%m-%d") + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT id, title, due_date, due_time, category, priority
+        FROM tasks WHERE user_id=? AND done=0 AND paused=0
+        AND due_date IS NOT NULL AND due_date BETWEEN ? AND ?
+        ORDER BY due_date ASC, due_time ASC""",
+        (user_id, current_date, end))
+    tasks = c.fetchall()
+    conn.close()
+    return tasks
+
+def set_tags(task_id, user_id, tags_str):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET tags=? WHERE id=? AND user_id=?",
+              (tags_str, task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def get_tasks_by_tag(user_id, tag):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT id, title, due_date, due_time, category, priority, tags FROM tasks WHERE user_id=? AND done=0 AND tags LIKE ?",
+              (user_id, f"%{tag}%"))
+    tasks = c.fetchall()
+    conn.close()
+    return tasks
+
+def carry_forward_overdue(user_id, current_date):
+    """Move all overdue tasks to today (carry forward)."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""UPDATE tasks SET due_date=?
+        WHERE user_id=? AND done=0 AND paused=0
+        AND due_date IS NOT NULL AND due_date < ?
+        AND (recurrence_type IS NULL OR recurrence_type='')""",
+        (current_date, user_id, current_date))
+    count = c.rowcount
+    conn.commit()
+    conn.close()
+    return count
