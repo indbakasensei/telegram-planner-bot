@@ -134,6 +134,29 @@ def parse_time(text: str, now: datetime = None) -> tuple:
     if m:
         return (now + timedelta(hours=int(m.group(1)))).strftime("%H:%M"), None, False
 
+    # ── v3.0: Vague time phrases ─────────────────────
+    _vague_fixed = [
+        ('midnight|aadhi raat', '00:00'),
+        ('breakfast|naashta', '08:00'),
+        ('morning', '08:00'),
+        ('noon|dupehr|baarah baje', '12:00'),
+        ('lunch|dopahar ka khana', '13:00'),
+        ('afternoon', '14:00'),
+        ('end of day|eod|shaam tak', '17:00'),
+        ('evening|shaam ko|shaam mein', '18:00'),
+        ('tonight', '21:00'),
+        ('night', '21:00'),
+    ]
+    for _pat, _fixed in _vague_fixed:
+        if re.search(_pat, t):
+            return _fixed, None, False
+    if re.search(r'asap|immediately|right now|abhi karo|jaldi se', t):
+        return (now + timedelta(minutes=30)).strftime('%H:%M'), None, False
+    if re.search(r'\bsoon\b|thodi der baad|thoda der', t):
+        return (now + timedelta(minutes=30)).strftime('%H:%M'), None, False
+    if re.search(r'\blater\b|baad mein|kuch der baad', t):
+        return (now + timedelta(hours=2)).strftime('%H:%M'), None, False
+
     # Hindi context words — unambiguous
     m = re.search(r'\braat\s+(\d{1,2})(?::(\d{2}))?\s*(?:baje|bajey)?\b', t)
     if m:
@@ -262,13 +285,23 @@ def parse_all(text: str, now: datetime = None) -> dict:
     errors = []
     if date_err: errors.append(date_err)
     if time_err:  errors.append(time_err)
+    # v3.0: detect urgency and priority from language
+    t_lower = text.lower()
+    if re.search(r'\burgent\b|\basap\b|\bjaldi\b|\bimmediately\b|\bright now\b|\bcritical\b|\bimportant\b|\bzaruri\b', t_lower):
+        priority = "high"
+    elif re.search(r'\bwhenever\b|\bno rush\b|\bkoi jaldi nahi\b|\bkab bhi\b|\bsomeday\b', t_lower):
+        priority = "low"
+    else:
+        priority = "medium"
+
     return {
         "date": date_str,
         "time": time_str,
-        "time_ambiguous": time_ambiguous,   # ← new field
+        "time_ambiguous": time_ambiguous,
         "recurrence": recurrence,
         "multiple_tasks": multiple,
         "errors": errors,
         "is_past": bool(date_err and "past" in date_err),
         "is_invalid_time": time_str is None and time_err is not None,
+        "priority": priority,
     }

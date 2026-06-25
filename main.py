@@ -597,7 +597,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not partial.get("title"):
             set_gathering(user_id, partial, ["title"])
-            await update.message.reply_text("What should I call this task?", reply_markup=ReplyKeyboardRemove())
+            # v3.0: smarter combined question
+            if partial.get("date") and partial.get("time"):
+                _ask = f"Got it! What task should I schedule for {partial['date']} at {partial['time']}?"
+            elif partial.get("date"):
+                _ask = f"What task should I set for {partial['date']}?"
+            elif partial.get("time"):
+                _ask = f"What should I remind you about at {partial['time']}?"
+            else:
+                _ask = "What task would you like to add? Tell me what and when!"
+            await update.message.reply_text(_ask, reply_markup=ReplyKeyboardRemove())
         else:
             set_pending_action(user_id, "create_task", {
                 "action": "create",
@@ -699,6 +708,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             entities["time"] = parsed["time"]
         if parsed["recurrence"] and not entities.get("recurrence"):
             entities["recurrence"] = parsed["recurrence"]["type"]
+        # v3.0: use urgency-detected priority if AI didn't set one
+        if parsed.get("priority") and not entities.get("priority"):
+            entities["priority"] = parsed["priority"]
 
     logger.info(f"Intent:{intent} | Entities:{entities} | Missing:{missing}")
     add_history(user_id, "assistant", response_text)
@@ -947,6 +959,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📅 Deadline: {deadline or 'No deadline'}\n\n"
             f"Want me to break this into tasks? Just ask!",
             parse_mode="Markdown", reply_markup=main_menu()
+        )
+
+    elif intent == "HABIT":
+        # v3.0: offer to set up recurring task for habit requests
+        title = entities.get("title") or user_input
+        recurrence = entities.get("recurrence") or "daily"
+        time_val = entities.get("time") or parsed.get("time")
+        set_pending_action(user_id, "create_task", {
+            "action": "create",
+            "title": title,
+            "date": None,
+            "time": time_val,
+            "category": entities.get("category", "Health"),
+            "priority": entities.get("priority", "medium"),
+            "recurrence": recurrence,
+        })
+        await update.message.reply_text(
+            f"💪 *Setting up a habit!*\n\n"
+            f"🔁 *{title}*\n"
+            f"🔄 Repeats: {recurrence}\n"
+            f"⏰ Time: {time_val or 'No time set'}\n\n"
+            f"Shall I save this?",
+            parse_mode="Markdown", reply_markup=yes_no_menu()
         )
 
     else:
