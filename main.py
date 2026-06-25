@@ -11,7 +11,7 @@ from database import (
     init_db, add_task, get_tasks, get_tasks_by_date, get_tasks_by_week,
     mark_done, delete_task, update_task, get_task_by_id,
     search_tasks_by_title, task_exists,
-    save_memory, get_memory, get_all_memories, search_memories,
+    save_memory, get_memory, get_all_memories, search_memories, delete_memory,
     add_goal, get_goals,
     snooze_task, postpone_task, pause_task, resume_task,
     mark_reminded, get_paused_tasks,
@@ -636,6 +636,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+
+    # ── v3.1 Bug 17: natural-language commands without slash ─────────
+    _low_full = user_input.lower().strip()
+    _command_phrases = {
+        ("show bugs", "list bugs", "view bugs", "what bugs"): bugs_cmd,
+        ("show settings", "my settings", "view settings"): settings_cmd,
+        ("show overdue", "my overdue", "what is overdue"): overdue_cmd,
+        ("show deadlines", "my deadlines", "what deadlines"): deadlines_cmd,
+        ("show memory", "show memories", "my memories", "what do you remember"): memory_cmd,
+        ("show paused", "paused tasks"): paused_cmd,
+        ("api status", "check status", "is api working", "is the bot online"): status_cmd,
+        ("self test", "run tests", "run self test"): selftest_cmd,
+        ("show help", "what can you do", "help me", "guide me"): help_command,
+        ("turn on debug", "enable debug", "debug mode on"): debug_cmd,
+        ("turn off debug", "disable debug", "debug mode off"): debug_cmd,
+        ("trace this", "what did you understand", "what was my last message"): trace_cmd,
+        ("carry forward", "move overdue to today"): carryforward_cmd,
+    }
+    for phrases, _handler in _command_phrases.items():
+        if any(p in _low_full for p in phrases):
+            context.args = []
+            await _handler(update, context)
+            return
+
     # ── Quick-match VIEW requests so LLM can't misclassify them as TASK ──
     _low = user_input.lower()
     _view_words = ["show", "list", "dikhao", "batao", "what do i have", "overdue", "deadline",
@@ -702,6 +726,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Merge local parser results — ONLY for task-like intents.
     # Bug 13: don't let a stray "today" in casual chat turn CHAT into a task.
     if intent in ["TASK", "EDIT", "MULTIPLE"]:
+        # Bug 14: if AI returned a relative phrase like "1 min" as time,
+        # always prefer the parser's resolved absolute time
+        ai_time = entities.get("time", "")
+        if ai_time and not re.match(r"^\d{2}:\d{2}$", ai_time):
+            entities["time"] = None  # invalid format — let parser win
         if parsed["date"] and not entities.get("date"):
             entities["date"] = parsed["date"]
         if parsed["time"] and not entities.get("time"):
@@ -1425,6 +1454,81 @@ async def delreminder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("Usage: /delreminder <task_id>")
 
+
+# ── v3.1: Forget memory command ───────────────────────
+async def forget_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        mems = get_all_memories(user_id)
+        if not mems:
+            await update.message.reply_text("Nothing to forget — your memory is empty.",
+                reply_markup=main_menu())
+            return
+        msg = "\U0001f9e0 *Which memory should I forget?*\nReply: /forget <key>\n\n"
+        for k, v in mems:
+            msg += f"\u2022 *{k}*: {v[:50]}\n"
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+        return
+    key = " ".join(context.args).lower().strip()
+    value = get_memory(user_id, key)
+    if value is None:
+        # Try fuzzy match — find any key containing this word
+        mems = get_all_memories(user_id)
+        matches = [(k, v) for k, v in mems if key in k.lower() or key in v.lower()]
+        if not matches:
+            await update.message.reply_text(f"\u274c No memory found matching '{key}'.",
+                reply_markup=main_menu())
+            return
+        if len(matches) > 1:
+            msg = f"\U0001f9e0 Multiple matches for '{key}':\n\n"
+            for k, v in matches:
+                msg += f"\u2022 *{k}*\n"
+            msg += "\nBe more specific: /forget <exact key>"
+            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+            return
+        key = matches[0][0]
+    delete_memory(user_id, key)
+    await update.message.reply_text(
+        f"\U0001f5d1 Forgot: *{key}*",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+
+# ── v3.1: Custom snooze command ───────────────────────
+async def snooze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "\u23f0 *Custom snooze*\n\n"
+            "Usage: /snooze <task_id> <minutes>\n"
+            "Example: /snooze 5 45 \u2014 snooze task #5 for 45 minutes\n\n"
+            "Or tap the snooze buttons on any reminder for 10m / 1h.",
+            parse_mode="Markdown"
+        )
+        return
+    try:
+        tid = int(context.args[0])
+        minutes = int(context.args[1])
+        if minutes < 1 or minutes > 1440:
+            await update.message.reply_text("Snooze duration must be 1-1440 minutes (24 hours max).")
+            return
+        task = get_task_by_id(tid, user_id)
+        if not task:
+            await update.message.reply_text(f"\u274c Task [{tid}] not found.")
+            return
+        from datetime import timedelta as _td
+        snooze_until = (datetime.now(IST) + _td(minutes=minutes)).strftime("%Y-%m-%d %H:%M")
+        snooze_task(tid, user_id, snooze_until)
+        h = minutes // 60
+        m = minutes % 60
+        label = f"{h}h {m}m" if h else f"{m}m"
+        await update.message.reply_text(
+            f"\u23f0 Snoozed *{task[1]}* for {label}.\nI'll remind you at {snooze_until.split()[1]}.",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /snooze <task_id> <minutes>")
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -1487,6 +1591,8 @@ def main():
     app.add_handler(CommandHandler("interval", interval_cmd))
     app.add_handler(CommandHandler("stopreminder", stopreminder_cmd))
     app.add_handler(CommandHandler("delreminder", delreminder_cmd))
+    app.add_handler(CommandHandler("forget", forget_cmd))
+    app.add_handler(CommandHandler("snooze", snooze_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)

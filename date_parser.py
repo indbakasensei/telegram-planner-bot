@@ -150,6 +150,7 @@ def parse_time(text: str, now: datetime = None) -> tuple:
     for _pat, _fixed in _vague_fixed:
         if re.search(_pat, t):
             return _fixed, None, False
+            # Note: date inference for vague times happens in parse_all() below
     if re.search(r'asap|immediately|right now|abhi karo|jaldi se', t):
         return (now + timedelta(minutes=30)).strftime('%H:%M'), None, False
     if re.search(r'\bsoon\b|thodi der baad|thoda der', t):
@@ -285,6 +286,22 @@ def parse_all(text: str, now: datetime = None) -> dict:
     errors = []
     if date_err: errors.append(date_err)
     if time_err:  errors.append(time_err)
+    # ── v3.1 Bug 18 fix: infer date when vague time was used but no date given ──
+    # If parser returned a clock time but no date, and the clock time has already
+    # passed today, schedule it for tomorrow. Otherwise today.
+    if time_str and not date_str:
+        try:
+            current_hm = now.strftime("%H:%M")
+            target_hm = time_str
+            if target_hm < current_hm:
+                # Time already passed today — use tomorrow
+                date_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                # Still ahead today
+                date_str = now.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
     # v3.0: detect urgency and priority from language
     t_lower = text.lower()
     if re.search(r'\burgent\b|\basap\b|\bjaldi\b|\bimmediately\b|\bright now\b|\bcritical\b|\bimportant\b|\bzaruri\b', t_lower):
