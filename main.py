@@ -16,7 +16,9 @@ from database import (
     snooze_task, postpone_task, pause_task, resume_task,
     mark_reminded, get_paused_tasks,
     get_overdue_tasks, get_upcoming_deadlines, set_tags,
-    get_tasks_by_tag, carry_forward_overdue
+    get_tasks_by_tag, carry_forward_overdue,
+    get_user_prefs, set_quiet_hours, set_reminder_interval,
+    increment_reminder_count, mark_reminded, get_all_user_ids
 )
 from jarvis_brain import (
     get_jarvis_response, check_api_status,
@@ -31,7 +33,7 @@ from conversation_state import (
     set_editing, get_editing_id
 )
 from date_parser import parse_all, validate_datetime
-from scheduler import get_due_tasks
+from scheduler import get_due_tasks, get_tasks_needing_followup, auto_carry_forward, is_quiet_hours
 import debug_system as dbg
 from datetime import datetime, timedelta
 import pytz
@@ -51,11 +53,11 @@ IST = pytz.timezone("Asia/Kolkata")
 # ── Menus ─────────────────────────────────────────────
 def main_menu():
     keyboard = [
-        ['📌 Add Task', '📋 List Tasks'],
-        ['📅 Today', '🗓 This Week'],
-        ['✅ Done', '🗑 Delete'],
-        ['✏️ Edit', '📊 Analyze'],
-        ['🧠 Memory', '🔍 Status'],
+        ['📌 Add Task', '📋 My Tasks'],
+        ['📅 Today', '🗓 This Week', '📆 Overdue'],
+        ['✅ Done', '🗑 Delete', '✏️ Edit'],
+        ['🧠 Memory', '📊 Analyze'],
+        ['⚙️ Settings', '❓ Help'],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -116,37 +118,80 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_state(user_id)
     name = update.message.from_user.first_name or "there"
     await update.message.reply_text(
-        f"👋 Hey {name}! I'm *JARVIS*, your personal AI assistant.\n\n"
-        f"Talk to me naturally — English, Hindi, or Hinglish!\n\n"
-        f"_Examples:_\n"
+        f"👋 Hey {name}! I'm *JARVIS* — your AI personal assistant.\n\n"
+        f"I help you manage tasks, reminders, and goals through natural conversation.\n\n"
+        f"🗣 *Just type naturally:*\n"
+        f"• _'Remind me to call mom tomorrow at 5pm'_\n"
         f"• _'Kal 8 baje gym yaad dila dena'_\n"
-        f"• _'Physics assignment next Friday tak complete karni hai'_\n"
         f"• _'What do I have today?'_\n"
-        f"• _'Remember that my exam is on June 20'_\n\n"
-        f"Use the menu or just type!",
+        f"• _'Remember my exam is on June 20'_\n\n"
+        f"🔔 I'll keep reminding you until tasks are done!\n"
+        f"🌙 Quiet hours: no pings while you sleep\n"
+        f"📊 Track your productivity over time\n\n"
+        f"Type /help to see all features, or just start talking!",
         parse_mode="Markdown", reply_markup=main_menu()
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 *JARVIS — Help*\n\n"
-        "*Just type naturally!*\n"
-        "Hindi, Hinglish, English — all work!\n\n"
-        "*Commands:*\n"
-        "/list — All tasks\n"
-        "/today — Today's tasks\n"
-        "/week — This week\n"
-        "/done <id> — Mark complete\n"
-        "/delete <id> — Delete\n"
-        "/edit <id> — Edit task\n"
-        "/memory — View stored memories\n"
-        "/analyze — Productivity analysis\n"
-        "/suggest <goal> — Task suggestions\n"
-        "/status — API health\n"
-        "/cancel — Cancel current action",
-        parse_mode="Markdown", reply_markup=main_menu()
+    help1 = (
+        "\U0001f916 *JARVIS — Complete Guide*\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\U0001f4ac *TALK NATURALLY*\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "Just type in English, Hindi, or Hinglish!\n"
+        "_'Remind me to study at 5pm'_\n"
+        "_'Kal gym yaad dila dena'_\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\U0001f4cc *TASK MANAGEMENT*\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "/list \u2014 All pending tasks\n"
+        "/today \u2014 Today's schedule\n"
+        "/week \u2014 This week's plan\n"
+        "/done <id> \u2014 Mark complete\n"
+        "/edit <id> \u2014 Modify a task\n"
+        "/delete <id> \u2014 Remove a task\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\U0001f514 *REMINDERS*\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "Auto-reminders with buttons:\n"
+        "  \u2705 Done  \u23f0 Snooze  \U0001f4c5 Tomorrow\n"
+        "/pause <id> \u2014 Stop reminders\n"
+        "/resume <id> \u2014 Restart reminders\n"
+        "/paused \u2014 View paused tasks\n"
     )
-
+    help2 = (
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\U0001f4c5 *TRACKING*\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "/overdue \u2014 Overdue tasks\n"
+        "/deadlines \u2014 Due in 3 days\n"
+        "/carryforward \u2014 Move overdue to today\n"
+        "/tag <id> <tags> \u2014 Add tags\n"
+        "/tagged <tag> \u2014 Search by tag\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\U0001f9e0 *AI FEATURES*\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "/memory \u2014 Stored memories\n"
+        "/analyze \u2014 Productivity report\n"
+        "/suggest <goal> \u2014 Task ideas\n"
+        "Just chat with me anytime!\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2699\ufe0f *SETTINGS*\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "/settings \u2014 View all settings\n"
+        "/quiethours \u2014 Set sleep hours\n"
+        "/interval <min> \u2014 Reminder freq\n"
+        "/status \u2014 API health check\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\U0001f41e *DEBUG*\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "/debug \u2014 Toggle debug mode\n"
+        "/report <issue> \u2014 Report a bug\n"
+        "/bugs \u2014 View reported bugs\n"
+        "/selftest \u2014 Test checklist"
+    )
+    await update.message.reply_text(help1, parse_mode="Markdown")
+    await update.message.reply_text(help2, parse_mode="Markdown", reply_markup=main_menu())
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_state(update.message.from_user.id)
     await update.message.reply_text("❌ Cancelled.", reply_markup=main_menu())
@@ -408,15 +453,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Menu buttons ──
     menu_map = {
         '📌 Add Task': lambda: ask_for_task(update, user_id),
+        '📋 My Tasks': lambda: list_tasks(update, context),
         '📋 List Tasks': lambda: list_tasks(update, context),
         '📅 Today': lambda: today_tasks(update, context),
         '🗓 This Week': lambda: week_tasks(update, context),
+        '📆 Overdue': lambda: overdue_cmd(update, context),
         '✅ Done': lambda: done_task(update, context),
         '🗑 Delete': lambda: delete_task_cmd(update, context),
         '✏️ Edit': lambda: edit_task_cmd(update, context),
         '📊 Analyze': lambda: analyze_cmd(update, context),
         '🧠 Memory': lambda: memory_cmd(update, context),
         '🔍 Status': lambda: status_cmd(update, context),
+        '⚙️ Settings': lambda: settings_cmd(update, context),
         '❓ Help': lambda: help_command(update, context),
     }
     if user_input in menu_map:
@@ -1190,6 +1238,76 @@ async def tagged_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"*[{t[0]}]* {t[1]} — 📅 {t[2] or 'No date'} 🏷 `{t[6] or ''}`\n"
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
+
+# ── v2.0: Passive PA Commands ─────────────────────────
+async def quiethours_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        prefs = get_user_prefs(user_id)
+        await update.message.reply_text(
+            f"🌙 *Quiet Hours*\n\n"
+            f"Currently: *{prefs['quiet_start']} — {prefs['quiet_end']}* IST\n"
+            f"No reminders during this time.\n\n"
+            f"Change: /quiethours <start> <end>\n"
+            f"Example: /quiethours 22:00 06:00\n"
+            f"Disable: /quiethours off",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+        return
+    if context.args[0].lower() == "off":
+        set_quiet_hours(user_id, "00:00", "00:00")
+        await update.message.reply_text("🔔 Quiet hours disabled. Reminders will come anytime.",
+            reply_markup=main_menu())
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /quiethours <start> <end>\nExample: /quiethours 23:00 07:00")
+        return
+    start, end = context.args[0], context.args[1]
+    set_quiet_hours(user_id, start, end)
+    await update.message.reply_text(
+        f"🌙 Quiet hours set: *{start} — {end}* IST\nNo reminders during this window.",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    prefs = get_user_prefs(user_id)
+    is_quiet = is_quiet_hours(user_id)
+    await update.message.reply_text(
+        f"⚙️ *Your Settings*\n\n"
+        f"🌙 Quiet hours: *{prefs['quiet_start']} — {prefs['quiet_end']}*"
+        f" {'(active now 🔕)' if is_quiet else '(inactive 🔔)'}\n"
+        f"🔁 Reminder interval: *{prefs['interval']} min*\n"
+        f"📊 Max reminders per task: *{prefs['max_reminders']}*\n\n"
+        f"*Change settings:*\n"
+        f"/quiethours <start> <end>\n"
+        f"/interval <minutes> — change reminder repeat interval",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+async def interval_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        prefs = get_user_prefs(user_id)
+        await update.message.reply_text(
+            f"🔁 Current reminder interval: *{prefs['interval']} min*\n"
+            f"Change: /interval <minutes>\nExample: /interval 15",
+            parse_mode="Markdown"
+        )
+        return
+    try:
+        mins = int(context.args[0])
+        if mins < 5:
+            await update.message.reply_text("Minimum interval is 5 minutes.")
+            return
+        set_reminder_interval(user_id, mins)
+        await update.message.reply_text(
+            f"🔁 Reminder interval set to *{mins} minutes*.",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /interval <number>")
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -1247,6 +1365,9 @@ def main():
     app.add_handler(CommandHandler("deadlines", deadlines_cmd))
     app.add_handler(CommandHandler("tag", tag_cmd))
     app.add_handler(CommandHandler("tagged", tagged_cmd))
+    app.add_handler(CommandHandler("quiethours", quiethours_cmd))
+    app.add_handler(CommandHandler("settings", settings_cmd))
+    app.add_handler(CommandHandler("interval", interval_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
@@ -1279,6 +1400,77 @@ def main():
                 logger.error(f"Reminder failed: {e}")
 
     app.job_queue.run_repeating(check_reminders, interval=60, first=10)
+
+    async def check_followups(context):
+        """v2.0: Re-remind overdue tasks at escalating intervals."""
+        try:
+            followups = get_tasks_needing_followup()
+            # Batch by user
+            by_user = {}
+            for task in followups:
+                tid, uid, title, ddate, dtime, rcount, last_rem = task
+                by_user.setdefault(uid, []).append(task)
+
+            for uid, tasks in by_user.items():
+                if len(tasks) == 1:
+                    # Single task — individual reminder
+                    t = tasks[0]
+                    tid, _, title, ddate, dtime, rcount, _ = t
+                    urgency = "🔴" if rcount >= 3 else "🟡" if rcount >= 1 else "🔵"
+                    buttons = InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("✅ Done", callback_data=f"done:{tid}"),
+                            InlineKeyboardButton("⏰ Snooze 10m", callback_data=f"snooze:{tid}:10"),
+                        ],
+                        [
+                            InlineKeyboardButton("🕐 Snooze 1h", callback_data=f"snooze:{tid}:60"),
+                            InlineKeyboardButton("📅 Tomorrow", callback_data=f"postpone:{tid}"),
+                        ],
+                    ])
+                    await context.bot.send_message(
+                        chat_id=uid,
+                        text=f"{urgency} *Follow-up #{rcount+1}*\n\n"
+                             f"📌 *{title}*\n"
+                             f"📅 {ddate or 'No date'} ⏰ {dtime or 'No time'}\n\n"
+                             f"_This task is still pending. Tap Done or Snooze._",
+                        parse_mode="Markdown",
+                        reply_markup=buttons
+                    )
+                    increment_reminder_count(tid)
+                    mark_reminded(tid, datetime.now(IST).strftime("%Y-%m-%d %H:%M"))
+                else:
+                    # Multiple overdue — batch into one message
+                    msg = f"📋 *You have {len(tasks)} pending tasks:*\n\n"
+                    for t in tasks[:5]:
+                        tid, _, title, ddate, dtime, rcount, _ = t
+                        urgency = "🔴" if rcount >= 3 else "🟡"
+                        msg += f"{urgency} *[{tid}]* {title} — 📅 {ddate or '?'} ⏰ {dtime or '?'}\n"
+                        increment_reminder_count(tid)
+                        mark_reminded(tid, datetime.now(IST).strftime("%Y-%m-%d %H:%M"))
+                    if len(tasks) > 5:
+                        msg += f"... and {len(tasks)-5} more.\n"
+                    msg += "\n_Use /done <id> to complete or /list to see all._"
+                    try:
+                        await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"Follow-up check failed: {e}")
+
+    app.job_queue.run_repeating(check_followups, interval=300, first=60)
+
+    async def daily_carry_forward(context):
+        """v2.0: Auto carry-forward overdue tasks once daily."""
+        try:
+            count = auto_carry_forward()
+            if count > 0:
+                logger.info(f"Auto carry-forward: moved {count} overdue tasks to today")
+        except Exception as e:
+            logger.error(f"Carry-forward failed: {e}")
+
+    app.job_queue.run_daily(daily_carry_forward,
+        time=datetime.strptime("00:05", "%H:%M").time(),
+        name="daily_carry_forward")
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""

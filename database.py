@@ -31,6 +31,7 @@ def init_db():
         ("snooze_until", "TEXT DEFAULT NULL"),
         ("last_reminded", "TEXT DEFAULT NULL"),
         ("tags", "TEXT DEFAULT NULL"),
+        ("reminder_count", "INTEGER DEFAULT 0"),
     ]:
         try:
             c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
@@ -368,3 +369,93 @@ def carry_forward_overdue(user_id, current_date):
     conn.commit()
     conn.close()
     return count
+
+# ── v2.0: User Preferences + Reminder Tracking ────────
+def _init_preferences(conn):
+    """Create preferences table if missing. Called by init_db."""
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS user_preferences (
+        user_id INTEGER PRIMARY KEY,
+        quiet_start TEXT DEFAULT '23:00',
+        quiet_end TEXT DEFAULT '07:00',
+        reminder_interval INTEGER DEFAULT 30,
+        max_reminders_per_task INTEGER DEFAULT 5,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    conn.commit()
+
+def get_user_prefs(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_preferences(conn)
+    c = conn.cursor()
+    c.execute("SELECT quiet_start, quiet_end, reminder_interval, max_reminders_per_task FROM user_preferences WHERE user_id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"quiet_start": row[0], "quiet_end": row[1], "interval": row[2], "max_reminders": row[3]}
+    return {"quiet_start": "23:00", "quiet_end": "07:00", "interval": 30, "max_reminders": 5}
+
+def set_quiet_hours(user_id, start, end):
+    conn = sqlite3.connect(DB_NAME)
+    _init_preferences(conn)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM user_preferences WHERE user_id=?", (user_id,))
+    if c.fetchone():
+        c.execute("UPDATE user_preferences SET quiet_start=?, quiet_end=? WHERE user_id=?", (start, end, user_id))
+    else:
+        c.execute("INSERT INTO user_preferences (user_id, quiet_start, quiet_end) VALUES (?,?,?)", (user_id, start, end))
+    conn.commit()
+    conn.close()
+
+def set_reminder_interval(user_id, minutes):
+    conn = sqlite3.connect(DB_NAME)
+    _init_preferences(conn)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM user_preferences WHERE user_id=?", (user_id,))
+    if c.fetchone():
+        c.execute("UPDATE user_preferences SET reminder_interval=? WHERE user_id=?", (minutes, user_id))
+    else:
+        c.execute("INSERT INTO user_preferences (user_id, reminder_interval) VALUES (?,?)", (user_id, minutes))
+    conn.commit()
+    conn.close()
+
+def increment_reminder_count(task_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET reminder_count = COALESCE(reminder_count, 0) + 1 WHERE id=?", (task_id,))
+    conn.commit()
+    conn.close()
+
+def get_reminder_count(task_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(reminder_count, 0) FROM tasks WHERE id=?", (task_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def get_tasks_needing_reminder(current_date, current_time, current_dt):
+    """Get all undone, unpaused tasks that are past due and haven't been reminded recently."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT t.id, t.user_id, t.title, t.due_date, t.due_time,
+                 COALESCE(t.reminder_count, 0) as rcount, t.last_reminded
+        FROM tasks t
+        WHERE t.done=0 AND t.paused=0
+        AND t.due_date IS NOT NULL
+        AND (t.due_date < ? OR (t.due_date = ? AND t.due_time IS NOT NULL AND t.due_time <= ?))
+        AND (t.snooze_until IS NULL OR t.snooze_until <= ?)
+        AND (t.recurrence_type IS NULL OR t.recurrence_type = '')
+        ORDER BY t.due_date ASC, t.due_time ASC""",
+        (current_date, current_date, current_time, current_dt))
+    tasks = c.fetchall()
+    conn.close()
+    return tasks
+
+def get_all_user_ids():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT user_id FROM tasks WHERE done=0")
+    ids = [r[0] for r in c.fetchall()]
+    conn.close()
+    return ids

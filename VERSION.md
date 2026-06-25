@@ -1,6 +1,29 @@
 # JARVIS Bot — Version History
 
-## v1.2 — Overdue Task Handling + Deadline Warnings + Tags (current)
+## v2.0 — Passive PA: Remind Until Done + Escalation + Quiet Hours (current)
+Phase 2 — the bot now OWNS tasks until they're completed. Not just one ping.
+
+Added:
+- Remind until done: overdue tasks get re-reminded every 30 min (configurable)
+- Escalation: reminder frequency increases near deadline (30m → 15m → 10m → 5m)
+- Batching: if you have 3+ overdue tasks, they're grouped into one message
+- Quiet hours: no reminders between 11PM-7AM (default). /quiethours to change
+- Auto carry-forward: at midnight, overdue tasks move to today automatically
+- Follow-up reminders show urgency: 🔵 first, 🟡 repeat, 🔴 urgent
+- /quiethours — view/change quiet hours. /quiethours off to disable
+- /settings — view all your preferences at a glance
+- /interval <minutes> — change how often overdue tasks are re-reminded
+- Max reminders cap (default 5 per task, then stops nagging)
+- reminder_count tracks how many times each task was reminded
+
+New DB: user_preferences table (quiet_start, quiet_end, interval, max_reminders)
+New column: tasks.reminder_count
+New scheduler jobs: check_followups (every 5 min), daily_carry_forward (midnight)
+Modified: main.py, database.py, scheduler.py
+
+---
+
+## v1.2 — Overdue Task Handling + Deadline Warnings + Tags
 Phase 1 completion — the bot now tracks time and warns you proactively.
 
 Added:
