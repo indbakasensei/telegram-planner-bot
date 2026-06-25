@@ -237,11 +237,17 @@ def search_memories(user_id, query):
     return memories
 
 def delete_memory(user_id, key):
+    # Bug 19: keys stored lowercased+stripped — match the same way
+    if not key:
+        return False
+    key_clean = key.lower().strip()
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('DELETE FROM memories WHERE user_id=? AND key=?', (user_id, key))
+    c.execute('DELETE FROM memories WHERE user_id=? AND key=?', (user_id, key_clean))
+    deleted = c.rowcount > 0
     conn.commit()
     conn.close()
+    return deleted
 
 # ── Goals ──────────────────────────────────────────────
 def add_goal(user_id, title, deadline=None):

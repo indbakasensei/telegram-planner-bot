@@ -639,6 +639,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── v3.1 Bug 17: natural-language commands without slash ─────────
     _low_full = user_input.lower().strip()
+    # v3.2: Routes to /forget — DELETE intent might confuse memories with tasks
+    _low_strip = user_input.lower().strip()
+    if (_low_strip.startswith("forget ")
+        or _low_strip.startswith("delete memory ")
+        or _low_strip.startswith("remove memory ")
+        or _low_strip.startswith("delete remembered ")
+        or _low_strip.startswith("remove remembered ")):
+        # Extract the key (everything after the trigger phrase)
+        for trigger in ["forget ", "delete memory ", "remove memory ",
+                        "delete remembered ", "remove remembered "]:
+            if _low_strip.startswith(trigger):
+                key_to_forget = user_input[len(trigger):].strip()
+                context.args = key_to_forget.split() if key_to_forget else []
+                await forget_cmd(update, context)
+                return
+
     _command_phrases = {
         ("show bugs", "list bugs", "view bugs", "what bugs"): bugs_cmd,
         ("show settings", "my settings", "view settings"): settings_cmd,
@@ -885,10 +901,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif intent == "DELETE":
         task_id = result.get("task_id")
         title = entities.get("title")
-        if task_id:
-            task = get_task_by_id(int(task_id), user_id)
+        # Bug 19: safe int conversion — LLM may return non-numeric task_id for memory keys etc.
+        try:
+            tid_int = int(task_id) if task_id is not None else None
+        except (ValueError, TypeError):
+            tid_int = None
+        if tid_int is not None:
+            task = get_task_by_id(tid_int, user_id)
             if task:
-                set_pending_action(user_id, "delete_task", {"action": "delete", "task_id": int(task_id)})
+                set_pending_action(user_id, "delete_task", {"action": "delete", "task_id": tid_int})
                 await update.message.reply_text(
                     f"🗑 Delete *{task[1]}*?\nConfirm?",
                     parse_mode="Markdown", reply_markup=yes_no_menu()
@@ -921,14 +942,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             matches = search_tasks_by_title(user_id, title)
             if matches:
                 task_id = str(matches[0][0])
-        if task_id:
-            update_task(int(task_id), user_id,
+        # Bug 19: safe int conversion for EDIT
+        try:
+            edit_tid = int(task_id) if task_id is not None else None
+        except (ValueError, TypeError):
+            edit_tid = None
+        if edit_tid is not None:
+            update_task(edit_tid, user_id,
                 due_date=entities.get("date"),
                 due_time=entities.get("time"),
                 category=entities.get("category"),
                 priority=entities.get("priority")
             )
-            task = get_task_by_id(int(task_id), user_id)
+            task = get_task_by_id(edit_tid, user_id)
             await update.message.reply_text(
                 f"✅ *Updated!*\n\n📌 *{task[1]}*\n"
                 f"📅 {task[2] or 'No date'}  ⏰ {task[3] or 'No time'}  🏷 {task[4]}",
@@ -1487,11 +1513,26 @@ async def forget_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
             return
         key = matches[0][0]
-    delete_memory(user_id, key)
-    await update.message.reply_text(
-        f"\U0001f5d1 Forgot: *{key}*",
-        parse_mode="Markdown", reply_markup=main_menu()
-    )
+    try:
+        delete_memory(user_id, key)
+        # Verify deletion
+        verify = get_memory(user_id, key)
+        if verify is not None:
+            await update.message.reply_text(
+                f"⚠️ Tried to forget *{key}* but it's still there.\n"
+                f"This might be a database issue — try /report to log it.",
+                parse_mode="Markdown", reply_markup=main_menu()
+            )
+            return
+        await update.message.reply_text(
+            f"\U0001f5d1 Forgot: *{key}*",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"⚠️ Couldn't forget *{key}*: {str(e)[:100]}",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
 
 
 # ── v3.1: Custom snooze command ───────────────────────

@@ -148,17 +148,17 @@ def get_due_tasks():
          (now - timedelta(hours=20)).strftime("%Y-%m-%d %H:%M")))
     tasks.extend(c.fetchall())
 
-    # ── Case 5 (BUG 1 FIX): Snoozed tasks whose snooze expired ──
-    # These are tasks that were snoozed and now the snooze_until <= now.
-    # They have NO matching due_time right now, so case 1-4 misses them.
-    # We check snooze_until directly.
+    # ── Case 5 (BUG 1 + 19 FIX): Snoozed tasks whose snooze expired ──
+    # When snooze_until <= now, fire the reminder regardless of last_reminded.
+    # The "fire once" guard is handled by clearing snooze_until after firing
+    # (see UPDATE below). The previous version's last_reminded guard was wrong
+    # because last_reminded gets set on the original reminder, which can be AFTER
+    # snooze_until was set (user snoozes immediately after being reminded).
     c.execute("""SELECT id, user_id, title, due_date, due_time
         FROM tasks
         WHERE done=0 AND paused=0
         AND snooze_until IS NOT NULL
-        AND snooze_until <= ?
-        AND (last_reminded IS NULL
-             OR last_reminded < snooze_until)""",
+        AND snooze_until <= ?""",
         (current_dt,))
     snooze_tasks = c.fetchall()
     # After firing, clear snooze_until so it doesn't re-fire every minute
