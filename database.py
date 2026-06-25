@@ -32,6 +32,7 @@ def init_db():
         ("last_reminded", "TEXT DEFAULT NULL"),
         ("tags", "TEXT DEFAULT NULL"),
         ("reminder_count", "INTEGER DEFAULT 0"),
+        ("parent_task_id", "INTEGER DEFAULT NULL"),
     ]:
         try:
             c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
@@ -483,3 +484,59 @@ def clear_snooze(task_id):
     c.execute("UPDATE tasks SET snooze_until=NULL WHERE id=?", (task_id,))
     conn.commit()
     conn.close()
+
+# ── v4.0: Subtasks + Planning ─────────────────────────
+def add_subtask(user_id, parent_id, title, due_date=None, due_time=None,
+                category='General', priority='medium'):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""INSERT INTO tasks
+        (user_id, title, due_date, due_time, category, priority, parent_task_id)
+        VALUES (?,?,?,?,?,?,?)""",
+        (user_id, title, due_date, due_time, category, priority, parent_id))
+    sub_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return sub_id
+
+def get_subtasks(parent_id, user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT id, title, due_date, due_time, category, priority, done
+        FROM tasks WHERE parent_task_id=? AND user_id=?
+        ORDER BY due_date ASC, due_time ASC""",
+        (parent_id, user_id))
+    subs = c.fetchall()
+    conn.close()
+    return subs
+
+def get_tasks_for_planning(user_id, start_date, end_date):
+    """Get all incomplete non-recurring tasks in a date range, for planning."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT id, title, due_date, due_time, category, priority,
+                 COALESCE(parent_task_id, 0)
+        FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0
+        AND due_date BETWEEN ? AND ?
+        AND (recurrence_type IS NULL OR recurrence_type='')
+        ORDER BY due_date ASC,
+                 CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
+                 due_time ASC""",
+        (user_id, start_date, end_date))
+    tasks = c.fetchall()
+    conn.close()
+    return tasks
+
+def count_tasks_per_day(user_id, start_date, end_date):
+    """Returns {date: count} for overload detection."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT due_date, COUNT(*) FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0
+        AND due_date BETWEEN ? AND ?
+        GROUP BY due_date""",
+        (user_id, start_date, end_date))
+    rows = dict(c.fetchall())
+    conn.close()
+    return rows

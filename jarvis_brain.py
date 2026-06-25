@@ -267,6 +267,115 @@ def analyze_productivity(tasks: list) -> str:
         return f"❌ Error: {str(e)}"
 
 
+def generate_daily_plan(tasks_today: list, user_prefs: dict = None) -> str:
+    """Generate a time-blocked plan for today's tasks."""
+    if not tasks_today:
+        return "Nothing scheduled for today! Add some tasks or enjoy your day."
+    if user_prefs is None:
+        user_prefs = {}
+    task_lines = []
+    for t in tasks_today:
+        tid, title, ddate, dtime, cat, prio = t[:6]
+        prio_emoji = "🔴" if prio == "high" else "🟢" if prio == "low" else "🟡"
+        task_lines.append(f"  {prio_emoji} [{tid}] {title} ({cat}, {prio}) — "
+                          f"{'⏰ '+dtime if dtime else 'no fixed time'}")
+    quiet_start = user_prefs.get("quiet_start", "23:00")
+    quiet_end = user_prefs.get("quiet_end", "07:00")
+    try:
+        prompt = (
+            f"You are a productivity coach. Create a TIME-BLOCKED plan for today.\n"
+            f"Tasks:\n" + "\n".join(task_lines) + "\n\n"
+            f"Constraints:\n"
+            f"- User is awake from {quiet_end} to {quiet_start}\n"
+            f"- High-priority tasks should be earlier when energy is fresh\n"
+            f"- Group similar categories together\n"
+            f"- Suggest realistic time blocks (30-90 min each)\n"
+            f"- Include short breaks between tasks\n\n"
+            f"Format as a clean schedule with time slots. Be concise. End with one motivational line."
+        )
+        return call_nvidia([{"role": "user", "content": prompt}],
+                           temperature=0.6, max_tokens=600)
+    except Exception as e:
+        return f"❌ Error generating plan: {e}"
+
+
+def generate_weekly_plan(tasks_week: list, user_prefs: dict = None) -> str:
+    """Generate a 7-day plan from all upcoming tasks."""
+    if not tasks_week:
+        return "Your week is clear! Time to set some goals."
+    by_day = {}
+    for t in tasks_week:
+        tid, title, ddate, dtime, cat, prio = t[:6]
+        by_day.setdefault(ddate, []).append((tid, title, dtime, cat, prio))
+    summary = []
+    for date in sorted(by_day.keys()):
+        summary.append(f"\n{date}:")
+        for tid, title, dtime, cat, prio in by_day[date]:
+            prio_emoji = "🔴" if prio == "high" else "🟢" if prio == "low" else "🟡"
+            summary.append(f"  {prio_emoji} [{tid}] {title} ({cat}) — {dtime or 'flexible'}")
+    try:
+        prompt = (
+            "You are a productivity coach. Review this week's tasks and suggest:\n"
+            "1. Days that look overloaded (>4 tasks)\n"
+            "2. Tasks that could be moved to balance the week\n"
+            "3. Daily theme/focus for each day\n"
+            "4. A motivational summary\n\n"
+            "Tasks by day:" + "\n".join(summary) + "\n\n"
+            "Be concise. Use ✅ for balanced days, ⚠️ for overloaded ones."
+        )
+        return call_nvidia([{"role": "user", "content": prompt}],
+                           temperature=0.6, max_tokens=700)
+    except Exception as e:
+        return f"❌ Error: {e}"
+
+
+def generate_task_breakdown(task_title: str, deadline: str = None,
+                            existing_subtasks: list = None) -> list:
+    """Break a large task into 3-5 subtasks. Returns a list of dicts."""
+    try:
+        prompt = (
+            f"Break this task into 3-5 actionable subtasks:\n"
+            f"Task: {task_title}\n"
+            f"Deadline: {deadline or 'flexible'}\n\n"
+            f"Reply ONLY with JSON in this exact format:\n"
+            f'{{"subtasks": [\n'
+            f'  {{"title": "First step", "estimated_hours": 1, "priority": "high"}},\n'
+            f'  {{"title": "Second step", "estimated_hours": 2, "priority": "medium"}}\n'
+            f']}}\n\n'
+            f"Subtasks should be specific and actionable. No extra text."
+        )
+        raw = call_nvidia([{"role": "user", "content": prompt}],
+                          temperature=0.4, max_tokens=400)
+        cleaned = clean_json(raw)
+        data = json.loads(cleaned)
+        return data.get("subtasks", [])
+    except Exception as e:
+        logger.error(f"Breakdown failed: {e}")
+        return []
+
+
+def suggest_reschedule_time(task_title: str, conflict_tasks: list) -> str:
+    """Given a task and other tasks at conflicting times, suggest a new time."""
+    try:
+        others = "\n".join([f"- {t[1]} at {t[3] or 'flexible'}" for t in conflict_tasks[:5]])
+        prompt = (
+            f"User wants to reschedule: '{task_title}'\n"
+            f"Other tasks on that day:\n{others}\n\n"
+            f"Suggest a good time (HH:MM format) avoiding conflicts. "
+            f"Reply with ONLY the time, e.g. '14:30'. Nothing else."
+        )
+        result = call_nvidia([{"role": "user", "content": prompt}],
+                             temperature=0.3, max_tokens=20)
+        # Extract HH:MM
+        import re
+        m = re.search(r"\b(\d{1,2}:\d{2})\b", result)
+        if m:
+            return m.group(1)
+        return None
+    except Exception:
+        return None
+
+
 def generate_study_plan(goal: str, deadline: str, existing_tasks: list) -> str:
     try:
         task_list = "\n".join([f"- {t[1]} | {t[2] or 'no date'}" for t in existing_tasks[:5]])

@@ -19,12 +19,15 @@ from database import (
     get_tasks_by_tag, carry_forward_overdue,
     get_user_prefs, set_quiet_hours, set_reminder_interval,
     increment_reminder_count, mark_reminded, get_all_user_ids,
-    stop_reminders, clear_snooze
+    stop_reminders, clear_snooze,
+    add_subtask, get_subtasks, get_tasks_for_planning, count_tasks_per_day
 )
 from jarvis_brain import (
     get_jarvis_response, check_api_status,
     chat_with_ai, suggest_tasks, analyze_productivity,
-    generate_study_plan, extract_memory_key
+    generate_study_plan, extract_memory_key,
+    generate_daily_plan, generate_weekly_plan,
+    generate_task_breakdown, suggest_reschedule_time
 )
 from conversation_state import (
     get_state, clear_state, update_context,
@@ -434,6 +437,27 @@ async def execute_task_action(user_id: int, data: dict, update: Update):
         else:
             await update.message.reply_text("⚠️ All tasks already exist.", reply_markup=main_menu())
 
+    elif action == "create_subtasks":
+        parent_id = data.get("parent_id")
+        parent_date = data.get("parent_date")
+        subtasks = data.get("subtasks", [])
+        saved = []
+        for st in subtasks:
+            title = st.get("title")
+            if not title:
+                continue
+            prio = st.get("priority", "medium")
+            sub_id = add_subtask(user_id, parent_id, title,
+                                 due_date=parent_date,
+                                 category="General", priority=prio)
+            saved.append(f"  [{sub_id}] {title}")
+        if saved:
+            await update.message.reply_text(
+                f"✅ *{len(saved)} subtasks created!*\n\n" + "\n".join(saved) +
+                f"\n\nThey're linked to task #{parent_id}.",
+                parse_mode="Markdown", reply_markup=main_menu()
+            )
+
     elif action == "delete":
         task_id = data.get("task_id")
         task = get_task_by_id(task_id, user_id)
@@ -656,6 +680,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
     _command_phrases = {
+        ("plan my day", "plan today", "what should i do today", "today's plan",
+         "schedule my day", "make a plan"): plan_cmd,
+        ("plan my week", "plan this week", "weekly plan", "week ahead"): plan_cmd,
+        ("am i overloaded", "show overload", "load check", "busy days"): overload_cmd,
         ("show bugs", "list bugs", "view bugs", "what bugs"): bugs_cmd,
         ("show settings", "my settings", "view settings"): settings_cmd,
         ("show overdue", "my overdue", "what is overdue"): overdue_cmd,
@@ -672,7 +700,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     for phrases, _handler in _command_phrases.items():
         if any(p in _low_full for p in phrases):
+            # set context.args based on the phrase matched
             context.args = []
+            if _handler == plan_cmd:
+                if "week" in _low_full or "weekly" in _low_full:
+                    context.args = ["week"]
+                else:
+                    context.args = ["today"]
             await _handler(update, context)
             return
 
@@ -1006,10 +1040,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
     elif intent == "PLAN":
-        tasks = get_tasks(user_id)
-        await update.message.reply_text("📋 Let me create a plan for you...")
-        plan = generate_study_plan(user_input, "end of week", tasks)
-        await update.message.reply_text(f"📋 *Your Plan:*\n\n{plan}", parse_mode="Markdown", reply_markup=main_menu())
+        # v4.0: route to /plan command with smart period detection
+        period = "week" if any(w in user_input.lower() for w in ["week", "hafte", "weekly"]) else "today"
+        context.args = [period]
+        await plan_cmd(update, context)
 
     elif intent == "GOAL":
         title = entities.get("title") or user_input
@@ -1610,6 +1644,182 @@ async def checktasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"  \U0001f504 Reminders sent: {rcnt or 0}\n\n"
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
+
+# ── v4.0: Smart Planning Commands ─────────────────────
+async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate a time-blocked daily or weekly plan."""
+    user_id = update.message.from_user.id
+    period = (context.args[0].lower() if context.args else "today")
+    now = datetime.now(IST)
+
+    if period in ("week", "weekly"):
+        start = now.strftime("%Y-%m-%d")
+        end = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+        tasks = get_tasks_for_planning(user_id, start, end)
+        if not tasks:
+            await update.message.reply_text(
+                "📅 Your week is clear! Add some tasks first.",
+                reply_markup=main_menu()
+            )
+            return
+        await update.message.reply_text("📅 Generating your weekly plan...")
+        prefs = get_user_prefs(user_id)
+        plan = generate_weekly_plan(tasks, prefs)
+        await update.message.reply_text(
+            f"🗓 *Your Week Ahead*\n\n{plan}",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+        return
+
+    # Default: today
+    today_str = now.strftime("%Y-%m-%d")
+    tasks = get_tasks_for_planning(user_id, today_str, today_str)
+    if not tasks:
+        await update.message.reply_text(
+            "📅 Nothing scheduled today! Add some tasks or enjoy your day.",
+            reply_markup=main_menu()
+        )
+        return
+    await update.message.reply_text("📋 Generating your daily plan...")
+    prefs = get_user_prefs(user_id)
+    plan = generate_daily_plan(tasks, prefs)
+    await update.message.reply_text(
+        f"📋 *Today's Plan ({today_str})*\n\n{plan}",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+
+async def breakdown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Break a task into 3-5 actionable subtasks."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "💡 *Task Breakdown*\n\n"
+            "Usage: /breakdown <task_id>\n"
+            "Example: /breakdown 5\n\n"
+            "I'll suggest 3-5 actionable subtasks for that big task.",
+            parse_mode="Markdown"
+        )
+        return
+    try:
+        tid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: /breakdown <task_id>")
+        return
+    task = get_task_by_id(tid, user_id)
+    if not task:
+        await update.message.reply_text(f"❌ Task [{tid}] not found.")
+        return
+
+    await update.message.reply_text(f"🧠 Breaking down *{task[1]}*...", parse_mode="Markdown")
+    subtasks = generate_task_breakdown(task[1], task[2])
+
+    if not subtasks:
+        await update.message.reply_text(
+            "Couldn't generate subtasks. Try a more descriptive task title.",
+            reply_markup=main_menu()
+        )
+        return
+
+    # Store as pending action so user can confirm
+    set_pending_action(user_id, "create_subtasks", {
+        "action": "create_subtasks",
+        "parent_id": tid,
+        "parent_title": task[1],
+        "parent_date": task[2],
+        "subtasks": subtasks,
+    })
+
+    msg = f"💡 *Suggested breakdown for:*\n📌 *{task[1]}*\n\n"
+    for i, st in enumerate(subtasks, 1):
+        h = st.get("estimated_hours", "?")
+        p = st.get("priority", "medium")
+        emoji = "🔴" if p == "high" else "🟢" if p == "low" else "🟡"
+        msg += f"{i}. {emoji} {st.get('title', '?')} (~{h}h)\n"
+    msg += "\nSave all as subtasks?"
+
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=yes_no_menu())
+
+
+async def reschedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """AI-suggested reschedule for a task."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "📅 *Smart Reschedule*\n\n"
+            "Usage: /reschedule <task_id>\n"
+            "I'll suggest a better time avoiding conflicts.",
+            parse_mode="Markdown"
+        )
+        return
+    try:
+        tid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: /reschedule <task_id>")
+        return
+    task = get_task_by_id(tid, user_id)
+    if not task:
+        await update.message.reply_text(f"❌ Task [{tid}] not found.")
+        return
+
+    # Find conflicts (same date, similar time)
+    same_day = get_tasks_by_date(user_id, task[2]) if task[2] else []
+    conflicts = [t for t in same_day if t[0] != tid]
+
+    await update.message.reply_text(f"🤔 Finding a better time for *{task[1]}*...",
+                                    parse_mode="Markdown")
+    new_time = suggest_reschedule_time(task[1], conflicts)
+    if not new_time:
+        await update.message.reply_text(
+            "Couldn't suggest a time. Use /edit to set manually.",
+            reply_markup=main_menu()
+        )
+        return
+
+    update_task(tid, user_id, due_time=new_time)
+    updated = get_task_by_id(tid, user_id)
+    await update.message.reply_text(
+        f"✅ *Rescheduled!*\n\n"
+        f"📌 *{updated[1]}*\n"
+        f"📅 {updated[2]} ⏰ {new_time}\n\n"
+        f"_AI suggested this time to avoid conflicts with your other tasks._",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+
+async def overload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Detect days that have too many tasks."""
+    user_id = update.message.from_user.id
+    now = datetime.now(IST)
+    start = now.strftime("%Y-%m-%d")
+    end = (now + timedelta(days=14)).strftime("%Y-%m-%d")
+    counts = count_tasks_per_day(user_id, start, end)
+    if not counts:
+        await update.message.reply_text("✅ No tasks scheduled in the next 2 weeks.",
+                                        reply_markup=main_menu())
+        return
+    overloaded = [(d, c) for d, c in counts.items() if c > 4]
+    balanced = [(d, c) for d, c in counts.items() if 1 <= c <= 4]
+    light = [(d, c) for d, c in counts.items() if c < 1]
+
+    msg = "📊 *Task Load (Next 2 Weeks)*\n\n"
+    if overloaded:
+        msg += "⚠️ *Overloaded days:*\n"
+        for d, c in sorted(overloaded):
+            msg += f"   🔴 {d}: {c} tasks — consider redistributing\n"
+        msg += "\n"
+    if balanced:
+        msg += "✅ *Balanced days:*\n"
+        for d, c in sorted(balanced)[:5]:
+            msg += f"   🟢 {d}: {c} task(s)\n"
+        if len(balanced) > 5:
+            msg += f"   ... and {len(balanced)-5} more days\n"
+    if not overloaded and not balanced:
+        msg += "Your schedule looks light. Time to plan something!"
+    if overloaded:
+        msg += "\n💡 Use /reschedule <id> to move tasks around."
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -1675,6 +1885,10 @@ def main():
     app.add_handler(CommandHandler("forget", forget_cmd))
     app.add_handler(CommandHandler("snooze", snooze_cmd))
     app.add_handler(CommandHandler("checktasks", checktasks_cmd))
+    app.add_handler(CommandHandler("plan", plan_cmd))
+    app.add_handler(CommandHandler("breakdown", breakdown_cmd))
+    app.add_handler(CommandHandler("reschedule", reschedule_cmd))
+    app.add_handler(CommandHandler("overload", overload_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
