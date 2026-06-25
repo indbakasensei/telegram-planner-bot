@@ -18,7 +18,8 @@ from database import (
     get_overdue_tasks, get_upcoming_deadlines, set_tags,
     get_tasks_by_tag, carry_forward_overdue,
     get_user_prefs, set_quiet_hours, set_reminder_interval,
-    increment_reminder_count, mark_reminded, get_all_user_ids
+    increment_reminder_count, mark_reminded, get_all_user_ids,
+    stop_reminders, clear_snooze
 )
 from jarvis_brain import (
     get_jarvis_response, check_api_status,
@@ -1100,6 +1101,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resume_task(task_id, user_id)
         await query.edit_message_text("▶️ Task resumed. Reminders are back on.")
 
+    elif action == "stoprem":
+        task = get_task_by_id(task_id, user_id)
+        if task:
+            stop_reminders(task_id, user_id)
+            await query.edit_message_text(
+                f"🔕 Reminders stopped for *{task[1]}*\n"
+                f"Task still in your list but won't ping you again.\n"
+                f"Use /resume {task_id} to turn back on.",
+                parse_mode="Markdown"
+            )
+
+    elif action == "deltask":
+        task = get_task_by_id(task_id, user_id)
+        if task:
+            delete_task(task_id, user_id)
+            await query.edit_message_text(
+                f"🗑 Deleted: *{task[1]}*",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text("❌ Task not found.")
+
 
 # ── v1.1: Pause / Resume commands ─────────────────────
 async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1308,6 +1331,65 @@ async def interval_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("Usage: /interval <number>")
 
+
+# ── v2.1: Stop reminder / delete reminder commands ────
+async def stopreminder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        tasks = get_tasks(user_id)
+        pending = [t for t in tasks if t[3]]  # tasks with a due_time
+        if not pending:
+            await update.message.reply_text(
+                "No tasks with active reminders.",
+                reply_markup=main_menu()
+            )
+            return
+        msg = "🔕 *Stop reminders for which task?*\n"
+        msg += "Reply: /stopreminder <id>\n\n"
+        for t in pending:
+            msg += f"*[{t[0]}]* {t[1]} — ⏰ {t[3]}\n"
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+        return
+    try:
+        tid = int(context.args[0])
+        task = get_task_by_id(tid, user_id)
+        if not task:
+            await update.message.reply_text(f"❌ Task [{tid}] not found.")
+            return
+        stop_reminders(tid, user_id)
+        await update.message.reply_text(
+            f"🔕 Reminders stopped for *{task[1]}*\n"
+            f"Task still exists. Use /resume {tid} to turn back on.",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /stopreminder <task_id>")
+
+async def delreminder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Alias — delete a task entirely via /delreminder <id>"""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "🗑 *Delete a task entirely:*\n"
+            "Usage: /delreminder <id>\n\n"
+            "Or use /stopreminder <id> to keep the task but stop the pings.",
+            parse_mode="Markdown"
+        )
+        return
+    try:
+        tid = int(context.args[0])
+        task = get_task_by_id(tid, user_id)
+        if not task:
+            await update.message.reply_text(f"❌ Task [{tid}] not found.")
+            return
+        delete_task(tid, user_id)
+        await update.message.reply_text(
+            f"🗑 Deleted: *{task[1]}*",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /delreminder <task_id>")
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -1368,6 +1450,8 @@ def main():
     app.add_handler(CommandHandler("quiethours", quiethours_cmd))
     app.add_handler(CommandHandler("settings", settings_cmd))
     app.add_handler(CommandHandler("interval", interval_cmd))
+    app.add_handler(CommandHandler("stopreminder", stopreminder_cmd))
+    app.add_handler(CommandHandler("delreminder", delreminder_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
@@ -1385,6 +1469,10 @@ def main():
                     [
                         InlineKeyboardButton("🕐 Snooze 1h", callback_data=f"snooze:{task_id}:60"),
                         InlineKeyboardButton("📅 Tomorrow", callback_data=f"postpone:{task_id}"),
+                    ],
+                    [
+                        InlineKeyboardButton("🔕 Stop Reminders", callback_data=f"stoprem:{task_id}"),
+                        InlineKeyboardButton("🗑 Delete Task", callback_data=f"deltask:{task_id}"),
                     ],
                 ])
                 await context.bot.send_message(
@@ -1425,6 +1513,10 @@ def main():
                         [
                             InlineKeyboardButton("🕐 Snooze 1h", callback_data=f"snooze:{tid}:60"),
                             InlineKeyboardButton("📅 Tomorrow", callback_data=f"postpone:{tid}"),
+                        ],
+                        [
+                            InlineKeyboardButton("🔕 Stop Reminders", callback_data=f"stoprem:{tid}"),
+                            InlineKeyboardButton("🗑 Delete Task", callback_data=f"deltask:{tid}"),
                         ],
                     ])
                     await context.bot.send_message(

@@ -459,3 +459,21 @@ def get_all_user_ids():
     ids = [r[0] for r in c.fetchall()]
     conn.close()
     return ids
+
+# ── v2.1: Stop reminders / clear reminder time ─────────
+def stop_reminders(task_id, user_id):
+    """Clear due_time so task stays but never pings again."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""UPDATE tasks SET due_time=NULL, snooze_until=NULL
+                 WHERE id=? AND user_id=?""", (task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def clear_snooze(task_id):
+    """Clear snooze_until after it fires, preventing re-fire every minute."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET snooze_until=NULL WHERE id=?", (task_id,))
+    conn.commit()
+    conn.close()
