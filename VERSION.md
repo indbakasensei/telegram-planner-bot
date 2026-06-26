@@ -1,6 +1,30 @@
 # BAKA Bot — Version History
 
-## v5.0 — Habit Engine (current)
+## v6.0 — Preference Learning (current)
+Phase 6 — BAKA finally lives up to its name as Behavioral Adaptive Knowledge Assistant.
+
+Added:
+- Every task completion is logged (when, category, delay-from-scheduled)
+- Every snooze is logged (category, duration) — reveals avoidance patterns
+- Every interaction is timestamp-logged — reveals your active hours
+- /insights — comprehensive learned-pattern report
+  Shows: tone classification, active hours, snooze patterns, top categories,
+  completion rate, and actionable observations like "you snooze Study often"
+- Auto-derived tone: gentle (frequent snoozer) / strict (high completion) / balanced
+- suggest_time_for_task() — when user creates a new Health task, BAKA can suggest
+  the time they usually complete Health tasks at
+- suggest_interval_for_task() — heavy snoozers get longer reminder intervals
+  per category, so the bot doesn't nag categories you avoid
+- Natural language: "insights", "what have you learned", "my patterns",
+  "what do you know about me"
+
+New tables: completions_log, snooze_log, interaction_log
+New module: preferences.py — analyze_user, suggest_time_for_task, suggest_interval_for_task
+Modified: main.py (logging hooks in done/snooze/messages), database.py (3 new tables + 7 helpers)
+
+---
+
+## v5.0 — Habit Engine
 Phase 5 — habits become first-class with streaks and missed-day tracking.
 
 Added:

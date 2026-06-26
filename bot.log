@@ -68650,3 +68650,42 @@ task: <Task pending name='Application:8975410971:update_fetcher' coro=<Applicati
 2026-06-26 04:26:57,875 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-26 04:27:57 UTC)" (scheduled at 2026-06-26 04:26:57.866032+00:00)
 2026-06-26 04:26:57,876 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-26 04:27:57 UTC)" executed successfully
 2026-06-26 04:26:59,037 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-26 04:28:04,594 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:28:04,594 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:28:04,597 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:28:04,597 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:28:04,597 - INFO - 🤖 BAKA is online!
+2026-06-26 04:28:05,082 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getMe "HTTP/1.1 200 OK"
+2026-06-26 04:28:05,243 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/deleteWebhook "HTTP/1.1 200 OK"
+2026-06-26 04:28:05,246 - INFO - Added job "check_reminders" to job store "default"
+2026-06-26 04:28:05,247 - INFO - Added job "check_followups" to job store "default"
+2026-06-26 04:28:05,247 - INFO - Added job "daily_carry_forward" to job store "default"
+2026-06-26 04:28:05,248 - INFO - Added job "check_deadlines" to job store "default"
+2026-06-26 04:28:05,248 - INFO - Scheduler started
+2026-06-26 04:28:05,248 - INFO - Application started
+2026-06-26 04:28:14,603 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-26 04:29:14 UTC)" (scheduled at 2026-06-26 04:28:14.593032+00:00)
+2026-06-26 04:28:14,604 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-26 04:29:14 UTC)" executed successfully
+2026-06-26 04:28:15,742 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-26 04:28:25,905 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-26 04:28:36,066 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-26 04:28:40,748 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-26 04:28:40,749 - INFO - Application is stopping. This might take a moment.
+2026-06-26 04:28:40,749 - INFO - Scheduler has been shut down
+2026-06-26 04:28:40,760 - INFO - Application.stop() complete
+2026-06-26 04:35:47,554 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:35:47,554 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:35:47,556 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:35:47,557 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-26 04:35:47,557 - INFO - 🤖 BAKA is online!
+2026-06-26 04:35:48,058 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getMe "HTTP/1.1 200 OK"
+2026-06-26 04:35:48,222 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/deleteWebhook "HTTP/1.1 200 OK"
+2026-06-26 04:35:48,226 - INFO - Added job "check_reminders" to job store "default"
+2026-06-26 04:35:48,227 - INFO - Added job "check_followups" to job store "default"
+2026-06-26 04:35:48,228 - INFO - Added job "daily_carry_forward" to job store "default"
+2026-06-26 04:35:48,229 - INFO - Added job "check_deadlines" to job store "default"
+2026-06-26 04:35:48,229 - INFO - Scheduler started
+2026-06-26 04:35:48,230 - INFO - Application started
+2026-06-26 04:35:52,979 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-26 04:35:52,981 - INFO - Application is stopping. This might take a moment.
+2026-06-26 04:35:52,981 - INFO - Scheduler has been shut down
+2026-06-26 04:35:52,992 - INFO - Application.stop() complete

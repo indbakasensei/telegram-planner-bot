@@ -693,3 +693,137 @@ def reset_streak(habit_id):
     c.execute("UPDATE tasks SET current_streak=0 WHERE id=?", (habit_id,))
     conn.commit()
     conn.close()
+
+# ── v6.0: Preference Learning ─────────────────────────
+def _init_learning_tables(conn):
+    """Create the learning log tables if missing."""
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS completions_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        task_id INTEGER,
+        title TEXT,
+        category TEXT,
+        scheduled_time TEXT,
+        completed_at TEXT NOT NULL,
+        delay_minutes INTEGER DEFAULT 0
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS snooze_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        task_id INTEGER,
+        title TEXT,
+        category TEXT,
+        snooze_minutes INTEGER,
+        snoozed_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS interaction_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        action TEXT,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    conn.commit()
+
+
+def log_completion(user_id, task_id, title, category, scheduled_time, completed_at, delay_minutes=0):
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO completions_log
+        (user_id, task_id, title, category, scheduled_time, completed_at, delay_minutes)
+        VALUES (?,?,?,?,?,?,?)""",
+        (user_id, task_id, title, category, scheduled_time, completed_at, delay_minutes))
+    conn.commit()
+    conn.close()
+
+
+def log_snooze(user_id, task_id, title, category, snooze_minutes):
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO snooze_log
+        (user_id, task_id, title, category, snooze_minutes)
+        VALUES (?,?,?,?,?)""",
+        (user_id, task_id, title, category, snooze_minutes))
+    conn.commit()
+    conn.close()
+
+
+def log_interaction(user_id, action):
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    c.execute("INSERT INTO interaction_log (user_id, action) VALUES (?,?)",
+              (user_id, action))
+    conn.commit()
+    conn.close()
+
+
+def get_active_hours(user_id, days=30):
+    """Return {hour: count} of when user is most active."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("""SELECT substr(timestamp, 12, 2) AS hour, COUNT(*) as cnt
+        FROM interaction_log WHERE user_id=? AND timestamp >= ?
+        GROUP BY hour ORDER BY cnt DESC""", (user_id, cutoff))
+    rows = c.fetchall()
+    conn.close()
+    return {int(h): n for h, n in rows if h}
+
+
+def get_completion_patterns(user_id, days=30):
+    """Return analysis of when user actually completes tasks."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("""SELECT category, AVG(delay_minutes), COUNT(*), substr(completed_at, 12, 2) AS hour
+        FROM completions_log WHERE user_id=? AND completed_at >= ?
+        GROUP BY category, hour""", (user_id, cutoff))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_snooze_patterns(user_id, days=30):
+    """Categories most likely to be snoozed + avg snooze minutes."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("""SELECT category, COUNT(*) as snoozes, AVG(snooze_minutes) as avg_min
+        FROM snooze_log WHERE user_id=? AND snoozed_at >= ?
+        GROUP BY category ORDER BY snoozes DESC""", (user_id, cutoff))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_category_distribution(user_id, days=30):
+    """Returns {category: task_count} over the last N days."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("""SELECT category, COUNT(*) FROM tasks
+        WHERE user_id=? AND created_at >= ? GROUP BY category""",
+        (user_id, cutoff))
+    rows = c.fetchall()
+    conn.close()
+    return dict(rows)
+
+
+def get_typical_time_for_category(user_id, category, days=30):
+    """Returns most common HH:MM that user completes tasks of this category at."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("""SELECT substr(completed_at, 12, 5) AS hm, COUNT(*) as cnt
+        FROM completions_log WHERE user_id=? AND category=? AND completed_at >= ?
+        GROUP BY hm ORDER BY cnt DESC LIMIT 1""", (user_id, category, cutoff))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None

@@ -22,8 +22,10 @@ from database import (
     stop_reminders, clear_snooze,
     add_subtask, get_subtasks, get_tasks_for_planning, count_tasks_per_day,
     add_habit, is_habit, log_habit_completion, get_habit_log,
-    get_habits, get_missed_days, reset_streak
+    get_habits, get_missed_days, reset_streak,
+    log_completion, log_snooze, log_interaction as db_log_interaction
 )
+from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
 from baka_brain import (
     get_baka_response, check_api_status,
     chat_with_ai, suggest_tasks, analyze_productivity,
@@ -272,6 +274,23 @@ async def done_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             mark_done(task_id, user_id)
+            # v6.0: log completion for preference learning
+            try:
+                _now = datetime.now(IST)
+                _scheduled = task[3] or "00:00"
+                _delay = 0
+                if task[3]:
+                    try:
+                        sh, sm = map(int, task[3].split(":"))
+                        _scheduled_dt = _now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                        _delay = max(0, int((_now - _scheduled_dt).total_seconds() / 60))
+                    except (ValueError, AttributeError):
+                        pass
+                log_completion(user_id, task_id, task[1], task[4] or "General",
+                               _scheduled, _now.strftime("%Y-%m-%d %H:%M:%S"), _delay)
+                db_log_interaction(user_id, "task_done")
+            except Exception:
+                pass
             await update.message.reply_text(
                 f"✅ *Done!* Great job:\n📌 {task[1]}",
                 parse_mode="Markdown", reply_markup=main_menu()
@@ -552,6 +571,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"User {user_id} [{state}]: {user_input}")
     add_history(user_id, "user", user_input)
+    # v6.0: log interaction timestamp for active-hours analysis
+    try:
+        db_log_interaction(user_id, "message")
+    except Exception:
+        pass
 
     # ── Menu buttons ──
     menu_map = {
@@ -830,6 +854,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("overload", "am i overloaded", "show overload",
          "load check", "busy days"): overload_cmd,
         ("habits", "show habits", "my habits", "list habits"): habits_cmd,
+        ("insights", "what have you learned", "my patterns",
+         "learned behavior", "what do you know about me"): insights_cmd,
         ("carryforward", "carry forward", "move overdue to today"): carryforward_cmd,
         # Analysis
         ("analyze", "analyse", "analyze me", "productivity",
@@ -1354,6 +1380,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 mark_done(task_id, user_id)
+                # v6.0: log for preference learning
+                try:
+                    _now = datetime.now(IST)
+                    _scheduled = task[3] or "00:00"
+                    _delay = 0
+                    if task[3]:
+                        try:
+                            sh, sm = map(int, task[3].split(":"))
+                            _sd = _now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                            _delay = max(0, int((_now - _sd).total_seconds() / 60))
+                        except (ValueError, AttributeError):
+                            pass
+                    log_completion(user_id, task_id, task[1], task[4] or "General",
+                                   _scheduled, _now.strftime("%Y-%m-%d %H:%M:%S"), _delay)
+                    db_log_interaction(user_id, "task_done")
+                except Exception:
+                    pass
                 await query.edit_message_text(
                     f"✅ *Done!* Completed:\n📌 {task[1]}",
                     parse_mode="Markdown"
@@ -1366,6 +1409,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from datetime import datetime as _dt, timedelta as _td
         snooze_until = (_dt.now(IST) + _td(minutes=minutes)).strftime("%Y-%m-%d %H:%M")
         snooze_task(task_id, user_id, snooze_until)
+        # v6.0: log snooze for preference learning
+        try:
+            _t = get_task_by_id(task_id, user_id)
+            if _t:
+                log_snooze(user_id, task_id, _t[1], _t[4] or "General", minutes)
+                db_log_interaction(user_id, "task_snooze")
+        except Exception:
+            pass
         label = f"{minutes} minutes" if minutes < 60 else "1 hour"
         await query.edit_message_text(
             f"⏰ Snoozed for {label}. I'll remind you again at {snooze_until.split()[1]}.",
@@ -1757,6 +1808,12 @@ async def snooze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from datetime import timedelta as _td
         snooze_until = (datetime.now(IST) + _td(minutes=minutes)).strftime("%Y-%m-%d %H:%M")
         snooze_task(tid, user_id, snooze_until)
+        # v6.0: log snooze for preference learning
+        try:
+            log_snooze(user_id, tid, task[1], task[4] or "General", minutes)
+            db_log_interaction(user_id, "task_snooze")
+        except Exception:
+            pass
         h = minutes // 60
         m = minutes % 60
         label = f"{h}h {m}m" if h else f"{m}m"
@@ -2188,6 +2245,51 @@ async def skiphabit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown", reply_markup=main_menu()
     )
 
+
+# ── v6.0: Preference Learning Commands ────────────────
+async def insights_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show what BAKA has learned about your behavior."""
+    user_id = update.message.from_user.id
+    data = analyze_user(user_id, days=30)
+
+    if data["total_tasks"] < 3:
+        await update.message.reply_text(
+            "\U0001f4ca *Not enough data yet*\n\n"
+            "I need at least 3 tasks across a few days to learn your patterns. "
+            "Keep using me — I'll start spotting trends soon!",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+        return
+
+    msg = "\U0001f9e0 *What I've learned about you*\n"
+    msg += f"_(based on last 30 days, {data['total_tasks']} tasks)_\n\n"
+
+    for line in data["insights"]:
+        msg += f"\u2022 {line}\n"
+    msg += "\n"
+
+    if data["active_hours_top3"]:
+        msg += "\U0001f550 *Active hours:*\n"
+        for h, n in data["active_hours_top3"]:
+            msg += f"   {h:02d}:00 ({n} interactions)\n"
+        msg += "\n"
+
+    if data["snooze_patterns"]:
+        msg += "\u23f0 *Snooze patterns:*\n"
+        for cat, count, avg_min in data["snooze_patterns"][:3]:
+            msg += f"   {cat}: {count}x (avg {int(avg_min)}m)\n"
+        msg += "\n"
+
+    if data["category_focus"]:
+        msg += "\U0001f4cc *Top categories:*\n"
+        sorted_cats = sorted(data["category_focus"].items(), key=lambda x: -x[1])
+        for cat, n in sorted_cats[:5]:
+            msg += f"   {cat}: {n} tasks\n"
+        msg += "\n"
+
+    msg += f"_Use these insights to tweak `/settings` for better defaults._"
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -2262,6 +2364,7 @@ def main():
     app.add_handler(CommandHandler("habitlog", habitlog_cmd))
     app.add_handler(CommandHandler("addhabit", addhabit_cmd))
     app.add_handler(CommandHandler("skiphabit", skiphabit_cmd))
+    app.add_handler(CommandHandler("insights", insights_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
