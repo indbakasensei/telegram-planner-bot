@@ -2,3 +2,20 @@
 venv/
 __pycache__/
 *.db
+# Secrets
+.env
+admin_id.txt
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Databases (local data)
+*.db
+planner.db
+bugs.db
+
+# Logs
+bot.log
+*.log

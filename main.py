@@ -23,7 +23,9 @@ from database import (
     add_subtask, get_subtasks, get_tasks_for_planning, count_tasks_per_day,
     add_habit, is_habit, log_habit_completion, get_habit_log,
     get_habits, get_missed_days, reset_streak,
-    log_completion, log_snooze, log_interaction as db_log_interaction
+    log_completion, log_snooze, log_interaction as db_log_interaction,
+    reset_all_tasks, reset_all_memories, reset_all_habits,
+    reset_learning_data, reset_everything, get_data_stats
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
 from baka_brain import (
@@ -56,6 +58,27 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+# v6.1: Admin lock — the first user to run /claimadmin becomes the sole admin.
+# Stored in a tiny file so it survives restarts. Only the admin can use admin tools.
+ADMIN_FILE = "admin_id.txt"
+
+def get_admin_id():
+    try:
+        with open(ADMIN_FILE) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+def set_admin_id(uid):
+    with open(ADMIN_FILE, "w") as f:
+        f.write(str(uid))
+
+def is_admin(uid):
+    admin = get_admin_id()
+    return admin is not None and uid == admin
+
+# In-memory flag: is the admin currently in debug/admin mode?
+_admin_mode = {}
 IST = pytz.timezone("Asia/Kolkata")
 
 
@@ -602,6 +625,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Confirming ──
     if state == "confirming":
         action_type, data = get_pending_action(user_id)
+        # v6.1: admin destructive-reset confirmations
+        if action_type == "admin_reset_tasks":
+            clear_state(user_id)
+            if user_input.strip() == "YES RESET" and is_admin(user_id):
+                n = reset_all_tasks(user_id)
+                await update.message.reply_text(
+                    f"\u2705 Reset complete. Deleted {n} tasks. Task IDs now start from 1 again.",
+                    reply_markup=main_menu()
+                )
+            else:
+                await update.message.reply_text("Cancelled — nothing deleted.",
+                                                reply_markup=main_menu())
+            return
+        if action_type == "admin_reset_all":
+            clear_state(user_id)
+            if user_input.strip() == "YES NUKE EVERYTHING" and is_admin(user_id):
+                counts = reset_everything(user_id)
+                summary = ", ".join(f"{k}:{v}" for k, v in counts.items() if v)
+                await update.message.reply_text(
+                    f"\u2705 *Nuclear reset done.*\nDeleted: {summary or 'nothing'}.\n"
+                    f"All IDs reset.",
+                    parse_mode="Markdown", reply_markup=main_menu()
+                )
+            else:
+                await update.message.reply_text("Cancelled — nothing deleted.",
+                                                reply_markup=main_menu())
+            return
         am_pm = re.match(r"^(\d{1,2})\s*(AM|PM)$", user_input.upper())
         if am_pm:
             h2, period2 = int(am_pm.group(1)), am_pm.group(2)
@@ -2290,6 +2340,183 @@ async def insights_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += f"_Use these insights to tweak `/settings` for better defaults._"
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
+
+# ── v6.1: ADMIN MODE (owner-only) ─────────────────────
+async def myid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the user their own Telegram ID — needed to claim admin."""
+    uid = update.message.from_user.id
+    name = update.message.from_user.first_name or "there"
+    admin = get_admin_id()
+    status = "\u2705 You are the admin." if is_admin(uid) else (
+        "\U0001f513 No admin set yet — use /claimadmin to become admin."
+        if admin is None else "\U0001f512 Admin already set (not you)."
+    )
+    await update.message.reply_text(
+        f"\U0001f464 *Your Info*\n\n"
+        f"Name: {name}\n"
+        f"Telegram ID: `{uid}`\n\n"
+        f"{status}",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+async def claimadmin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """First user to run this becomes the permanent admin."""
+    uid = update.message.from_user.id
+    admin = get_admin_id()
+    if admin is not None:
+        if uid == admin:
+            await update.message.reply_text("\u2705 You're already the admin.",
+                                            reply_markup=main_menu())
+        else:
+            await update.message.reply_text("\U0001f512 An admin is already set. Access denied.",
+                                            reply_markup=main_menu())
+        return
+    set_admin_id(uid)
+    await update.message.reply_text(
+        f"\U0001f451 *You are now the admin!*\n\n"
+        f"Your ID `{uid}` is locked in.\n"
+        f"Use /admin to open the control panel.\n"
+        f"Admin commands are invisible to everyone else.",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+def admin_only(func):
+    """Decorator: block non-admins from admin commands."""
+    async def wrapper(update, context):
+        uid = update.message.from_user.id
+        if not is_admin(uid):
+            # Silent denial — pretend the command doesn't exist
+            await update.message.reply_text("\u2753 Unknown command. Type /help.",
+                                            reply_markup=main_menu())
+            return
+        return await func(update, context)
+    return wrapper
+
+@admin_only
+async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """The admin control panel."""
+    uid = update.message.from_user.id
+    in_mode = _admin_mode.get(uid, False)
+    stats = get_data_stats(uid)
+    msg = (
+        "\U0001f6e0 *ADMIN CONTROL PANEL*\n"
+        f"Debug mode: {'\U0001f7e2 ON' if in_mode else '\u26aa OFF'}\n\n"
+        "\U0001f4ca *Your Data:*\n"
+        f"  Active tasks: {stats['active_tasks']}\n"
+        f"  Completed: {stats['done_tasks']}\n"
+        f"  Habits: {stats['habits']}\n"
+        f"  Memories: {stats['memories']}\n"
+        f"  Goals: {stats['goals']}\n"
+        f"  Highest task ID: {stats['max_task_id']}\n"
+        f"  Learning logs: {stats['completions_logged']} done, {stats['snoozes_logged']} snoozed\n\n"
+        "\U0001f527 *Commands:*\n"
+        "/adminmode \u2014 toggle debug/admin mode\n"
+        "/resettasks \u2014 delete all tasks + reset IDs to 0\n"
+        "/resetmemory \u2014 wipe all memories\n"
+        "/resethabits \u2014 wipe all habits + streaks\n"
+        "/resetlearning \u2014 wipe preference-learning data\n"
+        "/resetall \u2014 \u26a0\ufe0f nuke EVERYTHING + reset IDs\n"
+        "/sql <query> \u2014 run a read-only SQL query (debug)\n"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+@admin_only
+async def adminmode_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle a verbose debug mode for the admin."""
+    uid = update.message.from_user.id
+    _admin_mode[uid] = not _admin_mode.get(uid, False)
+    on = _admin_mode[uid]
+    # Also flip the existing /debug interaction tracer
+    import debug_system as _dbg
+    if on != _dbg.is_debug_on(uid):
+        _dbg.toggle_debug(uid)
+    await update.message.reply_text(
+        f"\U0001f527 Admin debug mode is now *{'ON' if on else 'OFF'}*.\n"
+        + ("You'll see intent, entities, parsed date/time, and SQL traces."
+           if on else "Verbose output off."),
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+@admin_only
+async def resettasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+    # Require confirmation
+    set_pending_action(uid, "admin_reset_tasks", {"action": "admin_reset_tasks"})
+    await update.message.reply_text(
+        "\u26a0\ufe0f *Reset ALL tasks?*\n\n"
+        "This deletes every task and resets task IDs back to start from 1.\n"
+        "Memories, habits, and learning data are kept.\n\n"
+        "Type *YES RESET* to confirm, or anything else to cancel.",
+        parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
+    )
+
+@admin_only
+async def resetmemory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+    n = reset_all_memories(uid)
+    await update.message.reply_text(f"\U0001f5d1 Wiped {n} memories.",
+                                    reply_markup=main_menu())
+
+@admin_only
+async def resethabits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+    n = reset_all_habits(uid)
+    await update.message.reply_text(f"\U0001f5d1 Wiped {n} habits and their logs.",
+                                    reply_markup=main_menu())
+
+@admin_only
+async def resetlearning_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+    n = reset_learning_data(uid)
+    await update.message.reply_text(f"\U0001f5d1 Wiped {n} learning-log entries.",
+                                    reply_markup=main_menu())
+
+@admin_only
+async def resetall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+    set_pending_action(uid, "admin_reset_all", {"action": "admin_reset_all"})
+    await update.message.reply_text(
+        "\u26a0\u26a0 *NUCLEAR RESET* \u26a0\u26a0\n\n"
+        "This deletes EVERYTHING: tasks, memories, habits, goals, learning data.\n"
+        "Task IDs reset to start from 1.\n\n"
+        "Type *YES NUKE EVERYTHING* to confirm.",
+        parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
+    )
+
+@admin_only
+async def sql_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Read-only SQL for debugging. SELECT only."""
+    uid = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /sql <SELECT query>\nExample: /sql SELECT id,title,due_time FROM tasks WHERE done=0",
+            reply_markup=main_menu()
+        )
+        return
+    query = " ".join(context.args)
+    if not query.strip().lower().startswith("select"):
+        await update.message.reply_text("\u274c Only SELECT queries allowed (read-only).",
+                                        reply_markup=main_menu())
+        return
+    try:
+        import sqlite3
+        conn = sqlite3.connect("planner.db")
+        c = conn.cursor()
+        c.execute(query)
+        rows = c.fetchall()
+        conn.close()
+        if not rows:
+            await update.message.reply_text("(no rows)", reply_markup=main_menu())
+            return
+        out = "\n".join(str(r) for r in rows[:30])
+        if len(rows) > 30:
+            out += f"\n... and {len(rows)-30} more rows"
+        await update.message.reply_text(f"```\n{out}\n```", parse_mode="Markdown",
+                                        reply_markup=main_menu())
+    except Exception as e:
+        await update.message.reply_text(f"\u274c SQL error: {str(e)[:200]}",
+                                        reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -2365,6 +2592,17 @@ def main():
     app.add_handler(CommandHandler("addhabit", addhabit_cmd))
     app.add_handler(CommandHandler("skiphabit", skiphabit_cmd))
     app.add_handler(CommandHandler("insights", insights_cmd))
+    # v6.1 admin commands
+    app.add_handler(CommandHandler("myid", myid_cmd))
+    app.add_handler(CommandHandler("claimadmin", claimadmin_cmd))
+    app.add_handler(CommandHandler("admin", admin_cmd))
+    app.add_handler(CommandHandler("adminmode", adminmode_cmd))
+    app.add_handler(CommandHandler("resettasks", resettasks_cmd))
+    app.add_handler(CommandHandler("resetmemory", resetmemory_cmd))
+    app.add_handler(CommandHandler("resethabits", resethabits_cmd))
+    app.add_handler(CommandHandler("resetlearning", resetlearning_cmd))
+    app.add_handler(CommandHandler("resetall", resetall_cmd))
+    app.add_handler(CommandHandler("sql", sql_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)

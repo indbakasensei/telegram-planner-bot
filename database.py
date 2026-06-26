@@ -827,3 +827,106 @@ def get_typical_time_for_category(user_id, category, days=30):
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+# ── v6.1: Admin / Reset functions ─────────────────────
+def reset_all_tasks(user_id):
+    """Delete all of a user's tasks and reset the autoincrement counter."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM tasks WHERE user_id=?", (user_id,))
+    deleted = c.rowcount
+    # Reset the autoincrement counter ONLY if the table is now empty
+    c.execute("SELECT COUNT(*) FROM tasks")
+    if c.fetchone()[0] == 0:
+        try:
+            c.execute("DELETE FROM sqlite_sequence WHERE name='tasks'")
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+    return deleted
+
+def reset_all_memories(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM memories WHERE user_id=?", (user_id,))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+def reset_all_habits(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM tasks WHERE user_id=? AND COALESCE(is_habit,0)=1", (user_id,))
+    deleted = c.rowcount
+    c.execute("DELETE FROM habit_log WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+    return deleted
+
+def reset_learning_data(user_id):
+    """Wipe preference-learning logs."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    total = 0
+    for table in ["completions_log", "snooze_log", "interaction_log"]:
+        c.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
+        total += c.rowcount
+    conn.commit()
+    conn.close()
+    return total
+
+def reset_everything(user_id):
+    """Nuclear reset — wipe ALL of a user's data and reset task IDs."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    counts = {}
+    for table in ["tasks", "memories", "goals", "habit_log",
+                  "completions_log", "snooze_log", "interaction_log"]:
+        try:
+            c.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
+            counts[table] = c.rowcount
+        except Exception:
+            counts[table] = 0
+    # Reset task ID counter if tasks table is globally empty
+    c.execute("SELECT COUNT(*) FROM tasks")
+    if c.fetchone()[0] == 0:
+        for seq_table in ["tasks", "memories", "goals", "habit_log"]:
+            try:
+                c.execute("DELETE FROM sqlite_sequence WHERE name=?", (seq_table,))
+            except Exception:
+                pass
+    conn.commit()
+    conn.close()
+    return counts
+
+def get_data_stats(user_id):
+    """Counts of all the user's data — for the admin panel."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_learning_tables(conn)
+    c = conn.cursor()
+    stats = {}
+    queries = {
+        "active_tasks": "SELECT COUNT(*) FROM tasks WHERE user_id=? AND done=0",
+        "done_tasks": "SELECT COUNT(*) FROM tasks WHERE user_id=? AND done=1",
+        "habits": "SELECT COUNT(*) FROM tasks WHERE user_id=? AND COALESCE(is_habit,0)=1",
+        "memories": "SELECT COUNT(*) FROM memories WHERE user_id=?",
+        "goals": "SELECT COUNT(*) FROM goals WHERE user_id=?",
+        "completions_logged": "SELECT COUNT(*) FROM completions_log WHERE user_id=?",
+        "snoozes_logged": "SELECT COUNT(*) FROM snooze_log WHERE user_id=?",
+    }
+    for key, q in queries.items():
+        try:
+            c.execute(q, (user_id,))
+            stats[key] = c.fetchone()[0]
+        except Exception:
+            stats[key] = 0
+    # Highest task ID
+    c.execute("SELECT MAX(id) FROM tasks")
+    row = c.fetchone()
+    stats["max_task_id"] = row[0] if row and row[0] else 0
+    conn.close()
+    return stats

@@ -1,6 +1,31 @@
 # BAKA Bot — Version History
 
-## v6.0 — Preference Learning (current)
+## v6.1 — Admin Mode + Reset Tools (current, owner-only)
+A private control panel locked to YOUR Telegram ID alone.
+
+Added:
+- /myid — shows your Telegram ID and admin status
+- /claimadmin — first user to run this becomes the permanent sole admin
+  (run this ONCE right after deploying — it locks the bot's admin to you)
+- /admin — control panel showing data stats + all admin commands
+- /adminmode — toggle verbose debug mode (intent, entities, parsed times, SQL traces)
+- /resettasks — delete all tasks AND reset task IDs back to 1 (with YES RESET confirm)
+- /resetmemory — wipe all memories
+- /resethabits — wipe all habits + streak logs
+- /resetlearning — wipe preference-learning data
+- /resetall — nuclear reset of everything + ID reset (with YES NUKE EVERYTHING confirm)
+- /sql <SELECT query> — run read-only SQL for debugging
+- All admin commands are INVISIBLE to non-admins (they get "Unknown command")
+- admin_id.txt persists the admin lock across restarts (gitignored — never committed)
+
+New DB functions: reset_all_tasks (resets autoincrement), reset_all_memories,
+  reset_all_habits, reset_learning_data, reset_everything, get_data_stats
+New: .gitignore protects admin_id.txt and .env
+Modified: main.py (admin infra, 11 admin commands, reset confirmations), database.py
+
+---
+
+## v6.0 — Preference Learning
 Phase 6 — BAKA finally lives up to its name as Behavioral Adaptive Knowledge Assistant.
 
 Added:
