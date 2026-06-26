@@ -39,6 +39,7 @@ from baka_brain import (
     generate_task_breakdown, suggest_reschedule_time,
     generate_structured_plan
 )
+from fmt import HTML, esc, b, i, code, task_line, confirm_box, header, DIVIDER
 from conversation_state import (
     get_state, clear_state, update_context,
     add_history, get_history,
@@ -102,28 +103,35 @@ def yes_no_menu():
 
 def format_tasks(tasks, label):
     if not tasks:
-        return f"✅ No tasks for {label}!"
-    msg = f"📋 *Tasks for {label}:*\n\n"
+        return f"✅ No tasks for {esc(label)}!"
+    msg = f"📋 {b('Tasks for ' + str(label))}\n\n"
     _today = datetime.now(IST).strftime("%Y-%m-%d")
     for t in tasks:
         priority = t[5] if len(t) > 5 else "medium"
         recurrence = t[6] if len(t) > 6 else None
         is_overdue = t[2] and t[2] < _today
         emoji = "⏰" if is_overdue else "🔴" if priority == "high" else "🟢" if priority == "low" else "🟡"
-        overdue_tag = " *(OVERDUE)*" if is_overdue else ""
-        rec_icon = " 🔄" if recurrence else ""
-        msg += f"{emoji} *[{t[0]}]* {t[1]}{rec_icon}{overdue_tag}\n"
-        msg += f"      📅 {t[2] or 'No date'}  ⏰ {t[3] or 'No time'}  🏷 {t[4] if len(t) > 4 else 'General'}\n\n"
+        overdue_tag = " " + i("(overdue)") if is_overdue else ""
+        rec_icon = ""
+        if recurrence == "daily":
+            rec_icon = " 🔁"
+        elif recurrence == "weekly":
+            rec_icon = " 📆"
+        elif recurrence == "monthly":
+            rec_icon = " 🗓"
+        category = t[4] if len(t) > 4 else "General"
+        msg += f"{emoji} {code('[' + str(t[0]) + ']')} {esc(t[1])}{rec_icon}{overdue_tag}\n"
+        msg += f"   <i>📅 {esc(t[2] or 'No date')} · ⏰ {esc(t[3] or 'No time')} · 🏷 {esc(category)}</i>\n\n"
     return msg
 
 def build_summary(data: dict) -> str:
-    rec = f"\n🔄 Repeats: {data.get('recurrence', '')}" if data.get('recurrence') else ""
-    return (
-        f"📌 *{data.get('title')}*\n"
-        f"📅 {data.get('date') or 'No date'}\n"
-        f"⏰ {data.get('time') or 'No time'}\n"
-        f"🏷 {data.get('category') or 'General'}"
-        f"{rec}"
+    return confirm_box(
+        title=data.get('title') or 'Untitled',
+        date=data.get('date'),
+        time=data.get('time'),
+        category=data.get('category') or 'General',
+        priority=data.get('priority'),
+        recurrence=data.get('recurrence'),
     )
 
 def parse_time_from_text(text: str) -> str | None:
@@ -250,14 +258,14 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_tasks(update.message.from_user.id)
     await update.message.reply_text(
-        format_tasks(tasks, "All Pending"), parse_mode="Markdown", reply_markup=main_menu()
+        format_tasks(tasks, "All Pending"), parse_mode=HTML, reply_markup=main_menu()
     )
 
 async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(IST).strftime("%Y-%m-%d")
     tasks = get_tasks_by_date(update.message.from_user.id, today)
     await update.message.reply_text(
-        format_tasks(tasks, f"Today ({today})"), parse_mode="Markdown", reply_markup=main_menu()
+        format_tasks(tasks, f"Today ({today})"), parse_mode=HTML, reply_markup=main_menu()
     )
 
 async def week_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,7 +273,7 @@ async def week_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_tasks_by_week(update.message.from_user.id,
         now.strftime("%Y-%m-%d"), (now + timedelta(days=7)).strftime("%Y-%m-%d"))
     await update.message.reply_text(
-        format_tasks(tasks, "This Week"), parse_mode="Markdown", reply_markup=main_menu()
+        format_tasks(tasks, "This Week"), parse_mode=HTML, reply_markup=main_menu()
     )
 
 async def done_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -486,14 +494,14 @@ async def execute_task_action(user_id: int, data: dict, update: Update):
             rec_type, rec_weekday, rec_day
         )
 
-        rec_msg = f"\n🔄 Repeats: {rec}" if rec else ""
+        rec_msg = f"\n🔁 Repeats: {esc(rec)}" if rec else ""
         await update.message.reply_text(
-            f"✅ *Saved!*\n\n"
-            f"📌 *{title}*\n"
-            f"📅 {date or 'No date'}  ⏰ {data.get('time') or 'No time'}  🏷 {data.get('category', 'General')}"
+            f"✅ {b('Saved!')}\n\n"
+            f"📌 {b(title)}\n"
+            f"<i>📅 {esc(date or 'No date')} · ⏰ {esc(data.get('time') or 'No time')} · 🏷 {esc(data.get('category', 'General'))}</i>"
             f"{rec_msg}\n\n"
-            f"Use /done {task_id} when complete!",
-            parse_mode="Markdown", reply_markup=main_menu()
+            f"Use {code('/done ' + str(task_id))} when complete!",
+            parse_mode=HTML, reply_markup=main_menu()
         )
 
     elif action == "create_multiple":
@@ -663,8 +671,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data["time"] = str(h2).zfill(2) + ":00"
             update_context(user_id, {"pending_data": data})
             await update.message.reply_text(
-                "Got it! " + user_input + "\n\n" + build_summary(data) + "\n\nShall I save this?",
-                parse_mode="Markdown", reply_markup=yes_no_menu()
+                "Got it! " + esc(user_input) + "\n\n" + build_summary(data) + "\n\nShall I save this?",
+                parse_mode=HTML, reply_markup=yes_no_menu()
             )
             return
         if user_input.lower() == "skip time":
@@ -690,8 +698,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data["time"] = parsed_time
             update_context(user_id, {"pending_data": data})
             await update.message.reply_text(
-                f"⏰ Updated to {parsed_time}!\n\n{build_summary(data)}\n\nShall I save this?",
-                parse_mode="Markdown", reply_markup=yes_no_menu()
+                f"⏰ Updated to {esc(parsed_time)}!\n\n{build_summary(data)}\n\nShall I save this?",
+                parse_mode=HTML, reply_markup=yes_no_menu()
             )
         elif wants_time:
             await update.message.reply_text(
@@ -704,8 +712,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(
                 f"Here's what I'll save:\n\n{build_summary(data)}\n\n"
-                f"Say *yes* to save, *no* to cancel, or tell me what to change (e.g. 'set time to 5pm')",
-                parse_mode="Markdown", reply_markup=yes_no_menu()
+                f"Say {b('yes')} to save, {b('no')} to cancel, or tell me what to change (e.g. 'set time to 5pm')",
+                parse_mode=HTML, reply_markup=yes_no_menu()
             )
         return
 
@@ -798,7 +806,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
             await update.message.reply_text(
                 f"Got it! Here's what I'll save:\n\n{build_summary(partial)}\n\nShall I save this?",
-                parse_mode="Markdown", reply_markup=yes_no_menu()
+                parse_mode=HTML, reply_markup=yes_no_menu()
             )
         return
 
@@ -974,7 +982,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tasks = get_tasks(user_id)
             label = "All Pending"
         await update.message.reply_text(
-            format_tasks(tasks, label), parse_mode="Markdown", reply_markup=main_menu()
+            format_tasks(tasks, label), parse_mode=HTML, reply_markup=main_menu()
         )
         return
 
@@ -994,27 +1002,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Merge local parser results — ONLY for task-like intents.
     # Bug 13: don't let a stray "today" in casual chat turn CHAT into a task.
-    if intent in ["TASK", "EDIT", "MULTIPLE"]:
-        # Bug 14 + 19b: if user said "in N min/hour" or "after N min/hour"
-        # parser's resolved time MUST win — AI often interprets "1" as 01:00.
+    if intent in ["TASK", "HABIT", "EDIT", "MULTIPLE"]:
+        low = user_input.lower()
+        # Relative time: "in N min/hour" — parser's resolved time MUST win
         _has_relative_time = bool(re.search(
-            r"\b(in|after)\s+\d+\s+(min|minute|mins|minutes|hour|hours|hr|hrs)\b",
-            user_input.lower()
-        ))
+            r"\b(in|after)\s+\d+\s+(min|minute|mins|minutes|hour|hours|hr|hrs)\b", low))
+        # Vague time words: parser knows the exact mapping, AI often guesses wrong
+        _has_vague_time = bool(re.search(
+            r"\b(morning|subah|evening|shaam|tonight|night|raat|afternoon|dopahar|"
+            r"noon|lunch|midnight|end of day|later|soon)\b", low))
+
         ai_time = entities.get("time", "")
-        if _has_relative_time and parsed.get("time"):
+        # Reject malformed AI times like "25:00", "1 min", "13 AM"→"13:00" mislabeled
+        ai_time_valid = bool(ai_time and re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", str(ai_time)))
+
+        if (_has_relative_time or _has_vague_time) and parsed.get("time"):
+            # Parser wins for relative + vague phrasings
             entities["time"] = parsed["time"]
-        elif ai_time and not re.match(r"^\d{2}:\d{2}$", ai_time):
-            entities["time"] = None
-        if parsed["date"] and not entities.get("date"):
+        elif ai_time and not ai_time_valid:
+            # AI returned something malformed → discard, fall back to parser
+            entities["time"] = parsed.get("time")
+
+        if parsed.get("date") and not entities.get("date"):
             entities["date"] = parsed["date"]
-        if parsed["time"] and not entities.get("time"):
+        if parsed.get("time") and not entities.get("time"):
             entities["time"] = parsed["time"]
-        if parsed["recurrence"] and not entities.get("recurrence"):
+        if parsed.get("recurrence") and not entities.get("recurrence"):
             entities["recurrence"] = parsed["recurrence"]["type"]
-        # v3.0: use urgency-detected priority if AI didn't set one
         if parsed.get("priority") and not entities.get("priority"):
             entities["priority"] = parsed["priority"]
+
+        # Bug: invalid time / past date detection from the parser
+        if parsed.get("is_invalid_time"):
+            entities["time"] = None
+            await update.message.reply_text(
+                "⚠️ That time doesn't look valid. Try a format like `3 PM`, `15:00`, or `evening`.",
+                parse_mode="Markdown", reply_markup=main_menu()
+            )
+            clear_state(user_id)
+            return
+        if parsed.get("is_past"):
+            await update.message.reply_text(
+                "⚠️ That date is in the past. Did you mean a future date?",
+                reply_markup=main_menu()
+            )
+            clear_state(user_id)
+            return
 
     logger.info(f"Intent:{intent} | Entities:{entities} | Missing:{missing}")
     add_history(user_id, "assistant", response_text)
@@ -1047,7 +1080,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (now + timedelta(days=30)).strftime("%Y-%m-%d"))
             await update.message.reply_text(
                 format_tasks(tasks, "This Month"),
-                parse_mode="Markdown", reply_markup=main_menu()
+                parse_mode=HTML, reply_markup=main_menu()
             )
             return
         if period == "tomorrow":
@@ -1069,7 +1102,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tasks = get_tasks_by_date(user_id, target)
             label = f"Today ({target})"
         await update.message.reply_text(
-            format_tasks(tasks, label), parse_mode="Markdown", reply_markup=main_menu()
+            format_tasks(tasks, label), parse_mode=HTML, reply_markup=main_menu()
         )
 
     elif intent == "MULTIPLE":
@@ -1154,7 +1187,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             summary = confirm_summary or build_summary(summary_data)
             await update.message.reply_text(
                 f"Got it! Here's what I'll save:\n\n{summary}\n\nShall I save this?",
-                parse_mode="Markdown", reply_markup=yes_no_menu()
+                parse_mode=HTML, reply_markup=yes_no_menu()
             )
 
     elif intent == "DELETE":
@@ -2758,9 +2791,9 @@ def main():
                 ])
                 await context.bot.send_message(
                     chat_id=uid,
-                    text=f"🔔 *Reminder!*\n\n📌 *{title}*\n"
-                         f"📅 {due_date or 'No date'} ⏰ {due_time or 'No time'}",
-                    parse_mode="Markdown",
+                    text=f"🔔 {b('Reminder!')}\n\n📌 {b(title)}\n"
+                         f"<i>📅 {esc(due_date or 'No date')} · ⏰ {esc(due_time or 'No time')}</i>",
+                    parse_mode=HTML,
                     reply_markup=buttons
                 )
                 from datetime import datetime as _dt

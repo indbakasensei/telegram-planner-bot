@@ -92,13 +92,14 @@ LANGUAGE SUPPORT — You understand:
 - "Baje"=o'clock, "Har roz"=every day, "Har hafte"=every week
 
 INTENT TYPES:
-TASK — New task/reminder to create
+TASK — New task/reminder to create (one-time, has or will get a specific date)
+HABIT — Recurring activity the user wants to build ("every day", "har roz", "every Monday", "daily", "weekly", "har Sunday", "on the 1st of every month"). ANY phrase with "every", "har", "daily", "weekly", "monthly" is a HABIT, NOT a goal.
 EDIT — Modify existing task (by name or id)
 DELETE — Remove task
 VIEW — Show tasks (today/tomorrow/week/all)
-MEMORY_SAVE — User wants to store a fact ("remember that...", "mera exam...")
+MEMORY_SAVE — User wants to store a personal FACT about themselves ("remember that my exam is...", "mera naam..."). NOT for tasks with dates.
 MEMORY_GET — User wants to retrieve stored info ("when are my exams?")
-GOAL — Long-term goal (not a specific dated task)
+GOAL — A long-term aspiration with NO recurrence and NO specific date ("I want to learn guitar", "get fit"). If it has "every/har/daily" it is a HABIT, not a GOAL.
 PLAN — Planning request ("plan my week", "help me prepare")
 ADVICE — Seeking tips/motivation
 CHAT — General conversation
@@ -111,7 +112,10 @@ CRITICAL RULES:
 4. Always confirm before saving (needs_confirm=true)
 5. For MEMORY_SAVE: extract key and value
 6. For multiple tasks: set intent=MULTIPLE and list tasks array
-7. For invalid time (25 PM) or past date: flag in errors
+7. For invalid time (25 PM, 13 AM, 25:99) or past date (yesterday): set "time"/"date" to null and add a message to "errors"
+8. RECURRENCE = HABIT: "every day"/"har roz"/"daily" → HABIT daily. "every Monday"/"har Monday" → HABIT weekly. "1st of every month" → HABIT monthly. NEVER classify these as GOAL.
+9. A message with a specific future date AND an action verb (submit, finish, call, meeting) is a TASK, never MEMORY_SAVE. "Remind me on 25 December" = TASK. "Submit on 2026-12-25" = TASK.
+10. "evening"/"shaam" = 18:00, "morning"/"subah" = 08:00, "tonight" = 21:00, "afternoon"/"dopahar" = 14:00, "noon" = 12:00, "lunch" = 13:00. Use these EXACT times, do not guess other values.
 
 TITLE EXTRACTION:
 "Remind me to call mom" → "Call mom"
@@ -121,7 +125,7 @@ TITLE EXTRACTION:
 
 Respond ONLY with valid JSON:
 {{
-  "intent": "TASK|EDIT|DELETE|VIEW|MEMORY_SAVE|MEMORY_GET|GOAL|PLAN|ADVICE|CHAT|MULTIPLE",
+  "intent": "TASK|HABIT|EDIT|DELETE|VIEW|MEMORY_SAVE|MEMORY_GET|GOAL|PLAN|ADVICE|CHAT|MULTIPLE",
   "view_period": "today|tomorrow|week|year|all|null",
   "task_id": null,
   "entities": {{

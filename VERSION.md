@@ -1,6 +1,36 @@
 # BAKA Bot — Version History
 
-## v7.0 — Follow-up Intelligence (current)
+## v7.1 — Log-Driven Bug Fixes + Rich HTML Formatting (current)
+Fixed bugs found in real test logs + switched messages to clean HTML formatting.
+
+Bugs fixed (from test log analysis):
+- BUG: Recurring tasks ("every Monday", "har Sunday", "daily at 9") were
+  misclassified as GOAL and did nothing. Now correctly detected as HABIT.
+  Updated the AI prompt: ANY phrase with every/har/daily/weekly/monthly = HABIT.
+- BUG: "evening"/"shaam" returned 15:00 instead of 18:00 (AI overrode parser).
+  Now the parser's exact vague-time mapping ALWAYS wins over the AI guess.
+- BUG: Invalid times ("25 PM", "13 AM", "25:99") were silently accepted.
+  Now rejected with a friendly "that time doesn't look valid" message.
+- BUG: "Remind me on 25 December" and "Submit on 2026-12-25" were classified
+  as MEMORY_SAVE. Now a date + action verb = TASK.
+- BUG: "Remind me yesterday" → now warns about the past date.
+- Parser merge logic now handles HABIT intent and validates time/date before saving.
+
+Rich HTML formatting (new fmt.py module):
+- Switched core messages (task list, confirmation card, reminders, save success)
+  from Markdown to Telegram HTML parse mode
+- HTML is robust: titles with dots, dashes, parentheses, +, & no longer break
+  message rendering (Markdown would corrupt on these)
+- New helpers: b() bold, i() italic, code() monospace, esc() escaping,
+  task_line(), confirm_box() for consistent clean cards
+- Task lists now use clean "· " separators and proper recurrence icons
+
+New file: fmt.py
+Modified: baka_brain.py (intent prompt), main.py (merge logic + HTML), 
+
+---
+
+## v7.0 — Follow-up Intelligence
 Phase 7 — BAKA stops being reactive and starts following up proactively.
 
 Added:
