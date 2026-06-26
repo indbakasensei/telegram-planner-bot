@@ -25,7 +25,10 @@ from database import (
     get_habits, get_missed_days, reset_streak,
     log_completion, log_snooze, log_interaction as db_log_interaction,
     reset_all_tasks, reset_all_memories, reset_all_habits,
-    reset_learning_data, reset_everything, get_data_stats
+    reset_learning_data, reset_everything, get_data_stats,
+    get_tasks_for_followup, mark_followup_sent, increment_snooze_count,
+    get_snooze_count, get_stale_tasks, get_unresolved_today,
+    get_all_active_user_ids
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
 from baka_brain import (
@@ -906,6 +909,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("habits", "show habits", "my habits", "list habits"): habits_cmd,
         ("insights", "what have you learned", "my patterns",
          "learned behavior", "what do you know about me"): insights_cmd,
+        ("review", "review tasks", "stale tasks", "what needs review",
+         "old tasks"): review_cmd,
         ("carryforward", "carry forward", "move overdue to today"): carryforward_cmd,
         # Analysis
         ("analyze", "analyse", "analyze me", "productivity",
@@ -1459,6 +1464,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from datetime import datetime as _dt, timedelta as _td
         snooze_until = (_dt.now(IST) + _td(minutes=minutes)).strftime("%Y-%m-%d %H:%M")
         snooze_task(task_id, user_id, snooze_until)
+        increment_snooze_count(task_id)
         # v6.0: log snooze for preference learning
         try:
             _t = get_task_by_id(task_id, user_id)
@@ -1468,9 +1474,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
         label = f"{minutes} minutes" if minutes < 60 else "1 hour"
-        await query.edit_message_text(
-            f"⏰ Snoozed for {label}. I'll remind you again at {snooze_until.split()[1]}.",
-        )
+        # v7.0: repeated-snooze detection
+        scount = get_snooze_count(task_id)
+        if scount >= 3:
+            _t = get_task_by_id(task_id, user_id)
+            suggested = None
+            try:
+                suggested = suggest_time_for_task(user_id, _t[4] or "General") if _t else None
+            except Exception:
+                pass
+            tip = f"\n\n💡 You've snoozed this {scount} times. "
+            if suggested:
+                tip += f"You usually get things done around *{suggested}* — want me to move it there? Reply: reschedule {task_id}"
+            else:
+                tip += "Maybe it needs a better time or to be broken down. Try /breakdown " + str(task_id)
+            await query.edit_message_text(
+                f"⏰ Snoozed for {label}.{tip}",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text(
+                f"⏰ Snoozed for {label}. I'll remind you again at {snooze_until.split()[1]}.",
+            )
 
     elif action == "postpone":
         from datetime import datetime as _dt, timedelta as _td
@@ -1488,6 +1513,75 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "resume":
         resume_task(task_id, user_id)
         await query.edit_message_text("▶️ Task resumed. Reminders are back on.")
+
+    elif action == "finish_yes":
+        # v7.0: user confirms they finished
+        task = get_task_by_id(task_id, user_id)
+        if task:
+            if is_habit(task_id):
+                ok, streak = log_habit_completion(task_id, user_id)
+                txt = (f"\U0001f525 Streak: {streak}!" if ok else "_(already logged)_")
+                await query.edit_message_text(
+                    f"\u2705 *Awesome!* Logged:\n\U0001f4cc {task[1]}\n{txt}",
+                    parse_mode="Markdown")
+            else:
+                mark_done(task_id, user_id)
+                try:
+                    _now = datetime.now(IST)
+                    log_completion(user_id, task_id, task[1], task[4] or "General",
+                                   task[3] or "00:00", _now.strftime("%Y-%m-%d %H:%M:%S"), 0)
+                except Exception:
+                    pass
+                await query.edit_message_text(
+                    f"\u2705 *Great job!* Marked done:\n\U0001f4cc {task[1]}",
+                    parse_mode="Markdown")
+        else:
+            await query.edit_message_text("Task not found.")
+
+    elif action == "finish_no":
+        # v7.0: not finished — offer help
+        task = get_task_by_id(task_id, user_id)
+        if task:
+            buttons = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("📅 Reschedule", callback_data=f"postpone:{task_id}"),
+                    InlineKeyboardButton("🔨 Break it down", callback_data=f"dobreak:{task_id}"),
+                ],
+                [InlineKeyboardButton("🔕 Stop asking", callback_data=f"stoprem:{task_id}")],
+            ])
+            await query.edit_message_text(
+                f"No worries! For *{task[1]}*, want to:\n\n"
+                f"📅 Reschedule it to tomorrow\n"
+                f"🔨 Break it into smaller steps\n"
+                f"🔕 Or stop the follow-ups?",
+                parse_mode="Markdown", reply_markup=buttons)
+        else:
+            await query.edit_message_text("Task not found.")
+
+    elif action == "dobreak":
+        # v7.0: trigger breakdown from the follow-up flow
+        task = get_task_by_id(task_id, user_id)
+        if task:
+            await query.edit_message_text(f"🔨 Breaking down *{task[1]}*...",
+                                          parse_mode="Markdown")
+            subtasks = generate_task_breakdown(task[1], task[2])
+            if subtasks:
+                set_pending_action(user_id, "create_subtasks", {
+                    "action": "create_subtasks",
+                    "parent_id": task_id,
+                    "parent_title": task[1],
+                    "parent_date": task[2],
+                    "subtasks": subtasks,
+                })
+                msg = f"💡 Suggested steps for *{task[1]}*:\n\n"
+                for i, st in enumerate(subtasks, 1):
+                    msg += f"{i}. {st.get('title','?')}\n"
+                msg += "\nSave these as subtasks?"
+                await context.bot.send_message(chat_id=user_id, text=msg,
+                    parse_mode="Markdown", reply_markup=yes_no_menu())
+            else:
+                await context.bot.send_message(chat_id=user_id,
+                    text="Couldn't break it down. Try /breakdown <id> manually.")
 
     elif action == "stoprem":
         task = get_task_by_id(task_id, user_id)
@@ -2517,6 +2611,41 @@ async def sql_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"\u274c SQL error: {str(e)[:200]}",
                                         reply_markup=main_menu())
 
+
+# ── v7.0: Review stale tasks ──────────────────────────
+async def review_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show stale tasks (3+ days overdue) for bulk decisions."""
+    user_id = update.message.from_user.id
+    stale = get_stale_tasks(user_id, days_threshold=3)
+    if not stale:
+        await update.message.reply_text(
+            "✨ *Nothing stale!*\n\nNo tasks are sitting 3+ days overdue. Nice and clean.",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+        return
+    msg = f"🧹 *Review: {len(stale)} stale task(s)*\n"
+    msg += "_(3+ days past due — decide what to do)_\n\n"
+    for t in stale[:10]:
+        tid, title, ddate, dtime, cat, prio, scount, fcount = t
+        emoji = "🔴" if prio == "high" else "🟢" if prio == "low" else "🟡"
+        # days overdue
+        try:
+            days_over = (datetime.now(IST).date() -
+                         datetime.strptime(ddate, "%Y-%m-%d").date()).days
+        except Exception:
+            days_over = "?"
+        msg += f"{emoji} *[{tid}]* {title}\n"
+        msg += f"   📅 {ddate} ({days_over}d overdue)"
+        if scount:
+            msg += f" • snoozed {scount}x"
+        msg += "\n\n"
+    msg += ("*What you can do:*\n"
+            "• `carryforward` — move all to today\n"
+            "• `delete <id>` — drop ones you won't do\n"
+            "• `reschedule <id>` — pick a new time\n"
+            "• `done <id>` — if actually finished")
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -2592,6 +2721,7 @@ def main():
     app.add_handler(CommandHandler("addhabit", addhabit_cmd))
     app.add_handler(CommandHandler("skiphabit", skiphabit_cmd))
     app.add_handler(CommandHandler("insights", insights_cmd))
+    app.add_handler(CommandHandler("review", review_cmd))
     # v6.1 admin commands
     app.add_handler(CommandHandler("myid", myid_cmd))
     app.add_handler(CommandHandler("claimadmin", claimadmin_cmd))
@@ -2714,6 +2844,72 @@ def main():
     app.job_queue.run_daily(daily_carry_forward,
         time=datetime.strptime("00:05", "%H:%M").time(),
         name="daily_carry_forward")
+
+    # ── v7.0: "Did you finish?" follow-up check ──────────
+    async def check_did_you_finish(context):
+        """Ask users if they completed tasks whose time has passed."""
+        try:
+            tasks = get_tasks_for_followup()
+            for t in tasks:
+                tid, uid, title, ddate, dtime, fcount, fsent, category = t
+                # Respect quiet hours
+                if is_quiet_hours(uid):
+                    continue
+                buttons = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Yes, done!", callback_data=f"finish_yes:{tid}"),
+                        InlineKeyboardButton("❌ Not yet", callback_data=f"finish_no:{tid}"),
+                    ],
+                    [
+                        InlineKeyboardButton("⏰ Snooze 1h", callback_data=f"snooze:{tid}:60"),
+                        InlineKeyboardButton("📅 Tomorrow", callback_data=f"postpone:{tid}"),
+                    ],
+                ])
+                try:
+                    await context.bot.send_message(
+                        chat_id=uid,
+                        text=f"👀 *Follow-up*\n\nDid you finish:\n📌 *{title}*?\n"
+                             f"_(was due {ddate} at {dtime})_",
+                        parse_mode="Markdown",
+                        reply_markup=buttons
+                    )
+                    mark_followup_sent(tid)
+                except Exception as e:
+                    logger.error(f"Follow-up send failed: {e}")
+        except Exception as e:
+            logger.error(f"check_did_you_finish failed: {e}")
+
+    app.job_queue.run_repeating(check_did_you_finish, interval=900, first=120)
+
+    # ── v7.0: End-of-day unresolved summary ──────────────
+    async def end_of_day_summary(context):
+        """At 21:00, list tasks still unresolved today."""
+        try:
+            for uid in get_all_active_user_ids():
+                if is_quiet_hours(uid):
+                    continue
+                pending = get_unresolved_today(uid)
+                if not pending:
+                    continue
+                msg = f"🌙 *End of day check-in*\n\n"
+                if len(pending) == 1:
+                    msg += f"You have 1 task still pending today:\n\n"
+                else:
+                    msg += f"You have {len(pending)} tasks still pending today:\n\n"
+                for tid, title, dtime, cat, prio in pending[:8]:
+                    emoji = "🔴" if prio == "high" else "🟢" if prio == "low" else "🟡"
+                    msg += f"{emoji} [{tid}] {title}" + (f" ⏰ {dtime}" if dtime else "") + "\n"
+                msg += "\n_Mark them done, or they'll carry to tomorrow._"
+                try:
+                    await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"end_of_day_summary failed: {e}")
+
+    app.job_queue.run_daily(end_of_day_summary,
+        time=datetime.strptime("21:00", "%H:%M").time(),
+        name="end_of_day_summary")
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""

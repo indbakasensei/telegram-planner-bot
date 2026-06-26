@@ -1,6 +1,32 @@
 # BAKA Bot — Version History
 
-## v6.1 — Admin Mode + Reset Tools (current, owner-only)
+## v7.0 — Follow-up Intelligence (current)
+Phase 7 — BAKA stops being reactive and starts following up proactively.
+
+Added:
+- "Did you finish?" check-ins: 15 min after a task's time passes, BAKA asks
+  if you completed it, with buttons: ✅ Yes done / ❌ Not yet / ⏰ Snooze 1h / 📅 Tomorrow
+- If "Not yet" → offers to Reschedule, Break it down, or Stop asking
+- Repeated-snooze detection: snooze a task 3+ times and BAKA notices —
+  "You've snoozed this 3 times. You usually get things done around 19:00 — want to move it?"
+  (uses v6.0 learned completion times)
+- /review — lists stale tasks (3+ days overdue) with days-overdue + snooze count,
+  so you can bulk carryforward/delete/reschedule
+- End-of-day summary at 21:00: "You have 3 tasks still pending today: ..."
+- All follow-ups respect quiet hours — no nagging while you sleep
+- Natural language: "review", "stale tasks", "old tasks", "what needs review"
+
+New columns: followup_sent, followup_count, snooze_count, stale_flagged
+New jobs: check_did_you_finish (every 15 min), end_of_day_summary (21:00 daily)
+New callbacks: finish_yes, finish_no, dobreak
+New functions: get_tasks_for_followup, mark_followup_sent, increment_snooze_count,
+  get_snooze_count, get_stale_tasks, get_unresolved_today, get_all_active_user_ids
+Fixed: timezone bug — v7.0 db functions now use IST not naive UTC
+Modified: main.py, database.py
+
+---
+
+## v6.1 — Admin Mode + Reset Tools (owner-only)
 A private control panel locked to YOUR Telegram ID alone.
 
 Added:

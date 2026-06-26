@@ -1,5 +1,7 @@
 import sqlite3
 from datetime import datetime, timedelta
+import pytz
+IST = pytz.timezone("Asia/Kolkata")
 
 DB_NAME = "planner.db"
 
@@ -38,6 +40,10 @@ def init_db():
         ("current_streak", "INTEGER DEFAULT 0"),
         ("longest_streak", "INTEGER DEFAULT 0"),
         ("last_completed", "TEXT DEFAULT NULL"),
+        ("followup_sent", "TEXT DEFAULT NULL"),
+        ("followup_count", "INTEGER DEFAULT 0"),
+        ("snooze_count", "INTEGER DEFAULT 0"),
+        ("stale_flagged", "INTEGER DEFAULT 0"),
     ]:
         try:
             c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
@@ -930,3 +936,93 @@ def get_data_stats(user_id):
     stats["max_task_id"] = row[0] if row and row[0] else 0
     conn.close()
     return stats
+
+# ── v7.0: Follow-up Intelligence ──────────────────────
+def get_tasks_for_followup(user_id_filter=None):
+    """
+    Tasks whose due time passed 15+ min ago, not done, not paused,
+    and we haven't sent a follow-up for THIS occurrence yet.
+    Returns tuples for the 'did you finish?' check.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST)
+    today = now.strftime("%Y-%m-%d")
+    # Only follow up on tasks whose time passed 15+ minutes ago
+    cutoff_hm = (now - timedelta(minutes=15)).strftime("%H:%M")
+    c.execute("""SELECT id, user_id, title, due_date, due_time,
+                 COALESCE(followup_count,0), followup_sent, category
+        FROM tasks
+        WHERE done=0 AND paused=0
+        AND due_date IS NOT NULL AND due_time IS NOT NULL
+        AND (recurrence_type IS NULL OR recurrence_type='')
+        AND (due_date < ? OR (due_date = ? AND due_time <= ?))
+        AND (followup_sent IS NULL OR substr(followup_sent,1,10) < ?)
+        ORDER BY due_date, due_time""",
+        (today, today, cutoff_hm, today))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def mark_followup_sent(task_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M")
+    c.execute("""UPDATE tasks SET followup_sent=?,
+                 followup_count=COALESCE(followup_count,0)+1 WHERE id=?""",
+              (now, task_id))
+    conn.commit()
+    conn.close()
+
+def increment_snooze_count(task_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET snooze_count=COALESCE(snooze_count,0)+1 WHERE id=?",
+              (task_id,))
+    conn.commit()
+    conn.close()
+
+def get_snooze_count(task_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(snooze_count,0) FROM tasks WHERE id=?", (task_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def get_stale_tasks(user_id, days_threshold=3):
+    """Tasks incomplete and 3+ days past their due date."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    cutoff = (datetime.now(IST) - timedelta(days=days_threshold)).strftime("%Y-%m-%d")
+    c.execute("""SELECT id, title, due_date, due_time, category, priority,
+                 COALESCE(snooze_count,0), COALESCE(followup_count,0)
+        FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0
+        AND due_date IS NOT NULL AND due_date < ?
+        AND (recurrence_type IS NULL OR recurrence_type='')
+        ORDER BY due_date ASC""", (user_id, cutoff))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_unresolved_today(user_id):
+    """Tasks scheduled for today that are still not done."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    c.execute("""SELECT id, title, due_time, category, priority
+        FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0 AND due_date=?
+        ORDER BY due_time ASC""", (user_id, today))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_all_active_user_ids():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT user_id FROM tasks WHERE done=0")
+    ids = [r[0] for r in c.fetchall()]
+    conn.close()
+    return ids
