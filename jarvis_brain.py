@@ -267,6 +267,63 @@ def analyze_productivity(tasks: list) -> str:
         return f"❌ Error: {str(e)}"
 
 
+def generate_structured_plan(tasks_today: list, user_prefs: dict = None,
+                             period_label: str = "today") -> dict:
+    """
+    Generate a structured time-blocked plan that can be APPLIED back to the DB.
+    Returns: {
+        "summary": "human-readable plan summary",
+        "schedule": [
+            {"task_id": <id>, "time": "HH:MM", "duration_min": 60, "note": "why this time"}
+        ]
+    }
+    """
+    if not tasks_today:
+        return {"summary": "No tasks to plan.", "schedule": []}
+    if user_prefs is None:
+        user_prefs = {}
+
+    task_lines = []
+    for t in tasks_today:
+        tid, title, ddate, dtime, cat, prio = t[:6]
+        prio_emoji = "🔴" if prio == "high" else "🟢" if prio == "low" else "🟡"
+        task_lines.append(
+            f"  id={tid} | {title} | {cat} | {prio} | "
+            f"currently_at={dtime or 'flexible'} on {ddate}"
+        )
+    quiet_start = user_prefs.get("quiet_start", "23:00")
+    quiet_end = user_prefs.get("quiet_end", "07:00")
+
+    try:
+        prompt = (
+            f"You are a productivity coach. Generate a time-blocked plan for {period_label}.\n\n"
+            f"Tasks (with their IDs):\n" + "\n".join(task_lines) + "\n\n"
+            f"Rules:\n"
+            f"- User awake from {quiet_end} to {quiet_start}\n"
+            f"- High priority tasks earlier when fresh\n"
+            f"- Group similar categories together\n"
+            f"- Realistic time blocks (30-90 min each)\n"
+            f"- Suggest specific HH:MM start times\n\n"
+            f"Reply ONLY with JSON in this exact format:\n"
+            f'{{\n'
+            f'  "summary": "Brief motivational summary of the day",\n'
+            f'  "schedule": [\n'
+            f'    {{"task_id": 5, "time": "09:00", "duration_min": 60, "note": "high-energy morning slot"}},\n'
+            f'    {{"task_id": 7, "time": "10:30", "duration_min": 45, "note": "follow-up after first task"}}\n'
+            f'  ]\n'
+            f'}}\n\n'
+            f"Every task in the input must appear in the schedule. No extra text."
+        )
+        raw = call_nvidia([{"role": "user", "content": prompt}],
+                          temperature=0.4, max_tokens=800)
+        cleaned = clean_json(raw)
+        data = json.loads(cleaned)
+        return data
+    except Exception as e:
+        logger.error(f"Structured plan failed: {e}")
+        return {"summary": "Couldn't generate structured plan.", "schedule": []}
+
+
 def generate_daily_plan(tasks_today: list, user_prefs: dict = None) -> str:
     """Generate a time-blocked plan for today's tasks."""
     if not tasks_today:

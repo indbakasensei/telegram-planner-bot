@@ -27,7 +27,8 @@ from jarvis_brain import (
     chat_with_ai, suggest_tasks, analyze_productivity,
     generate_study_plan, extract_memory_key,
     generate_daily_plan, generate_weekly_plan,
-    generate_task_breakdown, suggest_reschedule_time
+    generate_task_breakdown, suggest_reschedule_time,
+    generate_structured_plan
 )
 from conversation_state import (
     get_state, clear_state, update_context,
@@ -138,64 +139,79 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help1 = (
-        "\U0001f916 *JARVIS — Complete Guide*\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f4ac *TALK NATURALLY*\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "Just type in English, Hindi, or Hinglish!\n"
+        "🤖 *JARVIS — Complete Guide*\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "💬 *TWO WAYS TO TALK*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "*1. Natural language:*\n"
         "_'Remind me to study at 5pm'_\n"
-        "_'Kal gym yaad dila dena'_\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f4cc *TASK MANAGEMENT*\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "/list \u2014 All pending tasks\n"
-        "/today \u2014 Today's schedule\n"
-        "/week \u2014 This week's plan\n"
-        "/done <id> \u2014 Mark complete\n"
-        "/edit <id> \u2014 Modify a task\n"
-        "/delete <id> \u2014 Remove a task\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f514 *REMINDERS*\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "Auto-reminders with buttons:\n"
-        "  \u2705 Done  \u23f0 Snooze  \U0001f4c5 Tomorrow\n"
-        "/pause <id> \u2014 Stop reminders\n"
-        "/resume <id> \u2014 Restart reminders\n"
-        "/paused \u2014 View paused tasks\n"
+        "_'Kal gym yaad dila dena'_\n"
+        "_'plan my day'_\n\n"
+        "*2. Commands work WITH or WITHOUT slash:*\n"
+        "`/list` ≡ `list`\n"
+        "`/done 5` ≡ `done 5`\n"
+        "`/breakdown 3` ≡ `breakdown 3`\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📌 *TASKS*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "`list` — All pending tasks\n"
+        "`today` — Today's schedule\n"
+        "`week` — This week's plan\n"
+        "`done <id>` — Mark complete\n"
+        "`edit <id>` — Modify a task\n"
+        "`delete <id>` — Remove a task\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🔔 *REMINDERS*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "Tap-able buttons on every reminder:\n"
+        "  ✅ Done  ⏰ Snooze  📅 Tomorrow\n"
+        "`snooze <id> <min>` — Custom snooze\n"
+        "`pause <id>` — Stop reminders\n"
+        "`resume <id>` — Restart\n"
+        "`paused` — View paused tasks\n"
+        "`stopreminder <id>` — Disable for one task\n"
     )
     help2 = (
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f4c5 *TRACKING*\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "/overdue \u2014 Overdue tasks\n"
-        "/deadlines \u2014 Due in 3 days\n"
-        "/carryforward \u2014 Move overdue to today\n"
-        "/tag <id> <tags> \u2014 Add tags\n"
-        "/tagged <tag> \u2014 Search by tag\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f9e0 *AI FEATURES*\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "/memory \u2014 Stored memories\n"
-        "/analyze \u2014 Productivity report\n"
-        "/suggest <goal> \u2014 Task ideas\n"
-        "Just chat with me anytime!\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u2699\ufe0f *SETTINGS*\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "/settings \u2014 View all settings\n"
-        "/quiethours \u2014 Set sleep hours\n"
-        "/interval <min> \u2014 Reminder freq\n"
-        "/status \u2014 API health check\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f41e *DEBUG*\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "/debug \u2014 Toggle debug mode\n"
-        "/report <issue> \u2014 Report a bug\n"
-        "/bugs \u2014 View reported bugs\n"
-        "/selftest \u2014 Test checklist"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📅 *TRACKING*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "`overdue` — Overdue tasks\n"
+        "`deadlines` — Due in 3 days\n"
+        "`carryforward` — Move overdue to today\n"
+        "`tag <id> <tags>` — Add tags\n"
+        "`tagged <tag>` — Search by tag\n"
+        "`checktasks` — Diagnose reminders\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🧠 *PLANNING & AI*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "`plan today` / `plan week` — Time-blocked plan (asks to apply!)\n"
+        "`breakdown <id>` — Split big task into subtasks\n"
+        "`reschedule <id>` — AI picks new time\n"
+        "`overload` — Find overloaded days\n"
+        "`analyze` — Productivity report\n"
+        "`suggest <goal>` — Task suggestions\n"
+        "`memory` — Stored memories\n"
+        "`forget <key>` — Delete a memory\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "⚙️ *SETTINGS*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "`settings` — View preferences\n"
+        "`quiethours <start> <end>` — Sleep window\n"
+        "`interval <min>` — Reminder frequency\n"
+        "`status` — API health\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🐞 *DEBUG*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "`debug` — Toggle debug mode\n"
+        "`report <issue>` — Report a bug\n"
+        "`bugs` — View open bugs\n"
+        "`trace` — Last AI interaction\n"
+        "`selftest` — Test checklist\n\n"
+        "💡 _Slash is optional everywhere!_"
     )
     await update.message.reply_text(help1, parse_mode="Markdown")
     await update.message.reply_text(help2, parse_mode="Markdown", reply_markup=main_menu())
+
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_state(update.message.from_user.id)
     await update.message.reply_text("❌ Cancelled.", reply_markup=main_menu())
@@ -436,6 +452,29 @@ async def execute_task_action(user_id: int, data: dict, update: Update):
             )
         else:
             await update.message.reply_text("⚠️ All tasks already exist.", reply_markup=main_menu())
+
+    elif action == "apply_plan":
+        items = data.get("items", [])
+        applied_count = 0
+        skipped_count = 0
+        for item in items:
+            tid = item.get("task_id")
+            when = item.get("time")
+            if tid and when:
+                # Validate HH:MM format
+                import re as _re
+                if _re.match(r"^\d{1,2}:\d{2}$", str(when)):
+                    h, mn = when.split(":")
+                    new_time = f"{int(h):02d}:{int(mn):02d}"
+                    update_task(tid, user_id, due_time=new_time)
+                    applied_count += 1
+                else:
+                    skipped_count += 1
+        msg = f"✅ *Plan applied!*\n\nUpdated {applied_count} task(s)"
+        if skipped_count:
+            msg += f" (skipped {skipped_count} with invalid times)"
+        msg += ".\n\n_You'll get reminders at the new times._"
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
     elif action == "create_subtasks":
         parent_id = data.get("parent_id")
@@ -679,36 +718,91 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await forget_cmd(update, context)
                 return
 
-    _command_phrases = {
-        ("plan my day", "plan today", "what should i do today", "today's plan",
-         "schedule my day", "make a plan"): plan_cmd,
-        ("plan my week", "plan this week", "weekly plan", "week ahead"): plan_cmd,
-        ("am i overloaded", "show overload", "load check", "busy days"): overload_cmd,
-        ("show bugs", "list bugs", "view bugs", "what bugs"): bugs_cmd,
-        ("show settings", "my settings", "view settings"): settings_cmd,
-        ("show overdue", "my overdue", "what is overdue"): overdue_cmd,
-        ("show deadlines", "my deadlines", "what deadlines"): deadlines_cmd,
-        ("show memory", "show memories", "my memories", "what do you remember"): memory_cmd,
-        ("show paused", "paused tasks"): paused_cmd,
-        ("api status", "check status", "is api working", "is the bot online"): status_cmd,
-        ("self test", "run tests", "run self test"): selftest_cmd,
-        ("show help", "what can you do", "help me", "guide me"): help_command,
-        ("turn on debug", "enable debug", "debug mode on"): debug_cmd,
-        ("turn off debug", "disable debug", "debug mode off"): debug_cmd,
-        ("trace this", "what did you understand", "what was my last message"): trace_cmd,
-        ("carry forward", "move overdue to today"): carryforward_cmd,
+    # ── v4.1 EXHAUSTIVE natural-language command map ─────
+    # All slash commands ALSO work without the slash.
+    # Phrases checked in order — most specific first to avoid mismatches.
+
+    # Phase 1: phrases needing arguments (must be a STARTS-WITH match)
+    _starts_with_handlers = [
+        # (prefix_list, handler, needs_args)
+        (["plan today", "plan my day", "today's plan", "schedule my day",
+          "make a plan", "what should i do today"], plan_cmd, ["today"]),
+        (["plan week", "plan my week", "weekly plan", "week ahead",
+          "plan this week"], plan_cmd, ["week"]),
+        (["breakdown ", "break down ", "split task ", "subtasks for "], breakdown_cmd, None),
+        (["reschedule ", "move task ", "shift task "], reschedule_cmd, None),
+        (["snooze "], snooze_cmd, None),
+        (["pause "], pause_cmd, None),
+        (["resume "], resume_cmd, None),
+        (["tag "], tag_cmd, None),
+        (["tagged ", "tasks with tag "], tagged_cmd, None),
+        (["stopreminder ", "stop reminder ", "stop reminders for "], stopreminder_cmd, None),
+        (["delreminder ", "delete reminder "], delreminder_cmd, None),
+        (["done ", "complete task ", "finish task ", "mark done "], done_task, None),
+        (["delete ", "remove ", "del "], delete_task_cmd, None),
+        (["edit "], edit_task_cmd, None),
+        (["report ", "bug "], report_cmd, None),
+        (["resolve "], resolve_cmd, None),
+        (["forget ", "delete memory ", "remove memory ",
+          "delete remembered ", "remove remembered "], forget_cmd, None),
+        (["quiethours ", "quiet hours ", "set quiet "], quiethours_cmd, None),
+        (["interval ", "reminder interval ", "set interval "], interval_cmd, None),
+        (["suggest "], suggest_cmd, None),
+    ]
+    for prefixes, handler, default_args in _starts_with_handlers:
+        for prefix in prefixes:
+            if _low_full.startswith(prefix):
+                args_str = user_input[len(prefix):].strip()
+                context.args = (args_str.split() if args_str else (default_args or []))
+                await handler(update, context)
+                return
+
+    # Phase 2: phrases that are full-message matches (no args)
+    _exact_handlers = {
+        # Task viewing
+        ("list", "my tasks", "show tasks", "all tasks", "show all"): list_tasks,
+        ("today", "today's tasks", "show today", "what's today",
+         "what do i have today", "schedule today"): today_tasks,
+        ("week", "this week", "weekly", "show week", "what's this week"): week_tasks,
+        # Status
+        ("status", "api status", "check status", "is api working",
+         "is the bot online", "health check"): status_cmd,
+        ("settings", "my settings", "view settings", "show settings"): settings_cmd,
+        # Debug
+        ("debug", "toggle debug", "turn on debug", "enable debug",
+         "debug mode on", "turn off debug", "disable debug", "debug mode off"): debug_cmd,
+        ("bugs", "show bugs", "list bugs", "view bugs", "what bugs", "open bugs"): bugs_cmd,
+        ("trace", "trace this", "what did you understand",
+         "what was my last message"): trace_cmd,
+        ("selftest", "self test", "run tests", "run self test", "test"): selftest_cmd,
+        # Lists
+        ("overdue", "show overdue", "my overdue", "what is overdue",
+         "what's overdue"): overdue_cmd,
+        ("deadlines", "show deadlines", "my deadlines", "what deadlines",
+         "upcoming deadlines"): deadlines_cmd,
+        ("memory", "show memory", "show memories", "my memories",
+         "what do you remember"): memory_cmd,
+        ("paused", "show paused", "paused tasks"): paused_cmd,
+        # Planning
+        ("overload", "am i overloaded", "show overload",
+         "load check", "busy days"): overload_cmd,
+        ("carryforward", "carry forward", "move overdue to today"): carryforward_cmd,
+        # Analysis
+        ("analyze", "analyse", "analyze me", "productivity",
+         "how productive", "analyse productivity"): analyze_cmd,
+        # Help
+        ("help", "show help", "what can you do", "help me",
+         "guide me", "commands"): help_command,
+        ("cancel", "stop", "nevermind", "never mind", "abort"): cancel_cmd,
+        # Diagnostics
+        ("checktasks", "check tasks", "diagnose tasks", "task diagnostics"): checktasks_cmd,
     }
-    for phrases, _handler in _command_phrases.items():
-        if any(p in _low_full for p in phrases):
-            # set context.args based on the phrase matched
+    for phrases, handler in _exact_handlers.items():
+        if _low_full in phrases or any(_low_full == p for p in phrases):
             context.args = []
-            if _handler == plan_cmd:
-                if "week" in _low_full or "weekly" in _low_full:
-                    context.args = ["week"]
-                else:
-                    context.args = ["today"]
-            await _handler(update, context)
+            await handler(update, context)
             return
+
 
     # ── Quick-match VIEW requests so LLM can't misclassify them as TASK ──
     _low = user_input.lower()
@@ -1647,7 +1741,7 @@ async def checktasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── v4.0: Smart Planning Commands ─────────────────────
 async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate a time-blocked daily or weekly plan."""
+    """v4.1: Generate a time-blocked plan AND offer to apply it to actual tasks."""
     user_id = update.message.from_user.id
     period = (context.args[0].lower() if context.args else "today")
     now = datetime.now(IST)
@@ -1664,11 +1758,8 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await update.message.reply_text("📅 Generating your weekly plan...")
         prefs = get_user_prefs(user_id)
-        plan = generate_weekly_plan(tasks, prefs)
-        await update.message.reply_text(
-            f"🗓 *Your Week Ahead*\n\n{plan}",
-            parse_mode="Markdown", reply_markup=main_menu()
-        )
+        plan_data = generate_structured_plan(tasks, prefs, "this week")
+        await _present_plan(update, user_id, plan_data, period_label="Week Ahead")
         return
 
     # Default: today
@@ -1682,11 +1773,45 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("📋 Generating your daily plan...")
     prefs = get_user_prefs(user_id)
-    plan = generate_daily_plan(tasks, prefs)
-    await update.message.reply_text(
-        f"📋 *Today's Plan ({today_str})*\n\n{plan}",
-        parse_mode="Markdown", reply_markup=main_menu()
-    )
+    plan_data = generate_structured_plan(tasks, prefs, "today")
+    await _present_plan(update, user_id, plan_data, period_label=f"Today ({today_str})")
+
+
+async def _present_plan(update, user_id, plan_data, period_label):
+    """Show the plan and ask whether to apply it to actual task schedule."""
+    schedule = plan_data.get("schedule", [])
+    summary = plan_data.get("summary", "")
+    if not schedule:
+        await update.message.reply_text(
+            "Couldn't generate a structured plan. Try /list to see your tasks.",
+            reply_markup=main_menu()
+        )
+        return
+
+    msg = f"📋 *Plan for {period_label}*\n\n{summary}\n\n"
+    valid_items = []
+    for item in schedule:
+        tid = item.get("task_id")
+        when = item.get("time", "?")
+        dur = item.get("duration_min", "?")
+        note = item.get("note", "")
+        task = get_task_by_id(int(tid), user_id) if tid else None
+        if task:
+            msg += f"⏰ *{when}* — [{tid}] {task[1]} ({dur}m)\n"
+            if note:
+                msg += f"   _{note}_\n"
+            valid_items.append({"task_id": int(tid), "time": when})
+    if not valid_items:
+        await update.message.reply_text(msg + "\n_No valid items to apply._",
+                                        parse_mode="Markdown", reply_markup=main_menu())
+        return
+
+    msg += f"\n_Apply this plan to schedule these {len(valid_items)} tasks?_"
+    set_pending_action(user_id, "apply_plan", {
+        "action": "apply_plan",
+        "items": valid_items,
+    })
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=yes_no_menu())
 
 
 async def breakdown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
