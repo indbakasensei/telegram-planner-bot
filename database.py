@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_NAME = "planner.db"
 
@@ -33,6 +33,11 @@ def init_db():
         ("tags", "TEXT DEFAULT NULL"),
         ("reminder_count", "INTEGER DEFAULT 0"),
         ("parent_task_id", "INTEGER DEFAULT NULL"),
+        ("is_habit", "INTEGER DEFAULT 0"),
+        ("habit_start_date", "TEXT DEFAULT NULL"),
+        ("current_streak", "INTEGER DEFAULT 0"),
+        ("longest_streak", "INTEGER DEFAULT 0"),
+        ("last_completed", "TEXT DEFAULT NULL"),
     ]:
         try:
             c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
@@ -49,6 +54,16 @@ def init_db():
         key TEXT NOT NULL,
         value TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS habit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        habit_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        log_date TEXT NOT NULL,
+        completed INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(habit_id, log_date)
     )''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS goals (
@@ -540,3 +555,141 @@ def count_tasks_per_day(user_id, start_date, end_date):
     rows = dict(c.fetchall())
     conn.close()
     return rows
+
+# ── v5.0: Habit Engine ────────────────────────────────
+def add_habit(user_id, title, time=None, recurrence="daily",
+              recurrence_weekday=None, category="Health", priority="medium"):
+    """Create a habit (a recurring task with is_habit=1)."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    today = datetime.now().strftime("%Y-%m-%d")
+    c.execute("""INSERT INTO tasks
+        (user_id, title, due_time, category, priority,
+         recurrence_type, recurrence_weekday,
+         is_habit, habit_start_date, current_streak, longest_streak)
+        VALUES (?,?,?,?,?,?,?,1,?,0,0)""",
+        (user_id, title, time, category, priority,
+         recurrence, recurrence_weekday, today))
+    hid = c.lastrowid
+    conn.commit()
+    conn.close()
+    return hid
+
+def is_habit(task_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(is_habit,0) FROM tasks WHERE id=?", (task_id,))
+    row = c.fetchone()
+    conn.close()
+    return bool(row and row[0])
+
+def log_habit_completion(habit_id, user_id, log_date=None):
+    """Log that habit was done on a given date (default today). Updates streak."""
+    if log_date is None:
+        log_date = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Insert log entry (UNIQUE constraint prevents double-log per day)
+    try:
+        c.execute("INSERT INTO habit_log (habit_id, user_id, log_date, completed) VALUES (?,?,?,1)",
+                  (habit_id, user_id, log_date))
+    except sqlite3.IntegrityError:
+        # Already logged today
+        conn.close()
+        return False, "already_logged"
+
+    # Compute current streak
+    c.execute("""SELECT log_date FROM habit_log
+                 WHERE habit_id=? AND completed=1
+                 ORDER BY log_date DESC""", (habit_id,))
+    dates = [r[0] for r in c.fetchall()]
+    streak = 0
+    cursor_date = datetime.strptime(log_date, "%Y-%m-%d").date()
+    for d_str in dates:
+        d = datetime.strptime(d_str, "%Y-%m-%d").date()
+        if d == cursor_date:
+            streak += 1
+            cursor_date = cursor_date - timedelta(days=1)
+        else:
+            break
+
+    # Update task's current_streak, longest_streak, last_completed
+    c.execute("SELECT longest_streak FROM tasks WHERE id=?", (habit_id,))
+    row = c.fetchone()
+    longest = max(streak, (row[0] if row else 0) or 0)
+    c.execute("""UPDATE tasks SET current_streak=?, longest_streak=?, last_completed=?
+                 WHERE id=?""", (streak, longest, log_date, habit_id))
+    conn.commit()
+    conn.close()
+    return True, streak
+
+def get_habit_log(habit_id, user_id, days=30):
+    """Return last N days of habit log entries."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    c.execute("""SELECT log_date, completed FROM habit_log
+                 WHERE habit_id=? AND user_id=? AND log_date >= ?
+                 ORDER BY log_date DESC""", (habit_id, user_id, cutoff))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_habits(user_id):
+    """All active habits for the user."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT id, title, due_time, recurrence_type, recurrence_weekday,
+                 current_streak, longest_streak, last_completed, habit_start_date
+                 FROM tasks
+                 WHERE user_id=? AND COALESCE(is_habit,0)=1 AND done=0 AND paused=0
+                 ORDER BY current_streak DESC""", (user_id,))
+    habits = c.fetchall()
+    conn.close()
+    return habits
+
+def get_missed_days(habit_id, user_id, days=30):
+    """Days the habit should have been done but wasn't, in the last N days."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT habit_start_date, recurrence_type, recurrence_weekday
+                 FROM tasks WHERE id=? AND user_id=?""", (habit_id, user_id))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return []
+    start_date_str, recurrence_type, recurrence_weekday = row
+    start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date() if start_date_str else None
+    if not start_date:
+        conn.close()
+        return []
+
+    cutoff = max(start_date,
+                 (datetime.now() - timedelta(days=days)).date())
+
+    # Days when this habit "should" have happened
+    expected = []
+    today = datetime.now().date()
+    cur = cutoff
+    while cur <= today:
+        if recurrence_type == "daily":
+            expected.append(cur.strftime("%Y-%m-%d"))
+        elif recurrence_type == "weekly" and cur.weekday() == (recurrence_weekday or 0):
+            expected.append(cur.strftime("%Y-%m-%d"))
+        cur = cur + timedelta(days=1)
+
+    # Logged days
+    c.execute("""SELECT log_date FROM habit_log
+                 WHERE habit_id=? AND user_id=? AND completed=1""", (habit_id, user_id))
+    logged = {r[0] for r in c.fetchall()}
+    conn.close()
+    missed = [d for d in expected if d not in logged]
+    return missed
+
+def reset_streak(habit_id):
+    """Reset streak to 0 when user explicitly skips a day."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET current_streak=0 WHERE id=?", (habit_id,))
+    conn.commit()
+    conn.close()

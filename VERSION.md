@@ -1,6 +1,31 @@
 # JARVIS Bot — Version History
 
-## v4.0 — Smart Planning + Task Breakdown (current)
+## v5.0 — Habit Engine (current)
+Phase 5 — habits become first-class with streaks and missed-day tracking.
+
+Added:
+- Habits are stored separately from tasks (is_habit flag) and tracked via habit_log table
+- /habits — list all habits with streak summary and fire emojis
+- /streak <id> — detailed view of a habit with 14-day grid (🟩 done, ⬜ missed)
+- /habitlog <id> — full 30-day completion log
+- /addhabit <text> — quick habit creation
+- /skiphabit <id> — reset streak when you intentionally skip
+- Marking a habit done auto-logs it AND updates the streak
+- Longest-streak tracking (your personal best)
+- Missed-days detection (compares expected days vs logged days)
+- Suggests adjustment tip when you miss 3+ days
+- HABIT intent (from v3.0) now creates real habits, not just recurring tasks
+- All habit commands work without slash: "habits", "streak 5", "addhabit gym daily", etc.
+
+New DB: habit_log table (per-day completion records, UNIQUE on habit_id+log_date)
+New columns: is_habit, habit_start_date, current_streak, longest_streak, last_completed
+New functions: add_habit, is_habit, log_habit_completion, get_habit_log,
+  get_habits, get_missed_days, reset_streak
+Modified: main.py, database.py — done_task and inline-done callback are habit-aware
+
+---
+
+## v4.0 — Smart Planning + Task Breakdown
 Phase 4 — the bot stops being just a reminder app and becomes a planner.
 
 Added:

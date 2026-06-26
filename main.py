@@ -20,7 +20,9 @@ from database import (
     get_user_prefs, set_quiet_hours, set_reminder_interval,
     increment_reminder_count, mark_reminded, get_all_user_ids,
     stop_reminders, clear_snooze,
-    add_subtask, get_subtasks, get_tasks_for_planning, count_tasks_per_day
+    add_subtask, get_subtasks, get_tasks_for_planning, count_tasks_per_day,
+    add_habit, is_habit, log_habit_completion, get_habit_log,
+    get_habits, get_missed_days, reset_streak
 )
 from jarvis_brain import (
     get_jarvis_response, check_api_status,
@@ -255,11 +257,24 @@ async def done_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not task:
             await update.message.reply_text(f"❌ Task [{task_id}] not found.")
             return
-        mark_done(task_id, user_id)
-        await update.message.reply_text(
-            f"✅ *Done!* Great job:\n📌 {task[1]}",
-            parse_mode="Markdown", reply_markup=main_menu()
-        )
+        # v5.0: if it's a habit, log completion and show streak
+        was_habit = is_habit(task_id)
+        if was_habit:
+            ok, streak_or_msg = log_habit_completion(task_id, user_id)
+            if ok:
+                streak_text = f"\n🔥 Streak: *{streak_or_msg}* day{'s' if streak_or_msg != 1 else ''}!"
+            else:
+                streak_text = "\n_(already logged today)_"
+            await update.message.reply_text(
+                f"✅ *Habit completed!*\n📌 {task[1]}{streak_text}",
+                parse_mode="Markdown", reply_markup=main_menu()
+            )
+        else:
+            mark_done(task_id, user_id)
+            await update.message.reply_text(
+                f"✅ *Done!* Great job:\n📌 {task[1]}",
+                parse_mode="Markdown", reply_markup=main_menu()
+            )
     except ValueError:
         await update.message.reply_text("Usage: /done <id>")
 
@@ -452,6 +467,29 @@ async def execute_task_action(user_id: int, data: dict, update: Update):
             )
         else:
             await update.message.reply_text("⚠️ All tasks already exist.", reply_markup=main_menu())
+
+    elif action == "create_habit":
+        title = data.get("title")
+        time_val = data.get("time")
+        rec = data.get("recurrence", "daily")
+        rec_weekday = data.get("recurrence_weekday")
+        if not title:
+            await update.message.reply_text("❌ No habit title — try again.",
+                                            reply_markup=main_menu())
+            return
+        hid = add_habit(user_id, title, time=time_val,
+                        recurrence=rec, recurrence_weekday=rec_weekday,
+                        category=data.get("category", "Health"),
+                        priority=data.get("priority", "medium"))
+        await update.message.reply_text(
+            f"🌱 *Habit saved!*\n\n"
+            f"📌 *{title}* [{hid}]\n"
+            f"🔄 {rec}\n"
+            f"⏰ {time_val or 'flexible'}\n\n"
+            f"_Mark done daily to build your streak!_\n"
+            f"Use /habits to view all habits.",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
 
     elif action == "apply_plan":
         items = data.get("items", [])
@@ -748,6 +786,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (["quiethours ", "quiet hours ", "set quiet "], quiethours_cmd, None),
         (["interval ", "reminder interval ", "set interval "], interval_cmd, None),
         (["suggest "], suggest_cmd, None),
+        (["streak "], streak_cmd, None),
+        (["habitlog ", "habit log "], habitlog_cmd, None),
+        (["addhabit ", "add habit ", "new habit "], addhabit_cmd, None),
+        (["skiphabit ", "skip habit ", "reset streak "], skiphabit_cmd, None),
     ]
     for prefixes, handler, default_args in _starts_with_handlers:
         for prefix in prefixes:
@@ -786,6 +828,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Planning
         ("overload", "am i overloaded", "show overload",
          "load check", "busy days"): overload_cmd,
+        ("habits", "show habits", "my habits", "list habits"): habits_cmd,
         ("carryforward", "carry forward", "move overdue to today"): carryforward_cmd,
         # Analysis
         ("analyze", "analyse", "analyze me", "productivity",
@@ -1151,25 +1194,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif intent == "HABIT":
-        # v3.0: offer to set up recurring task for habit requests
+        # v5.0: real habit creation with streak tracking
         title = entities.get("title") or user_input
         recurrence = entities.get("recurrence") or "daily"
         time_val = entities.get("time") or parsed.get("time")
-        set_pending_action(user_id, "create_task", {
-            "action": "create",
+        # Extract recurrence weekday for weekly habits
+        rec_obj = parsed.get("recurrence") or {}
+        rec_weekday = rec_obj.get("weekday")
+        set_pending_action(user_id, "create_habit", {
+            "action": "create_habit",
             "title": title,
-            "date": None,
             "time": time_val,
+            "recurrence": recurrence,
+            "recurrence_weekday": rec_weekday,
             "category": entities.get("category", "Health"),
             "priority": entities.get("priority", "medium"),
-            "recurrence": recurrence,
         })
+        rec_label = recurrence
+        if recurrence == "weekly" and rec_weekday is not None:
+            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            rec_label = f"every {day_names[rec_weekday]}"
         await update.message.reply_text(
-            f"💪 *Setting up a habit!*\n\n"
-            f"🔁 *{title}*\n"
-            f"🔄 Repeats: {recurrence}\n"
-            f"⏰ Time: {time_val or 'No time set'}\n\n"
-            f"Shall I save this?",
+            f"🌱 *Setting up a habit!*\n\n"
+            f"📌 *{title}*\n"
+            f"🔄 Repeats: {rec_label}\n"
+            f"⏰ Time: {time_val or 'flexible'}\n\n"
+            f"_I'll track your streak as you mark it done each day._\n\n"
+            f"Save this habit?",
             parse_mode="Markdown", reply_markup=yes_no_menu()
         )
 
@@ -1290,11 +1341,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "done":
         task = get_task_by_id(task_id, user_id)
         if task:
-            mark_done(task_id, user_id)
-            await query.edit_message_text(
-                f"✅ *Done!* Completed:\n📌 {task[1]}",
-                parse_mode="Markdown"
-            )
+            # v5.0: habit-aware completion
+            if is_habit(task_id):
+                ok, streak_or_msg = log_habit_completion(task_id, user_id)
+                streak_text = (f"\n🔥 Streak: *{streak_or_msg}* day"
+                               f"{'s' if isinstance(streak_or_msg,int) and streak_or_msg != 1 else ''}!"
+                               if ok else "\n_(already logged today)_")
+                await query.edit_message_text(
+                    f"✅ *Habit completed!*\n📌 {task[1]}{streak_text}",
+                    parse_mode="Markdown"
+                )
+            else:
+                mark_done(task_id, user_id)
+                await query.edit_message_text(
+                    f"✅ *Done!* Completed:\n📌 {task[1]}",
+                    parse_mode="Markdown"
+                )
         else:
             await query.edit_message_text("❌ Task not found.")
 
@@ -1945,6 +2007,186 @@ async def overload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\n💡 Use /reschedule <id> to move tasks around."
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
+
+# ── v5.0: Habit Engine Commands ───────────────────────
+async def habits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all habits with streak summary."""
+    user_id = update.message.from_user.id
+    habits = get_habits(user_id)
+    if not habits:
+        await update.message.reply_text(
+            "🌱 *No habits yet!*\n\n"
+            "Start one with:\n"
+            "_'I want to run every day at 6 AM'_\n"
+            "_'addhabit Drink water hourly'_\n"
+            "_'gym every monday at 7 AM'_",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
+        return
+    msg = f"🌱 *Your Habits ({len(habits)})*\n\n"
+    for h in habits:
+        hid, title, dtime, rec, weekday, streak, longest, last_done, start = h
+        streak = streak or 0
+        fire = "🔥" * min(streak, 5) if streak > 0 else "○"
+        rec_label = "daily" if rec == "daily" else f"weekly (day {weekday})" if rec == "weekly" else rec or "—"
+        msg += f"*[{hid}]* {title}\n"
+        msg += f"   {fire} Streak: *{streak}* | Best: {longest or 0}\n"
+        msg += f"   ⏰ {dtime or 'flexible'} • {rec_label}\n"
+        if last_done:
+            msg += f"   Last done: {last_done}\n"
+        msg += "\n"
+    msg += "_Mark done daily to build streaks!_\nUse /streak <id> for details."
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+
+async def streak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show detailed streak info for a habit."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /streak <habit_id>\nUse /habits to see your habits.",
+            reply_markup=main_menu()
+        )
+        return
+    try:
+        hid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: /streak <habit_id>")
+        return
+    task = get_task_by_id(hid, user_id)
+    if not task or not is_habit(hid):
+        await update.message.reply_text("❌ That's not a habit. Use /habits to see them.")
+        return
+
+    log = get_habit_log(hid, user_id, days=14)
+    missed = get_missed_days(hid, user_id, days=14)
+    habits = [h for h in get_habits(user_id) if h[0] == hid]
+    if not habits:
+        await update.message.reply_text("Habit not found or paused.")
+        return
+    h = habits[0]
+    _, title, dtime, rec, weekday, streak, longest, last_done, start = h
+    streak = streak or 0
+    longest = longest or 0
+
+    msg = f"🌱 *{title}*\n\n"
+    msg += f"🔥 Current streak: *{streak} day{'s' if streak != 1 else ''}*\n"
+    msg += f"🏆 Longest streak: *{longest} day{'s' if longest != 1 else ''}*\n"
+    msg += f"📅 Started: {start or '?'}\n"
+    if last_done:
+        msg += f"✅ Last done: {last_done}\n"
+    msg += f"\n*Last 14 days:*\n"
+
+    # Visual 14-day grid
+    from datetime import date as _d
+    today = datetime.now(IST).date()
+    logged_dates = {row[0] for row in log if row[1]}
+    bar = ""
+    for i in range(13, -1, -1):
+        day = today - timedelta(days=i)
+        bar += "🟩" if day.strftime("%Y-%m-%d") in logged_dates else "⬜"
+    msg += bar + "\n"
+
+    if missed:
+        msg += f"\n⚠️ Missed {len(missed)} day(s) in this window."
+        if len(missed) >= 3:
+            msg += "\n💡 _Tip: try changing the time or making it easier._"
+
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+
+async def habitlog_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Detailed log for a habit."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text("Usage: /habitlog <habit_id>")
+        return
+    try:
+        hid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: /habitlog <habit_id>")
+        return
+    task = get_task_by_id(hid, user_id)
+    if not task or not is_habit(hid):
+        await update.message.reply_text("That's not a habit.")
+        return
+
+    log = get_habit_log(hid, user_id, days=30)
+    if not log:
+        await update.message.reply_text(f"No log entries yet for *{task[1]}*.",
+                                        parse_mode="Markdown")
+        return
+    msg = f"📊 *Log for {task[1]}* (last 30 days)\n\n"
+    for d, completed in log[:30]:
+        emoji = "✅" if completed else "❌"
+        msg += f"{emoji} {d}\n"
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+
+
+async def addhabit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Quick habit creation from a single command."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "🌱 *Add a habit*\n\n"
+            "Usage: /addhabit <habit name> [at HH:MM] [daily|weekly]\n"
+            "Example: /addhabit Drink water at 09:00 daily\n\n"
+            "Or just say it naturally:\n"
+            "_'I want to run every day at 6 AM'_",
+            parse_mode="Markdown"
+        )
+        return
+    text = " ".join(context.args)
+    # Use parser to extract time + recurrence from the natural description
+    from date_parser import parse_all as _parse
+    p = _parse(text, datetime.now(IST))
+    time_val = p.get("time")
+    rec = p.get("recurrence")
+    rec_type = rec["type"] if rec else "daily"
+    rec_weekday = rec.get("weekday") if rec else None
+    # Strip out time/recurrence words from title
+    title = text
+    import re as _re
+    title = _re.sub(r"\b(at\s+\d{1,2}:\d{2})\b|\b(daily|every day|every week|weekly|monthly)\b",
+                    "", title, flags=_re.IGNORECASE).strip()
+    title = _re.sub(r"\s+", " ", title)
+    if not title:
+        await update.message.reply_text("Tell me what the habit is.")
+        return
+    hid = add_habit(user_id, title, time=time_val,
+                    recurrence=rec_type, recurrence_weekday=rec_weekday)
+    await update.message.reply_text(
+        f"🌱 *Habit created!*\n\n"
+        f"📌 *{title}*\n"
+        f"🔄 {rec_type}{' (day ' + str(rec_weekday) + ')' if rec_weekday is not None else ''}\n"
+        f"⏰ {time_val or 'flexible'}\n\n"
+        f"Mark it done every time you do it — I'll track your streak!\n"
+        f"Use /habits to see all habits.",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
+
+async def skiphabit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset streak — user is skipping intentionally."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text("Usage: /skiphabit <habit_id>")
+        return
+    try:
+        hid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: /skiphabit <habit_id>")
+        return
+    task = get_task_by_id(hid, user_id)
+    if not task or not is_habit(hid):
+        await update.message.reply_text("That's not a habit.")
+        return
+    reset_streak(hid)
+    await update.message.reply_text(
+        f"🔄 Streak reset for *{task[1]}*. No worries — start fresh tomorrow!",
+        parse_mode="Markdown", reply_markup=main_menu()
+    )
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -2014,6 +2256,11 @@ def main():
     app.add_handler(CommandHandler("breakdown", breakdown_cmd))
     app.add_handler(CommandHandler("reschedule", reschedule_cmd))
     app.add_handler(CommandHandler("overload", overload_cmd))
+    app.add_handler(CommandHandler("habits", habits_cmd))
+    app.add_handler(CommandHandler("streak", streak_cmd))
+    app.add_handler(CommandHandler("habitlog", habitlog_cmd))
+    app.add_handler(CommandHandler("addhabit", addhabit_cmd))
+    app.add_handler(CommandHandler("skiphabit", skiphabit_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
