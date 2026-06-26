@@ -1,4 +1,4 @@
-# JARVIS Bot — Version History
+# BAKA Bot — Version History
 
 ## v5.0 — Habit Engine (current)
 Phase 5 — habits become first-class with streaks and missed-day tracking.
@@ -44,7 +44,7 @@ New DB column: parent_task_id
 New functions: add_subtask, get_subtasks, get_tasks_for_planning,
   count_tasks_per_day, generate_daily_plan, generate_weekly_plan,
   generate_task_breakdown, suggest_reschedule_time
-Modified: main.py, database.py, jarvis_brain.py
+Modified: main.py, database.py, baka_brain.py
 
 ---
 

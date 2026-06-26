@@ -24,8 +24,8 @@ from database import (
     add_habit, is_habit, log_habit_completion, get_habit_log,
     get_habits, get_missed_days, reset_streak
 )
-from jarvis_brain import (
-    get_jarvis_response, check_api_status,
+from baka_brain import (
+    get_baka_response, check_api_status,
     chat_with_ai, suggest_tasks, analyze_productivity,
     generate_study_plan, extract_memory_key,
     generate_daily_plan, generate_weekly_plan,
@@ -125,8 +125,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_state(user_id)
     name = update.message.from_user.first_name or "there"
     await update.message.reply_text(
-        f"👋 Hey {name}! I'm *JARVIS* — your AI personal assistant.\n\n"
-        f"I help you manage tasks, reminders, and goals through natural conversation.\n\n"
+        f"👋 Hey {name}! I'm *BAKA* — your *Behavioral Adaptive Knowledge Assistant*.\n\n"
+        f"I learn how you work and help you stay on top of tasks, reminders, habits, and goals — "
+        f"all through natural conversation.\n\n"
         f"🗣 *Just type naturally:*\n"
         f"• _'Remind me to call mom tomorrow at 5pm'_\n"
         f"• _'Kal 8 baje gym yaad dila dena'_\n"
@@ -141,7 +142,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help1 = (
-        "🤖 *JARVIS — Complete Guide*\n\n"
+        "🤖 *BAKA — Behavioral Adaptive Knowledge Assistant*\n\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "💬 *TWO WAYS TO TALK*\n"
         "━━━━━━━━━━━━━━━━━━━\n"
@@ -636,7 +637,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id = get_editing_id(user_id)
         if task_id:
             parsed = parse_all(user_input)
-            result = get_jarvis_response(
+            result = get_baka_response(
                 f"Modify task [{task_id}]. User: '{user_input}'",
                 [], get_history(user_id)
             )
@@ -671,7 +672,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "gathering":
         partial, missing = get_gathering(user_id)
         parsed = parse_all(user_input)
-        result = get_jarvis_response(
+        result = get_baka_response(
             f"Context: {partial}. Need: {missing}. User: '{user_input}'",
             get_tasks(user_id), get_history(user_id)
         )
@@ -896,13 +897,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ── Idle — JARVIS ──
+    # ── Idle — BAKA ──
     now = datetime.now(IST)
     parsed = parse_all(user_input, now)
     memories = get_all_memories(user_id)
     existing_tasks = get_tasks(user_id)
 
-    result = get_jarvis_response(user_input, existing_tasks, get_history(user_id), memories)
+    result = get_baka_response(user_input, existing_tasks, get_history(user_id), memories)
     intent = result.get("intent", "CHAT").upper()
     entities = result.get("entities", {})
     missing = result.get("missing", [])
@@ -2415,8 +2416,8 @@ def main():
             logger.error(f"Deadline check failed: {e}")
 
     app.job_queue.run_repeating(check_deadlines, interval=3600, first=120)
-    logger.info("🤖 JARVIS is online!")
-    print("🤖 JARVIS is running! Check bot.log for logs.")
+    logger.info("🤖 BAKA is online!")
+    print("🤖 BAKA is running! Check bot.log for logs.")
     app.run_polling(drop_pending_updates=True)
 
 

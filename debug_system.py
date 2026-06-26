@@ -1,5 +1,5 @@
 """
-debug_system.py — JARVIS Debug & Bug-Tracking System (v1.0)
+debug_system.py — BAKA Debug & Bug-Tracking System (v1.0)
 
 This is the foundation layer the roadmap says to build FIRST.
 It lets you report bugs from inside Telegram, auto-logs every crash,
@@ -174,7 +174,7 @@ def export_all_bugs() -> str:
     bugs = get_open_bugs()
     if not bugs:
         return "No open bugs! 🎉"
-    lines = ["=== JARVIS BUG REPORT ===", f"Generated: {datetime.now()}", ""]
+    lines = ["=== BAKA BUG REPORT ===", f"Generated: {datetime.now()}", ""]
     for bug in bugs:
         detail = get_bug_detail(bug[0])
         lines.append(f"--- Bug #{detail[0]} [{detail[1]}] ---")

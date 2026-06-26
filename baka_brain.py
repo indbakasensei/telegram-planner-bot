@@ -1,5 +1,5 @@
 """
-jarvis_brain.py — JARVIS AI brain
+baka_brain.py — BAKA AI brain
 Handles intent detection with memory, multiple tasks, and better Hindi/Hinglish support.
 """
 import json
@@ -47,7 +47,7 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024) -> str:
             else:
                 raise e
 
-def get_jarvis_response(user_input: str, existing_tasks: list,
+def get_baka_response(user_input: str, existing_tasks: list,
                         history: list = None, memories: list = None) -> dict:
     today = datetime.now()
     tomorrow = today + timedelta(days=1)
@@ -71,7 +71,7 @@ def get_jarvis_response(user_input: str, existing_tasks: list,
         for h in history[-4:]:
             hist_ctx += f"{h['role'].upper()}: {h['content']}\n"
 
-    system = f"""You are JARVIS, an intelligent Telegram AI assistant.
+    system = f"""You are BAKA, an intelligent Telegram AI assistant.
 
 DATE CONTEXT:
 Today={today.strftime('%A %d %B %Y')} ({today.strftime('%Y-%m-%d')})
@@ -186,7 +186,7 @@ For MULTIPLE intent, populate tasks array:
                     "response": "Could you rephrase that? I want to make sure I understand correctly.",
                     "needs_confirm": False, "tasks": []}
     except Exception as e:
-        logger.error(f"JARVIS error: {e}")
+        logger.error(f"BAKA error: {e}")
         return {"intent": "CHAT", "entities": {}, "confidence": 0.0,
                 "missing": [], "errors": [],
                 "response": f"Something went wrong. Please try again.",
@@ -233,7 +233,7 @@ def chat_with_ai(message: str) -> str:
     try:
         return call_nvidia([{
             "role": "user",
-            "content": f"You are JARVIS, a helpful AI assistant. Be concise and friendly.\nUser: {message}"
+            "content": f"You are BAKA, a helpful AI assistant. Be concise and friendly.\nUser: {message}"
         }], temperature=0.7, max_tokens=512)
     except Exception as e:
         return f"❌ Error: {str(e)}"

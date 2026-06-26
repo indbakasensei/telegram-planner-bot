@@ -1,8 +1,8 @@
-# 🤖 JARVIS — AI Personal Assistant Bot for Telegram
+# 🤖 BAKA — AI Personal Assistant Bot for Telegram
 
 A conversational AI-powered Telegram bot that manages your tasks, reminders, goals, and productivity through natural language — in **English, Hindi, and Hinglish**.
 
-Unlike typical reminder bots, JARVIS **owns your tasks until they're done** — it keeps reminding you with escalating urgency, respects your sleep hours, and carries forward anything you miss.
+Unlike typical reminder bots, BAKA **owns your tasks until they're done** — it keeps reminding you with escalating urgency, respects your sleep hours, and carries forward anything you miss.
 
 ---
 
@@ -82,7 +82,7 @@ python3 main.py
 
 For persistent running (survives terminal close):
 ```bash
-screen -S jarvis
+screen -S baka
 bash run.sh
 # Press Ctrl+A then D to detach
 ```
@@ -146,7 +146,7 @@ bash run.sh
 
 ```
 main.py               → Telegram handlers, conversation flow, state machine
-jarvis_brain.py        → NVIDIA NIM API, intent detection, AI responses
+baka_brain.py        → NVIDIA NIM API, intent detection, AI responses
 database.py            → SQLite operations (tasks, memories, goals, preferences)
 date_parser.py         → Regex date/time parser (English + Hindi + Hinglish)
 conversation_state.py  → Per-user state machine (idle/gathering/confirming/editing)
