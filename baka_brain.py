@@ -10,12 +10,30 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
-load_dotenv()
+# Bulletproof .env loading — works regardless of working directory or import order
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(_env_path)
+_api_key = os.getenv("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")
+if not _api_key:
+    # Fallback: read .env manually if dotenv failed
+    try:
+        with open(_env_path) as _f:
+            for _line in _f:
+                if _line.startswith("NVIDIA_API_KEY="):
+                    _api_key = _line.strip().split("=", 1)[1]
+    except FileNotFoundError:
+        pass
+
 logger = logging.getLogger(__name__)
 
+# v10.0: Model config — single constant makes v11.0 multi-model swap easy
+NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+MODEL_MAIN = "z-ai/glm-5.1"  # GLM 5.1 — main brain
+# v11.0 planned: MODEL_FAST, MODEL_IMAGE, MODEL_VISION, MODEL_VIDEO
+
 client = OpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=os.getenv("NVIDIA_API_KEY")
+    base_url=NIM_BASE_URL,
+    api_key=_api_key or "missing-key-check-env-file"
 )
 
 def clean_json(content: str) -> str:
@@ -30,14 +48,15 @@ def clean_json(content: str) -> str:
         content = content[start:end]
     return content
 
-def call_nvidia(messages: list, temperature=0.1, max_tokens=1024) -> str:
+def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1) -> str:
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
-                model="meta/llama-3.1-8b-instruct",
+                model=MODEL_MAIN,
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                top_p=top_p
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -201,7 +220,7 @@ def check_api_status() -> dict:
     start = time.time()
     try:
         response = client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=MODEL_MAIN,
             messages=[{"role": "user", "content": "Reply with only: ONLINE"}],
             max_tokens=10, temperature=0
         )

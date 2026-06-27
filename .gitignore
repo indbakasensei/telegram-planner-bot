@@ -1,7 +1,3 @@
-.env
-venv/
-__pycache__/
-*.db
 # Secrets
 .env
 admin_id.txt

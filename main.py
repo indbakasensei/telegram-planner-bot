@@ -427,7 +427,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
         text = (
             f"✅ *NVIDIA API — Online*\n\n"
-            f"🤖 Model: `{result.get('model', 'llama-3.1-8b')}`\n"
+            f"🤖 Model: `{result.get('model', 'glm-5.1')}`\n"
             f"⏱ Response: {rt}ms ({speed})\n"
             f"🔁 Finish: {result.get('finish_reason', 'N/A')}\n\n"
             f"📊 *Tokens Used:*\n"

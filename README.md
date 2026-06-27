@@ -54,7 +54,7 @@ No commands needed. Just type like you're texting a friend.
 
 ### 2. Get NVIDIA API key
 1. Go to [build.nvidia.com](https://build.nvidia.com)
-2. Find **meta/llama-3.1-8b-instruct**
+2. Find **z-ai/glm-5.1**
 3. Click **Get API Key**
 
 ### 3. Clone and setup
@@ -233,7 +233,7 @@ All settings are configurable via Telegram:
 
 - **Python 3.12** with async/await
 - **python-telegram-bot 20.7** (Telegram API)
-- **NVIDIA NIM API** — meta/llama-3.1-8b-instruct (free tier: 1000 calls/month)
+- **NVIDIA NIM API** — z-ai/glm-5.1 (free tier: 1000 calls/month)
 - **SQLite** — zero-config database
 - **pytz** — IST timezone handling
 - **APScheduler** — reminder scheduling

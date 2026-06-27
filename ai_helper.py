@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 load_dotenv()
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
-    api_key=os.getenv("NVIDIA_API_KEY")
+    api_key=os.getenv("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")
 )
 
 def ask_ai(prompt: str) -> str:
@@ -22,9 +22,11 @@ def check_api_status() -> dict:
     """Check if NVIDIA API is working and return status"""
     try:
         response = client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
-            messages=[{"role": "user", "content": "Reply with only the word: OK"}],
-            max_tokens=5
+            model="z-ai/glm-5.1",
+            messages=[{"role":"user","content":""}],
+            temperature=1,
+            top_p=1,
+            max_tokens=16384,
         )
         reply = response.choices[0].message.content.strip()
         usage = response.usage
