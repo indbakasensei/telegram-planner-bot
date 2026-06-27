@@ -28,7 +28,9 @@ from database import (
     reset_learning_data, reset_everything, get_data_stats,
     get_tasks_for_followup, mark_followup_sent, increment_snooze_count,
     get_snooze_count, get_stale_tasks, get_unresolved_today,
-    get_all_active_user_ids
+    get_all_active_user_ids,
+    get_wellness_prefs, set_wellness, mark_wellness_sent,
+    get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
 from baka_brain import (
@@ -1185,8 +1187,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "priority": entities.get("priority", "medium"),
             })
             summary = confirm_summary or build_summary(summary_data)
+            # v8.0: smart suggestion — warn if the time slot is crowded
+            extra = ""
+            try:
+                slot_count = count_tasks_at_time(user_id, summary_data["date"], summary_data["time"])
+                if slot_count >= 2:
+                    extra = f"\n\n💡 <i>Heads up: you already have {slot_count} task(s) at that exact time.</i>"
+            except Exception:
+                pass
             await update.message.reply_text(
-                f"Got it! Here's what I'll save:\n\n{summary}\n\nShall I save this?",
+                f"Got it! Here's what I'll save:\n\n{summary}{extra}\n\nShall I save this?",
                 parse_mode=HTML, reply_markup=yes_no_menu()
             )
 
@@ -2679,6 +2689,100 @@ async def review_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `done <id>` — if actually finished")
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
 
+
+# ── v8.0: Proactive / Wellness Commands ───────────────
+WELLNESS_MESSAGES = {
+    "water": ["💧 Time to drink some water! Stay hydrated.",
+              "💧 Hydration check — grab a glass of water.",
+              "💧 Quick water break? Your body will thank you."],
+    "break": ["🧘 You've been at it a while. Take a 5-minute break.",
+              "🧘 Stand up, stretch, walk around for a moment.",
+              "🧘 Brain needs rest — step away for 5 minutes."],
+    "eyes":  ["👀 Look away from the screen — focus on something 20 feet away for 20 seconds.",
+              "👀 Eye break! Blink a few times and rest your eyes.",
+              "👀 20-20-20 rule: look 20ft away for 20 seconds."],
+    "posture": ["🪑 Posture check — sit up straight, roll your shoulders back.",
+                "🪑 Straighten your back and relax your shoulders."],
+}
+
+async def wellness_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Control wellness reminders (water, break, eyes, posture)."""
+    user_id = update.message.from_user.id
+    prefs = get_wellness_prefs(user_id)
+    if not context.args:
+        status = "🟢 ON" if prefs["on"] else "⚪ OFF"
+        await update.message.reply_text(
+            f"🌿 {b('Wellness Reminders')}\n\n"
+            f"Status: {status}\n"
+            f"Interval: every {prefs['interval']} min\n"
+            f"Types: {esc(prefs['types'])}\n\n"
+            f"{b('Commands:')}\n"
+            f"{code('wellness on')} / {code('wellness off')}\n"
+            f"{code('wellness interval 60')} — change frequency\n"
+            f"{code('wellness water')} / {code('break')} / {code('eyes')} / {code('all')}\n\n"
+            f"<i>Only sent during your awake hours — never during quiet hours.</i>",
+            parse_mode=HTML, reply_markup=main_menu()
+        )
+        return
+    arg = context.args[0].lower()
+    if arg in ("on", "enable", "start"):
+        set_wellness(user_id, on=True)
+        await update.message.reply_text(
+            f"🟢 Wellness reminders {b('ON')}. I'll nudge you to take care of yourself "
+            f"every {prefs['interval']} min during your active hours.",
+            parse_mode=HTML, reply_markup=main_menu())
+    elif arg in ("off", "disable", "stop"):
+        set_wellness(user_id, on=False)
+        await update.message.reply_text(
+            f"⚪ Wellness reminders {b('OFF')}.",
+            parse_mode=HTML, reply_markup=main_menu())
+    elif arg == "interval" and len(context.args) > 1:
+        try:
+            mins = int(context.args[1])
+            if mins < 15:
+                await update.message.reply_text("Minimum interval is 15 minutes.",
+                                                reply_markup=main_menu())
+                return
+            set_wellness(user_id, interval=mins)
+            await update.message.reply_text(
+                f"🌿 Wellness interval set to every {b(str(mins) + ' min')}.",
+                parse_mode=HTML, reply_markup=main_menu())
+        except ValueError:
+            await update.message.reply_text("Usage: wellness interval <minutes>",
+                                            reply_markup=main_menu())
+    elif arg in ("water", "break", "eyes", "posture", "all"):
+        set_wellness(user_id, types=arg, on=True)
+        await update.message.reply_text(
+            f"🌿 Wellness type set to {b(arg)} and reminders turned ON.",
+            parse_mode=HTML, reply_markup=main_menu())
+    else:
+        await update.message.reply_text(
+            "Usage: wellness on|off|interval <min>|water|break|eyes|all",
+            reply_markup=main_menu())
+
+
+async def proactive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Control panel for all proactive features."""
+    user_id = update.message.from_user.id
+    w = get_wellness_prefs(user_id)
+    prefs = get_user_prefs(user_id)
+    msg = (
+        f"🤖 {b('Proactive Features')}\n\n"
+        f"These are things BAKA does on its own to help you:\n\n"
+        f"🔔 {b('Reminders')} — always on\n"
+        f"   <i>Reminds until done, escalates near deadlines</i>\n\n"
+        f"👀 {b('Follow-ups')} — always on\n"
+        f"   <i>Asks 'did you finish?' after tasks pass</i>\n\n"
+        f"🌙 {b('End-of-day summary')} — 21:00 daily\n"
+        f"   <i>Lists what's still pending today</i>\n\n"
+        f"🌿 {b('Wellness nudges')} — {'🟢 ON' if w['on'] else '⚪ OFF'}\n"
+        f"   <i>Water/break/eye reminders. Toggle: {code('wellness on')}</i>\n\n"
+        f"⏰ {b('Quiet hours')} — {esc(prefs['quiet_start'])}–{esc(prefs['quiet_end'])}\n"
+        f"   <i>No proactive messages during this window</i>\n\n"
+        f"💡 High-priority tasks due soon get a heads-up automatically."
+    )
+    await update.message.reply_text(msg, parse_mode=HTML, reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -2755,6 +2859,8 @@ def main():
     app.add_handler(CommandHandler("skiphabit", skiphabit_cmd))
     app.add_handler(CommandHandler("insights", insights_cmd))
     app.add_handler(CommandHandler("review", review_cmd))
+    app.add_handler(CommandHandler("wellness", wellness_cmd))
+    app.add_handler(CommandHandler("proactive", proactive_cmd))
     # v6.1 admin commands
     app.add_handler(CommandHandler("myid", myid_cmd))
     app.add_handler(CommandHandler("claimadmin", claimadmin_cmd))
@@ -2943,6 +3049,75 @@ def main():
     app.job_queue.run_daily(end_of_day_summary,
         time=datetime.strptime("21:00", "%H:%M").time(),
         name="end_of_day_summary")
+
+    # ── v8.0: Wellness reminders (opt-in) ────────────────
+    import random as _random
+    async def wellness_reminder(context):
+        """Send opt-in wellness nudges, respecting quiet hours + interval."""
+        try:
+            for uid in get_wellness_enabled_users():
+                if is_quiet_hours(uid):
+                    continue
+                w = get_wellness_prefs(uid)
+                # Respect the interval since last wellness message
+                if w["last"]:
+                    try:
+                        last = IST.localize(datetime.strptime(w["last"], "%Y-%m-%d %H:%M"))
+                        mins_since = (datetime.now(IST) - last).total_seconds() / 60
+                        if mins_since < w["interval"]:
+                            continue
+                    except (ValueError, AttributeError):
+                        pass
+                # Choose a message type
+                types = w["types"]
+                if types == "all":
+                    pool = []
+                    for msgs in WELLNESS_MESSAGES.values():
+                        pool.extend(msgs)
+                else:
+                    pool = WELLNESS_MESSAGES.get(types, WELLNESS_MESSAGES["water"])
+                text = _random.choice(pool)
+                try:
+                    await context.bot.send_message(chat_id=uid, text=text)
+                    mark_wellness_sent(uid)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"wellness_reminder failed: {e}")
+
+    # Check every 15 min; the per-user interval gate does the real spacing
+    app.job_queue.run_repeating(wellness_reminder, interval=900, first=300)
+
+    # ── v8.0: Proactive high-priority deadline nudge ─────
+    async def priority_nudge(context):
+        """Heads-up for high-priority tasks due within 3 hours (once each)."""
+        try:
+            for uid in get_all_active_user_ids():
+                if is_quiet_hours(uid):
+                    continue
+                soon = get_high_priority_soon(uid, hours=3)
+                for tid, title, dtime, fcount in soon:
+                    # only nudge once — reuse followup_sent as the 'nudged' marker
+                    if fcount and fcount > 0:
+                        continue
+                    buttons = InlineKeyboardMarkup([[
+                        InlineKeyboardButton("✅ Done", callback_data=f"done:{tid}"),
+                        InlineKeyboardButton("🔨 Break down", callback_data=f"dobreak:{tid}"),
+                    ]])
+                    try:
+                        await context.bot.send_message(
+                            chat_id=uid,
+                            text=f"🔴 {b('Heads up')} — high-priority task coming up:\n\n"
+                                 f"📌 {b(title)}\n<i>⏰ Due at {esc(dtime)}</i>\n\n"
+                                 f"Want to start now, or break it into steps?",
+                            parse_mode=HTML, reply_markup=buttons)
+                        mark_followup_sent(tid)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"priority_nudge failed: {e}")
+
+    app.job_queue.run_repeating(priority_nudge, interval=1800, first=600)
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""

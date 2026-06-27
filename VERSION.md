@@ -1,6 +1,31 @@
 # BAKA Bot — Version History
 
-## v7.1 — Log-Driven Bug Fixes + Rich HTML Formatting (current)
+## v8.0 — Proactive Suggestions (current)
+Phase 8 — BAKA offers help on its own, but every proactive feature is opt-in
+or respectful of quiet hours so it never becomes annoying.
+
+Added:
+- Wellness reminders (OPT-IN, default OFF): 💧 water, 🧘 break, 👀 eye-rest, 🪑 posture
+  - /wellness on|off, /wellness interval 60, /wellness water|break|eyes|all
+  - Only sent during awake hours, never during quiet hours
+  - Per-user interval gate (default 90 min) prevents spam
+- /proactive — control panel showing every proactive feature + its status
+- Smart task-creation hint: if you already have 2+ tasks at the exact same time,
+  the confirmation shows "you already have N tasks at that time"
+- Proactive high-priority nudge: a high-priority task due within 3 hours gets ONE
+  heads-up with Done / Break-down buttons (never repeated)
+- All new messages use clean HTML formatting (fmt.py)
+
+New columns: wellness_on, wellness_interval, wellness_types, last_wellness (user_preferences)
+New functions: get_wellness_prefs, set_wellness, mark_wellness_sent,
+  get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
+New jobs: wellness_reminder (every 15m, interval-gated), priority_nudge (every 30m)
+Fixed: init_db now runs preference + learning migrations at startup, not lazily
+Modified: main.py, database.py
+
+---
+
+## v7.1 — Log-Driven Bug Fixes + Rich HTML Formatting
 Fixed bugs found in real test logs + switched messages to clean HTML formatting.
 
 Bugs fixed (from test log analysis):

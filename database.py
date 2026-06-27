@@ -83,6 +83,16 @@ def init_db():
     )''')
 
     conn.commit()
+    # v8.0: ensure preference + learning table migrations run at startup
+    try:
+        _init_preferences(conn)
+    except Exception:
+        pass
+    try:
+        _init_learning_tables(conn)
+    except Exception:
+        pass
+    conn.commit()
     conn.close()
 
 
@@ -410,6 +420,17 @@ def _init_preferences(conn):
         max_reminders_per_task INTEGER DEFAULT 5,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )""")
+    # v8.0: wellness reminder columns — migrate safely
+    for col, ddl in [
+        ("wellness_on", "INTEGER DEFAULT 0"),
+        ("wellness_interval", "INTEGER DEFAULT 90"),
+        ("wellness_types", "TEXT DEFAULT 'all'"),
+        ("last_wellness", "TEXT DEFAULT NULL"),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE user_preferences ADD COLUMN {col} {ddl}")
+        except Exception:
+            pass
     conn.commit()
 
 def get_user_prefs(user_id):
@@ -1026,3 +1047,88 @@ def get_all_active_user_ids():
     ids = [r[0] for r in c.fetchall()]
     conn.close()
     return ids
+
+# ── v8.0: Wellness / Proactive settings ───────────────
+def get_wellness_prefs(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_preferences(conn)
+    c = conn.cursor()
+    c.execute("""SELECT COALESCE(wellness_on,0), COALESCE(wellness_interval,90),
+                 COALESCE(wellness_types,'all'), last_wellness
+                 FROM user_preferences WHERE user_id=?""", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"on": bool(row[0]), "interval": row[1],
+                "types": row[2], "last": row[3]}
+    return {"on": False, "interval": 90, "types": "all", "last": None}
+
+def set_wellness(user_id, on=None, interval=None, types=None):
+    conn = sqlite3.connect(DB_NAME)
+    _init_preferences(conn)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM user_preferences WHERE user_id=?", (user_id,))
+    if not c.fetchone():
+        c.execute("INSERT INTO user_preferences (user_id) VALUES (?)", (user_id,))
+    if on is not None:
+        c.execute("UPDATE user_preferences SET wellness_on=? WHERE user_id=?",
+                  (1 if on else 0, user_id))
+    if interval is not None:
+        c.execute("UPDATE user_preferences SET wellness_interval=? WHERE user_id=?",
+                  (interval, user_id))
+    if types is not None:
+        c.execute("UPDATE user_preferences SET wellness_types=? WHERE user_id=?",
+                  (types, user_id))
+    conn.commit()
+    conn.close()
+
+def mark_wellness_sent(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M")
+    c.execute("UPDATE user_preferences SET last_wellness=? WHERE user_id=?",
+              (now, user_id))
+    conn.commit()
+    conn.close()
+
+def get_wellness_enabled_users():
+    conn = sqlite3.connect(DB_NAME)
+    _init_preferences(conn)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM user_preferences WHERE COALESCE(wellness_on,0)=1")
+    ids = [r[0] for r in c.fetchall()]
+    conn.close()
+    return ids
+
+def count_tasks_at_time(user_id, date, time):
+    """How many tasks the user has at a specific date+time (slot crowding)."""
+    if not date or not time:
+        return 0
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""SELECT COUNT(*) FROM tasks
+        WHERE user_id=? AND done=0 AND due_date=? AND due_time=?""",
+        (user_id, date, time))
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+def get_high_priority_soon(user_id, hours=3):
+    """High-priority tasks due within the next N hours (for proactive nudge)."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST)
+    today = now.strftime("%Y-%m-%d")
+    soon = (now + timedelta(hours=hours)).strftime("%H:%M")
+    current = now.strftime("%H:%M")
+    c.execute("""SELECT id, title, due_time, COALESCE(followup_count,0)
+        FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0
+        AND priority='high' AND due_date=?
+        AND due_time IS NOT NULL
+        AND due_time > ? AND due_time <= ?
+        AND (recurrence_type IS NULL OR recurrence_type='')""",
+        (user_id, today, current, soon))
+    rows = c.fetchall()
+    conn.close()
+    return rows
