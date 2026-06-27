@@ -81,11 +81,19 @@ def init_db():
         done INTEGER DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
-    # v9.0: optional milestone target for goal progress bars
-    try:
-        c.execute("ALTER TABLE goals ADD COLUMN target INTEGER DEFAULT 100")
-    except Exception:
-        pass
+    # v9.0 hotfix: legacy goals tables may pre-date some columns.
+    # CREATE TABLE IF NOT EXISTS skips when table exists, so explicitly migrate.
+    for col, ddl in [
+        ("deadline", "TEXT"),
+        ("progress", "INTEGER DEFAULT 0"),
+        ("done", "INTEGER DEFAULT 0"),
+        ("created_at", "TEXT DEFAULT CURRENT_TIMESTAMP"),
+        ("target", "INTEGER DEFAULT 100"),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE goals ADD COLUMN {col} {ddl}")
+        except Exception:
+            pass
 
     conn.commit()
     # v8.0: ensure preference + learning table migrations run at startup
@@ -298,11 +306,26 @@ def add_goal(user_id, title, deadline=None):
     return goal_id
 
 def get_goals(user_id):
+    """Legacy goals query — defensive against missing 'done' column."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('SELECT id, title, deadline, progress FROM goals WHERE user_id=? AND done=0',
-              (user_id,))
-    goals = c.fetchall()
+    try:
+        c.execute("PRAGMA table_info(goals)")
+        cols = {r[1] for r in c.fetchall()}
+    except Exception:
+        cols = set()
+    where_done = " AND COALESCE(done,0)=0" if "done" in cols else ""
+    progress_expr = "COALESCE(progress,0)" if "progress" in cols else "0"
+    deadline_expr = "deadline" if "deadline" in cols else "NULL"
+    try:
+        c.execute(
+            f"SELECT id, title, {deadline_expr}, {progress_expr} "
+            f"FROM goals WHERE user_id=?{where_done}",
+            (user_id,)
+        )
+        goals = c.fetchall()
+    except Exception:
+        goals = []
     conn.close()
     return goals
 
@@ -1140,27 +1163,63 @@ def get_high_priority_soon(user_id, hours=3):
 
 # ── v9.0: Goal progress helpers ───────────────────────
 def get_goals_full(user_id):
-    """Goals with target for progress bars."""
+    """
+    Goals with target for progress bars.
+    Defensive: tolerates legacy schemas missing 'done', 'target', or 'created_at'.
+    """
     conn = sqlite3.connect(DB_NAME)
     _c = conn.cursor()
+    # Discover which columns actually exist in this DB
     try:
-        _c.execute("""SELECT id, title, deadline, COALESCE(progress,0),
-                      COALESCE(target,100) FROM goals
-                      WHERE user_id=? AND done=0 ORDER BY created_at DESC""",
-                   (user_id,))
+        _c.execute("PRAGMA table_info(goals)")
+        cols = {r[1] for r in _c.fetchall()}
+    except Exception:
+        cols = set()
+    has_done = "done" in cols
+    has_target = "target" in cols
+    has_created = "created_at" in cols
+    has_progress = "progress" in cols
+    has_deadline = "deadline" in cols
+
+    progress_expr = "COALESCE(progress,0)" if has_progress else "0"
+    target_expr = "COALESCE(target,100)" if has_target else "100"
+    deadline_expr = "deadline" if has_deadline else "NULL"
+    where_done = " AND COALESCE(done,0)=0" if has_done else ""
+    order_clause = " ORDER BY created_at DESC" if has_created else " ORDER BY id DESC"
+
+    try:
+        _c.execute(
+            f"SELECT id, title, {deadline_expr}, {progress_expr}, {target_expr} "
+            f"FROM goals WHERE user_id=?{where_done}{order_clause}",
+            (user_id,)
+        )
         rows = _c.fetchall()
     except Exception:
-        _c.execute("""SELECT id, title, deadline, COALESCE(progress,0)
-                      FROM goals WHERE user_id=? AND done=0""", (user_id,))
-        rows = [(r[0], r[1], r[2], r[3], 100) for r in _c.fetchall()]
+        rows = []
     conn.close()
     return rows
 
 def update_goal_progress(goal_id, user_id, delta):
-    """Adjust a goal's progress by delta, clamped to [0, target]. Auto-completes."""
+    """
+    Adjust a goal's progress by delta, clamped to [0, target]. Auto-completes.
+    Defensive: works even if 'done' or 'target' columns don't exist yet.
+    """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT COALESCE(progress,0), COALESCE(target,100) FROM goals WHERE id=? AND user_id=?",
+    c.execute("PRAGMA table_info(goals)")
+    cols = {r[1] for r in c.fetchall()}
+    has_done = "done" in cols
+    has_target = "target" in cols
+    has_progress = "progress" in cols
+
+    if not has_progress:
+        # Can't track progress without the column — bail out gracefully
+        conn.close()
+        return None
+
+    progress_expr = "COALESCE(progress,0)"
+    target_expr = "COALESCE(target,100)" if has_target else "100"
+    c.execute(f"SELECT {progress_expr}, {target_expr} FROM goals WHERE id=? AND user_id=?",
               (goal_id, user_id))
     row = c.fetchone()
     if not row:
@@ -1169,8 +1228,13 @@ def update_goal_progress(goal_id, user_id, delta):
     progress, target = row
     new_progress = max(0, min(target, progress + delta))
     done = 1 if new_progress >= target else 0
-    c.execute("UPDATE goals SET progress=?, done=? WHERE id=? AND user_id=?",
-              (new_progress, done, goal_id, user_id))
+
+    if has_done:
+        c.execute("UPDATE goals SET progress=?, done=? WHERE id=? AND user_id=?",
+                  (new_progress, done, goal_id, user_id))
+    else:
+        c.execute("UPDATE goals SET progress=? WHERE id=? AND user_id=?",
+                  (new_progress, goal_id, user_id))
     conn.commit()
     conn.close()
     return new_progress, target, bool(done)
