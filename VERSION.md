@@ -1,6 +1,41 @@
 # BAKA Bot — Version History
 
-## v8.0 — Proactive Suggestions (current)
+## v9.0 — Dashboard & Rich UX Integration (current)
+Phase 9 — transforms BAKA from chat-centric to dashboard-centric. Purely additive;
+every prior feature preserved. New ui.py component module keeps UI separate from logic.
+
+Added:
+- 🏠 Unified Dashboard (/dashboard, /home, menu button, "dashboard"/"home" NL)
+  Adaptive home hub: today/overdue/pending counts, goals, habits, completion bar
+- New ui.py module — reusable HTML cards: dashboard_card, task_card, today_card,
+  goal_card, habit_card, stat_card, reminder_card, progress_bar
+- Rich Task Cards with inline action rows: Done · Edit · Snooze · Postpone · Delete
+- Today View grouped into Overdue / High-priority / Upcoming / Completed
+- 🎯 Goal Dashboard with progress bars + inline ➕/➖ progress buttons (/goals)
+  New goals.target column for milestone tracking
+- 🌱 Habit Dashboard card (wraps existing v5.0 habit engine — not rebuilt)
+- 📊 Productivity/Stats dashboard (wraps v6.0 analyze_user) with completion bars
+- ☀️ Morning Briefing job (08:00): today's priorities, deadlines, overdue, goals
+- 🌙 Evening Review (upgraded end-of-day): done count, pending, tomorrow preview
+- Centralized dashboard callback router ("dash:" namespace) — edits messages
+  IN PLACE to reduce chat clutter (spec #11)
+- Callback logger + dashboard render logger (debug infra)
+
+Safety / compatibility:
+- HARDENED handle_callback: task_id now parsed safely (try/except) so dashboard
+  callbacks never crash the old int() conversion — makes ALL callbacks more robust
+- "dash:" callback namespace is fully separate — zero collision with existing actions
+- Every existing command (25), callback (10), and scheduler job preserved
+- 1 safe migration: ALTER TABLE goals ADD COLUMN target (no data touched)
+
+New file: ui.py
+New DB: goals.target column; get_goals_full, update_goal_progress, get_done_today_count
+New jobs: morning_briefing (08:00); end_of_day_summary upgraded to Evening Review
+Modified: main.py (router, dashboard handlers, menu, GOAL intent), database.py
+
+---
+
+## v8.0 — Proactive Suggestions
 Phase 8 — BAKA offers help on its own, but every proactive feature is opt-in
 or respectful of quiet hours so it never becomes annoying.
 

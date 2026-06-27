@@ -81,6 +81,11 @@ def init_db():
         done INTEGER DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
+    # v9.0: optional milestone target for goal progress bars
+    try:
+        c.execute("ALTER TABLE goals ADD COLUMN target INTEGER DEFAULT 100")
+    except Exception:
+        pass
 
     conn.commit()
     # v8.0: ensure preference + learning table migrations run at startup
@@ -1132,3 +1137,54 @@ def get_high_priority_soon(user_id, hours=3):
     rows = c.fetchall()
     conn.close()
     return rows
+
+# ── v9.0: Goal progress helpers ───────────────────────
+def get_goals_full(user_id):
+    """Goals with target for progress bars."""
+    conn = sqlite3.connect(DB_NAME)
+    _c = conn.cursor()
+    try:
+        _c.execute("""SELECT id, title, deadline, COALESCE(progress,0),
+                      COALESCE(target,100) FROM goals
+                      WHERE user_id=? AND done=0 ORDER BY created_at DESC""",
+                   (user_id,))
+        rows = _c.fetchall()
+    except Exception:
+        _c.execute("""SELECT id, title, deadline, COALESCE(progress,0)
+                      FROM goals WHERE user_id=? AND done=0""", (user_id,))
+        rows = [(r[0], r[1], r[2], r[3], 100) for r in _c.fetchall()]
+    conn.close()
+    return rows
+
+def update_goal_progress(goal_id, user_id, delta):
+    """Adjust a goal's progress by delta, clamped to [0, target]. Auto-completes."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(progress,0), COALESCE(target,100) FROM goals WHERE id=? AND user_id=?",
+              (goal_id, user_id))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return None
+    progress, target = row
+    new_progress = max(0, min(target, progress + delta))
+    done = 1 if new_progress >= target else 0
+    c.execute("UPDATE goals SET progress=?, done=? WHERE id=? AND user_id=?",
+              (new_progress, done, goal_id, user_id))
+    conn.commit()
+    conn.close()
+    return new_progress, target, bool(done)
+
+def get_done_today_count(user_id):
+    """How many tasks the user completed today (by last_completed date)."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    # done tasks updated today OR habit logs today
+    c.execute("""SELECT COUNT(*) FROM tasks
+                 WHERE user_id=? AND done=1
+                 AND substr(COALESCE(last_completed, created_at),1,10)=?""",
+              (user_id, today))
+    n = c.fetchone()[0]
+    conn.close()
+    return n

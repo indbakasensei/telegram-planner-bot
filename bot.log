@@ -79750,3 +79750,381 @@ telegram.error.BadRequest: Can't parse entities: can't find end of the entity st
 2026-06-27 08:18:16,875 - INFO - Application is stopping. This might take a moment.
 2026-06-27 08:18:16,875 - INFO - Scheduler has been shut down
 2026-06-27 08:18:16,886 - INFO - Application.stop() complete
+2026-06-27 08:18:31,510 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,510 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,513 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,513 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,513 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,513 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,513 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,513 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:18:31,514 - INFO - 🤖 BAKA is online!
+2026-06-27 08:18:32,024 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getMe "HTTP/1.1 200 OK"
+2026-06-27 08:18:32,186 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/deleteWebhook "HTTP/1.1 200 OK"
+2026-06-27 08:18:32,187 - INFO - Added job "check_reminders" to job store "default"
+2026-06-27 08:18:32,187 - INFO - Added job "check_followups" to job store "default"
+2026-06-27 08:18:32,187 - INFO - Added job "daily_carry_forward" to job store "default"
+2026-06-27 08:18:32,187 - INFO - Added job "check_did_you_finish" to job store "default"
+2026-06-27 08:18:32,187 - INFO - Added job "end_of_day_summary" to job store "default"
+2026-06-27 08:18:32,187 - INFO - Added job "wellness_reminder" to job store "default"
+2026-06-27 08:18:32,188 - INFO - Added job "priority_nudge" to job store "default"
+2026-06-27 08:18:32,188 - INFO - Added job "check_deadlines" to job store "default"
+2026-06-27 08:18:32,188 - INFO - Scheduler started
+2026-06-27 08:18:32,188 - INFO - Application started
+2026-06-27 08:18:41,520 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:19:41 UTC)" (scheduled at 2026-06-27 08:18:41.509878+00:00)
+2026-06-27 08:18:41,523 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:19:41 UTC)" executed successfully
+2026-06-27 08:18:42,649 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:18:52,806 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:19:02,959 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:19:13,129 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:19:23,286 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:19:31,520 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:24:31 UTC)" (scheduled at 2026-06-27 08:19:31.510581+00:00)
+2026-06-27 08:19:31,522 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:24:31 UTC)" executed successfully
+2026-06-27 08:19:33,444 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:19:41,519 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:20:41 UTC)" (scheduled at 2026-06-27 08:19:41.509878+00:00)
+2026-06-27 08:19:41,520 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:20:41 UTC)" executed successfully
+2026-06-27 08:19:43,603 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:19:53,757 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:20:03,912 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:20:14,065 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:20:24,223 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:20:31,523 - INFO - Running job "check_did_you_finish (trigger: interval[0:15:00], next run at: 2026-06-27 08:35:31 UTC)" (scheduled at 2026-06-27 08:20:31.513423+00:00)
+2026-06-27 08:20:31,523 - INFO - Running job "check_deadlines (trigger: interval[1:00:00], next run at: 2026-06-27 09:20:31 UTC)" (scheduled at 2026-06-27 08:20:31.513944+00:00)
+2026-06-27 08:20:31,528 - INFO - Job "check_did_you_finish (trigger: interval[0:15:00], next run at: 2026-06-27 08:35:31 UTC)" executed successfully
+2026-06-27 08:20:32,227 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-27 08:20:32,604 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/sendMessage "HTTP/1.1 200 OK"
+2026-06-27 08:20:32,605 - INFO - Job "check_deadlines (trigger: interval[1:00:00], next run at: 2026-06-27 09:20:31 UTC)" executed successfully
+2026-06-27 08:20:34,385 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:20:41,518 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:21:41 UTC)" (scheduled at 2026-06-27 08:20:41.509878+00:00)
+2026-06-27 08:20:41,520 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:21:41 UTC)" executed successfully
+2026-06-27 08:20:44,542 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:20:54,749 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:21:04,904 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:21:15,061 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:21:25,233 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:21:35,387 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:21:41,517 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:22:41 UTC)" (scheduled at 2026-06-27 08:21:41.509878+00:00)
+2026-06-27 08:21:41,519 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:22:41 UTC)" executed successfully
+2026-06-27 08:21:45,545 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:21:55,712 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:22:05,881 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:22:16,040 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:22:26,196 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:22:36,358 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:22:41,517 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:23:41 UTC)" (scheduled at 2026-06-27 08:22:41.509878+00:00)
+2026-06-27 08:22:41,519 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:23:41 UTC)" executed successfully
+2026-06-27 08:22:46,521 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:22:56,678 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:23:06,835 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:23:16,990 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:23:27,149 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:23:31,520 - INFO - Running job "wellness_reminder (trigger: interval[0:15:00], next run at: 2026-06-27 08:38:31 UTC)" (scheduled at 2026-06-27 08:23:31.513746+00:00)
+2026-06-27 08:23:31,522 - INFO - Job "wellness_reminder (trigger: interval[0:15:00], next run at: 2026-06-27 08:38:31 UTC)" executed successfully
+2026-06-27 08:23:37,312 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:23:41,516 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:24:41 UTC)" (scheduled at 2026-06-27 08:23:41.509878+00:00)
+2026-06-27 08:23:41,519 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:24:41 UTC)" executed successfully
+2026-06-27 08:23:47,470 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:23:57,625 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:24:07,780 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:24:17,942 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:24:28,097 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:24:31,514 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:29:31 UTC)" (scheduled at 2026-06-27 08:24:31.510581+00:00)
+2026-06-27 08:24:31,519 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:29:31 UTC)" executed successfully
+2026-06-27 08:24:38,259 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:24:41,514 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:25:41 UTC)" (scheduled at 2026-06-27 08:24:41.509878+00:00)
+2026-06-27 08:24:41,516 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:25:41 UTC)" executed successfully
+2026-06-27 08:24:48,412 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:24:58,566 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:25:08,720 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:25:18,874 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:25:29,031 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:25:39,189 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:25:41,513 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:26:41 UTC)" (scheduled at 2026-06-27 08:25:41.509878+00:00)
+2026-06-27 08:25:41,516 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:26:41 UTC)" executed successfully
+2026-06-27 08:25:49,353 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:25:59,511 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:26:09,675 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:26:19,844 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:26:30,001 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:26:40,154 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:26:41,512 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:27:41 UTC)" (scheduled at 2026-06-27 08:26:41.509878+00:00)
+2026-06-27 08:26:41,514 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:27:41 UTC)" executed successfully
+2026-06-27 08:26:50,311 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:27:00,476 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:27:10,631 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:27:20,785 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:27:30,939 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:27:41,102 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:27:41,511 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:28:41 UTC)" (scheduled at 2026-06-27 08:27:41.509878+00:00)
+2026-06-27 08:27:41,513 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:28:41 UTC)" executed successfully
+2026-06-27 08:27:51,258 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:28:01,420 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:28:11,584 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:28:21,739 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:28:31,525 - INFO - Running job "priority_nudge (trigger: interval[0:30:00], next run at: 2026-06-27 08:58:31 UTC)" (scheduled at 2026-06-27 08:28:31.513851+00:00)
+2026-06-27 08:28:31,531 - INFO - Job "priority_nudge (trigger: interval[0:30:00], next run at: 2026-06-27 08:58:31 UTC)" executed successfully
+2026-06-27 08:28:31,896 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:28:41,521 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:29:41 UTC)" (scheduled at 2026-06-27 08:28:41.509878+00:00)
+2026-06-27 08:28:41,523 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:29:41 UTC)" executed successfully
+2026-06-27 08:28:42,097 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:28:52,293 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:29:02,453 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:29:12,656 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:29:22,841 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:29:31,520 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:34:31 UTC)" (scheduled at 2026-06-27 08:29:31.510581+00:00)
+2026-06-27 08:29:31,526 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:34:31 UTC)" executed successfully
+2026-06-27 08:29:32,996 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:29:41,519 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:30:41 UTC)" (scheduled at 2026-06-27 08:29:41.509878+00:00)
+2026-06-27 08:29:41,522 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:30:41 UTC)" executed successfully
+2026-06-27 08:29:43,176 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:29:53,336 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:30:03,495 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:30:13,652 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:30:23,810 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:30:33,967 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:30:41,518 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:31:41 UTC)" (scheduled at 2026-06-27 08:30:41.509878+00:00)
+2026-06-27 08:30:41,520 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:31:41 UTC)" executed successfully
+2026-06-27 08:30:44,274 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:30:54,430 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:31:04,586 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:31:14,744 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:31:24,900 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:31:35,098 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:31:41,516 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:32:41 UTC)" (scheduled at 2026-06-27 08:31:41.509878+00:00)
+2026-06-27 08:31:41,518 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:32:41 UTC)" executed successfully
+2026-06-27 08:31:45,252 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:31:55,410 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:32:05,563 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:32:15,717 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:32:25,878 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:32:36,032 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:32:41,516 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:33:41 UTC)" (scheduled at 2026-06-27 08:32:41.509878+00:00)
+2026-06-27 08:32:41,518 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:33:41 UTC)" executed successfully
+2026-06-27 08:32:46,192 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:32:56,348 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:33:06,507 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:33:16,673 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:33:26,827 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:33:36,990 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:33:41,515 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:34:41 UTC)" (scheduled at 2026-06-27 08:33:41.509878+00:00)
+2026-06-27 08:33:41,516 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:34:41 UTC)" executed successfully
+2026-06-27 08:33:47,142 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:33:57,328 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:34:07,487 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:34:17,644 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:34:27,802 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:34:31,515 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:39:31 UTC)" (scheduled at 2026-06-27 08:34:31.510581+00:00)
+2026-06-27 08:34:31,518 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:39:31 UTC)" executed successfully
+2026-06-27 08:34:37,959 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:34:41,515 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:35:41 UTC)" (scheduled at 2026-06-27 08:34:41.509878+00:00)
+2026-06-27 08:34:41,517 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:35:41 UTC)" executed successfully
+2026-06-27 08:34:48,115 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:34:58,273 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:35:08,427 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:35:18,583 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:35:28,736 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:35:31,516 - INFO - Running job "check_did_you_finish (trigger: interval[0:15:00], next run at: 2026-06-27 08:50:31 UTC)" (scheduled at 2026-06-27 08:35:31.513423+00:00)
+2026-06-27 08:35:31,517 - INFO - Job "check_did_you_finish (trigger: interval[0:15:00], next run at: 2026-06-27 08:50:31 UTC)" executed successfully
+2026-06-27 08:35:38,893 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:35:41,513 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:36:41 UTC)" (scheduled at 2026-06-27 08:35:41.509878+00:00)
+2026-06-27 08:35:41,514 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:36:41 UTC)" executed successfully
+2026-06-27 08:35:49,050 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:35:59,204 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:36:09,363 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:36:19,517 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:36:29,673 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:36:39,830 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:36:41,513 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:37:41 UTC)" (scheduled at 2026-06-27 08:36:41.509878+00:00)
+2026-06-27 08:36:41,516 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:37:41 UTC)" executed successfully
+2026-06-27 08:36:49,984 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:37:00,147 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:37:10,301 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:37:20,458 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:37:30,853 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:37:41,003 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:37:41,511 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:38:41 UTC)" (scheduled at 2026-06-27 08:37:41.509878+00:00)
+2026-06-27 08:37:41,512 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:38:41 UTC)" executed successfully
+2026-06-27 08:37:51,159 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:38:01,314 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:38:11,468 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:38:21,629 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:38:31,524 - INFO - Running job "wellness_reminder (trigger: interval[0:15:00], next run at: 2026-06-27 08:53:31 UTC)" (scheduled at 2026-06-27 08:38:31.513746+00:00)
+2026-06-27 08:38:31,526 - INFO - Job "wellness_reminder (trigger: interval[0:15:00], next run at: 2026-06-27 08:53:31 UTC)" executed successfully
+2026-06-27 08:38:31,789 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:38:41,521 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:39:41 UTC)" (scheduled at 2026-06-27 08:38:41.509878+00:00)
+2026-06-27 08:38:41,523 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:39:41 UTC)" executed successfully
+2026-06-27 08:38:41,944 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:38:52,107 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:39:02,270 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:39:12,422 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:39:22,575 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:39:31,521 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:44:31 UTC)" (scheduled at 2026-06-27 08:39:31.510581+00:00)
+2026-06-27 08:39:31,526 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:44:31 UTC)" executed successfully
+2026-06-27 08:39:32,735 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:39:41,520 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:40:41 UTC)" (scheduled at 2026-06-27 08:39:41.509878+00:00)
+2026-06-27 08:39:41,522 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:40:41 UTC)" executed successfully
+2026-06-27 08:39:42,889 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:39:53,045 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:40:03,198 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:40:13,355 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:40:23,518 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:40:33,683 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:40:41,518 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:41:41 UTC)" (scheduled at 2026-06-27 08:40:41.509878+00:00)
+2026-06-27 08:40:41,520 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:41:41 UTC)" executed successfully
+2026-06-27 08:40:43,845 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:40:54,000 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:41:04,154 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:41:14,309 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:41:24,469 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:41:34,680 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:41:41,517 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:42:41 UTC)" (scheduled at 2026-06-27 08:41:41.509878+00:00)
+2026-06-27 08:41:41,518 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:42:41 UTC)" executed successfully
+2026-06-27 08:41:44,833 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:41:54,985 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:42:05,139 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:42:15,295 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:42:25,459 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:42:35,617 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:42:41,517 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:43:41 UTC)" (scheduled at 2026-06-27 08:42:41.509878+00:00)
+2026-06-27 08:42:41,520 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:43:41 UTC)" executed successfully
+2026-06-27 08:42:45,773 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:42:55,931 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:43:06,088 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:43:16,243 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:43:26,397 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:43:36,554 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:43:41,515 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:44:41 UTC)" (scheduled at 2026-06-27 08:43:41.509878+00:00)
+2026-06-27 08:43:41,516 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:44:41 UTC)" executed successfully
+2026-06-27 08:43:46,707 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:43:56,861 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:44:07,019 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:44:17,173 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:44:27,335 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:44:31,517 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:49:31 UTC)" (scheduled at 2026-06-27 08:44:31.510581+00:00)
+2026-06-27 08:44:31,523 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:49:31 UTC)" executed successfully
+2026-06-27 08:44:37,492 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:44:41,514 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:45:41 UTC)" (scheduled at 2026-06-27 08:44:41.509878+00:00)
+2026-06-27 08:44:41,517 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:45:41 UTC)" executed successfully
+2026-06-27 08:44:47,650 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:44:57,808 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:45:07,967 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:45:18,123 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:45:28,276 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:45:38,437 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:45:41,513 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:46:41 UTC)" (scheduled at 2026-06-27 08:45:41.509878+00:00)
+2026-06-27 08:45:41,515 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:46:41 UTC)" executed successfully
+2026-06-27 08:45:48,590 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:45:58,745 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:46:08,905 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:46:19,059 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:46:29,216 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:46:39,379 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:46:41,513 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:47:41 UTC)" (scheduled at 2026-06-27 08:46:41.509878+00:00)
+2026-06-27 08:46:41,515 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:47:41 UTC)" executed successfully
+2026-06-27 08:46:49,534 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:46:59,689 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:47:09,842 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:47:20,015 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:47:30,170 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:47:40,347 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:47:41,512 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:48:41 UTC)" (scheduled at 2026-06-27 08:47:41.509878+00:00)
+2026-06-27 08:47:41,516 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:48:41 UTC)" executed successfully
+2026-06-27 08:47:50,502 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:48:00,659 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:48:10,812 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:48:20,971 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:48:31,128 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:48:41,281 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:48:41,513 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:49:41 UTC)" (scheduled at 2026-06-27 08:48:41.509878+00:00)
+2026-06-27 08:48:41,516 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:49:41 UTC)" executed successfully
+2026-06-27 08:48:51,445 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:49:01,601 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:49:11,763 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:49:21,915 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:49:31,520 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:54:31 UTC)" (scheduled at 2026-06-27 08:49:31.510581+00:00)
+2026-06-27 08:49:31,524 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:54:31 UTC)" executed successfully
+2026-06-27 08:49:32,068 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:49:41,519 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:50:41 UTC)" (scheduled at 2026-06-27 08:49:41.509878+00:00)
+2026-06-27 08:49:41,521 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:50:41 UTC)" executed successfully
+2026-06-27 08:49:42,220 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:49:52,379 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:50:02,533 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:50:12,721 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:50:22,881 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:50:31,523 - INFO - Running job "check_did_you_finish (trigger: interval[0:15:00], next run at: 2026-06-27 09:05:31 UTC)" (scheduled at 2026-06-27 08:50:31.513423+00:00)
+2026-06-27 08:50:31,526 - INFO - Job "check_did_you_finish (trigger: interval[0:15:00], next run at: 2026-06-27 09:05:31 UTC)" executed successfully
+2026-06-27 08:50:33,040 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:50:41,520 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:51:41 UTC)" (scheduled at 2026-06-27 08:50:41.509878+00:00)
+2026-06-27 08:50:41,522 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:51:41 UTC)" executed successfully
+2026-06-27 08:50:43,194 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:50:53,345 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:51:03,497 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:51:13,652 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:51:23,810 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:51:33,972 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:51:41,520 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:52:41 UTC)" (scheduled at 2026-06-27 08:51:41.509878+00:00)
+2026-06-27 08:51:41,525 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:52:41 UTC)" executed successfully
+2026-06-27 08:51:44,125 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:51:54,281 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:52:04,435 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:52:14,589 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:52:24,744 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:52:34,898 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:52:41,518 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:53:41 UTC)" (scheduled at 2026-06-27 08:52:41.509878+00:00)
+2026-06-27 08:52:41,520 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:53:41 UTC)" executed successfully
+2026-06-27 08:52:45,049 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:52:55,210 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:53:05,377 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:53:15,531 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:53:25,687 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:53:31,516 - INFO - Running job "wellness_reminder (trigger: interval[0:15:00], next run at: 2026-06-27 09:08:31 UTC)" (scheduled at 2026-06-27 08:53:31.513746+00:00)
+2026-06-27 08:53:31,518 - INFO - Job "wellness_reminder (trigger: interval[0:15:00], next run at: 2026-06-27 09:08:31 UTC)" executed successfully
+2026-06-27 08:53:35,838 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:53:41,517 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:54:41 UTC)" (scheduled at 2026-06-27 08:53:41.509878+00:00)
+2026-06-27 08:53:41,518 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:54:41 UTC)" executed successfully
+2026-06-27 08:53:45,999 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:53:56,157 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:54:06,320 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:54:16,475 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:54:26,633 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:54:31,516 - INFO - Running job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:59:31 UTC)" (scheduled at 2026-06-27 08:54:31.510581+00:00)
+2026-06-27 08:54:31,518 - INFO - Job "check_followups (trigger: interval[0:05:00], next run at: 2026-06-27 08:59:31 UTC)" executed successfully
+2026-06-27 08:54:36,786 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:54:41,516 - INFO - Running job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:55:41 UTC)" (scheduled at 2026-06-27 08:54:41.509878+00:00)
+2026-06-27 08:54:41,517 - INFO - Job "check_reminders (trigger: interval[0:01:00], next run at: 2026-06-27 08:55:41 UTC)" executed successfully
+2026-06-27 08:54:46,940 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:54:57,098 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:55:07,258 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:55:17,411 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:55:27,566 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:55:37,737 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:55:37,739 - INFO - Application is stopping. This might take a moment.
+2026-06-27 08:55:37,743 - INFO - Scheduler has been shut down
+2026-06-27 08:55:37,752 - INFO - Application.stop() complete
+2026-06-27 08:55:47,668 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,669 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,674 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,674 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,674 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,675 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,675 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,675 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,675 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 08:55:47,675 - INFO - 🤖 BAKA is online!
+2026-06-27 08:55:48,179 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getMe "HTTP/1.1 200 OK"
+2026-06-27 08:55:48,335 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/deleteWebhook "HTTP/1.1 200 OK"
+2026-06-27 08:55:48,338 - INFO - Added job "check_reminders" to job store "default"
+2026-06-27 08:55:48,338 - INFO - Added job "check_followups" to job store "default"
+2026-06-27 08:55:48,339 - INFO - Added job "daily_carry_forward" to job store "default"
+2026-06-27 08:55:48,339 - INFO - Added job "check_did_you_finish" to job store "default"
+2026-06-27 08:55:48,339 - INFO - Added job "end_of_day_summary" to job store "default"
+2026-06-27 08:55:48,339 - INFO - Added job "wellness_reminder" to job store "default"
+2026-06-27 08:55:48,339 - INFO - Added job "priority_nudge" to job store "default"
+2026-06-27 08:55:48,340 - INFO - Added job "morning_briefing" to job store "default"
+2026-06-27 08:55:48,340 - INFO - Added job "check_deadlines" to job store "default"
+2026-06-27 08:55:48,340 - INFO - Scheduler started
+2026-06-27 08:55:48,340 - INFO - Application started
+2026-06-27 08:55:53,236 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 08:55:53,237 - INFO - Application is stopping. This might take a moment.
+2026-06-27 08:55:53,237 - INFO - Scheduler has been shut down
+2026-06-27 08:55:53,247 - INFO - Application.stop() complete

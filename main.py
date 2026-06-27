@@ -12,7 +12,7 @@ from database import (
     mark_done, delete_task, update_task, get_task_by_id,
     search_tasks_by_title, task_exists,
     save_memory, get_memory, get_all_memories, search_memories, delete_memory,
-    add_goal, get_goals,
+    add_goal, get_goals, get_goals_full, update_goal_progress, get_done_today_count,
     snooze_task, postpone_task, pause_task, resume_task,
     mark_reminded, get_paused_tasks,
     get_overdue_tasks, get_upcoming_deadlines, set_tags,
@@ -42,6 +42,7 @@ from baka_brain import (
     generate_structured_plan
 )
 from fmt import HTML, esc, b, i, code, task_line, confirm_box, header, DIVIDER
+import ui as UI
 from conversation_state import (
     get_state, clear_state, update_context,
     add_history, get_history,
@@ -91,10 +92,10 @@ IST = pytz.timezone("Asia/Kolkata")
 # ── Menus ─────────────────────────────────────────────
 def main_menu():
     keyboard = [
-        ['📌 Add Task', '📋 My Tasks'],
-        ['📅 Today', '🗓 This Week', '📆 Overdue'],
+        ['🏠 Dashboard', '📌 Add Task'],
+        ['📅 Today', '📋 My Tasks', '📆 Overdue'],
+        ['🎯 Goals', '🌱 Habits', '📊 Stats'],
         ['✅ Done', '🗑 Delete', '✏️ Edit'],
-        ['🧠 Memory', '📊 Analyze'],
         ['⚙️ Settings', '❓ Help'],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -615,12 +616,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Menu buttons ──
     menu_map = {
+        '🏠 Dashboard': lambda: dashboard_cmd(update, context),
         '📌 Add Task': lambda: ask_for_task(update, user_id),
         '📋 My Tasks': lambda: list_tasks(update, context),
         '📋 List Tasks': lambda: list_tasks(update, context),
         '📅 Today': lambda: today_tasks(update, context),
         '🗓 This Week': lambda: week_tasks(update, context),
         '📆 Overdue': lambda: overdue_cmd(update, context),
+        '🎯 Goals': lambda: goals_dash_cmd(update, context),
+        '🌱 Habits': lambda: habits_cmd(update, context),
+        '📊 Stats': lambda: _stats_entry(update, context),
         '✅ Done': lambda: done_task(update, context),
         '🗑 Delete': lambda: delete_task_cmd(update, context),
         '✏️ Edit': lambda: edit_task_cmd(update, context),
@@ -917,6 +922,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("overload", "am i overloaded", "show overload",
          "load check", "busy days"): overload_cmd,
         ("habits", "show habits", "my habits", "list habits"): habits_cmd,
+        ("dashboard", "home", "show dashboard", "open dashboard",
+         "main menu", "overview"): dashboard_cmd,
+        ("goals", "my goals", "show goals", "goal dashboard"): goals_dash_cmd,
+        ("stats", "statistics", "productivity dashboard",
+         "my stats", "show stats"): _stats_entry,
         ("insights", "what have you learned", "my patterns",
          "learned behavior", "what do you know about me"): insights_cmd,
         ("review", "review tasks", "stale tasks", "what needs review",
@@ -1310,12 +1320,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif intent == "GOAL":
         title = entities.get("title") or user_input
         deadline = entities.get("date")
-        add_goal(user_id, title, deadline)
+        gid = add_goal(user_id, title, deadline)
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🎯 View Goals", callback_data="dash:goals"),
+            InlineKeyboardButton("🏠 Dashboard", callback_data="dash:home"),
+        ]])
         await update.message.reply_text(
-            f"🎯 *Goal set!*\n\n*{title}*\n"
-            f"📅 Deadline: {deadline or 'No deadline'}\n\n"
-            f"Want me to break this into tasks? Just ask!",
-            parse_mode="Markdown", reply_markup=main_menu()
+            f"🎯 {b('Goal set!')}\n\n📌 {b(title)}\n"
+            f"<i>📅 Deadline: {esc(deadline or 'No deadline')}</i>\n\n"
+            f"Track progress in your Goals dashboard. I can also break this into tasks — just ask!",
+            parse_mode=HTML, reply_markup=kb
         )
 
     elif intent == "HABIT":
@@ -1461,7 +1475,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     parts = data.split(":")
     action = parts[0]
-    task_id = int(parts[1]) if len(parts) > 1 else None
+    # v9.0: safe task_id parse — dashboard callbacks (dash:home) have non-numeric
+    # payloads; never crash on int() conversion.
+    task_id = None
+    if len(parts) > 1:
+        try:
+            task_id = int(parts[1])
+        except (ValueError, TypeError):
+            task_id = None
+
+    # v9.0: callback logger (debug infra, spec #15)
+    try:
+        logger.info(f"[callback] user={user_id} data={data}")
+    except Exception:
+        pass
+
+    # v9.0: dashboard navigation router — handled in dashboard module
+    if action == "dash":
+        await route_dashboard_callback(update, context, parts)
+        return
 
     if action == "done":
         task = get_task_by_id(task_id, user_id)
@@ -2783,6 +2815,207 @@ async def proactive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, parse_mode=HTML, reply_markup=main_menu())
 
+
+# ── v9.0: DASHBOARD SYSTEM ────────────────────────────
+def _gather_dashboard_data(user_id):
+    """Batch-read everything the home dashboard needs (spec #14: one place)."""
+    now = datetime.now(IST)
+    today = now.strftime("%Y-%m-%d")
+    current_time = now.strftime("%H:%M")
+    all_pending = get_tasks(user_id)
+    today_tasks_list = get_tasks_by_date(user_id, today)
+    overdue = get_overdue_tasks(user_id, today, current_time)
+    goals = get_goals_full(user_id)
+    habits = get_habits(user_id)
+    best_streak = max([h[6] or 0 for h in habits], default=0)
+    try:
+        done_today = get_done_today_count(user_id)
+    except Exception:
+        done_today = 0
+    # completion rate from learning data (best-effort)
+    try:
+        prof = analyze_user(user_id, days=30)
+        completion_rate = prof.get("completion_rate", 0)
+    except Exception:
+        completion_rate = 0
+    return {
+        "date_str": now.strftime("%A, %d %B %Y"),
+        "pending": len(all_pending),
+        "today_count": len(today_tasks_list),
+        "overdue": len(overdue),
+        "done_today": done_today,
+        "goals": goals,
+        "habits": habits,
+        "streak_best": best_streak,
+        "completion_rate": completion_rate,
+    }
+
+def _build_today_groups(user_id):
+    now = datetime.now(IST)
+    today = now.strftime("%Y-%m-%d")
+    current_time = now.strftime("%H:%M")
+    todays = get_tasks_by_date(user_id, today)
+    overdue = get_overdue_tasks(user_id, today, current_time)
+    # done today
+    conn = __import__("sqlite3").connect("planner.db")
+    c = conn.cursor()
+    c.execute("""SELECT id,title,due_date,due_time,category,priority,done
+                 FROM tasks WHERE user_id=? AND done=1
+                 AND substr(COALESCE(last_completed,created_at),1,10)=?""",
+              (user_id, today))
+    done = c.fetchall()
+    conn.close()
+    high = [t for t in todays if (len(t) > 5 and t[5] == "high")]
+    upcoming = [t for t in todays if not (len(t) > 5 and t[5] == "high")]
+    return {"overdue": overdue, "high": high, "upcoming": upcoming, "done": done}
+
+def _build_stats(user_id):
+    try:
+        prof = analyze_user(user_id, days=30)
+    except Exception:
+        prof = {}
+    all_tasks = get_tasks(user_id)
+    now = datetime.now(IST)
+    overdue = get_overdue_tasks(user_id, now.strftime("%Y-%m-%d"), now.strftime("%H:%M"))
+    total = prof.get("total_tasks", len(all_tasks))
+    overdue_rate = (len(overdue) / total) if total else 0
+    cats = prof.get("category_focus", {})
+    top_cats = sorted(cats.items(), key=lambda x: -x[1]) if cats else []
+    active = prof.get("active_hours_top3", [])
+    return {
+        "completion_rate": prof.get("completion_rate", 0),
+        "overdue_rate": overdue_rate,
+        "total_tasks": total,
+        "done_tasks": prof.get("total_completions", 0),
+        "tone": prof.get("tone", "balanced"),
+        "active_hour": active[0][0] if active else None,
+        "top_categories": top_cats,
+        "insights": prof.get("insights", []),
+    }
+
+
+
+async def _stats_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send the productivity stats card as a fresh message (menu entry)."""
+    user_id = update.message.from_user.id
+    text, kb = UI.stat_card(_build_stats(user_id))
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
+
+async def goals_dash_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Open the goals dashboard directly."""
+    user_id = update.message.from_user.id
+    goals = get_goals_full(user_id)
+    text, kb = UI.goal_card(goals)
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
+
+async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Open the central dashboard (spec #1)."""
+    user_id = update.message.from_user.id
+    try:
+        db_log_interaction(user_id, "dashboard_open")
+    except Exception:
+        pass
+    data = _gather_dashboard_data(user_id)
+    text, kb = UI.dashboard_card(data)
+    logger.info(f"[dashboard] render home user={user_id}")
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
+
+async def route_dashboard_callback(update, context, parts):
+    """
+    Centralized dashboard callback router (spec #13).
+    parts: ['dash', '<page>', '<optional id>']
+    Edits the message in place (spec #11).
+    """
+    query = update.callback_query
+    user_id = query.from_user.id
+    page = parts[1] if len(parts) > 1 else "home"
+    arg = parts[2] if len(parts) > 2 else None
+    logger.info(f"[dashboard] callback page={page} arg={arg} user={user_id}")
+
+    async def _edit(text, kb):
+        try:
+            await query.edit_message_text(text, parse_mode=HTML, reply_markup=kb)
+        except Exception as e:
+            # If edit fails (e.g. identical content), send fresh
+            if "not modified" not in str(e).lower():
+                await context.bot.send_message(chat_id=user_id, text=text,
+                                               parse_mode=HTML, reply_markup=kb)
+
+    if page == "home":
+        text, kb = UI.dashboard_card(_gather_dashboard_data(user_id))
+        await _edit(text, kb)
+
+    elif page == "today":
+        groups = _build_today_groups(user_id)
+        text, kb = UI.today_card(groups, datetime.now(IST).strftime("%A, %d %B"))
+        await _edit(text, kb)
+
+    elif page == "tasks":
+        tasks = get_tasks(user_id)
+        text, kb = UI.task_list_card(tasks, "Pending Tasks")
+        await _edit(text, kb)
+
+    elif page == "task" and arg:
+        try:
+            tid = int(arg)
+            task = get_task_by_id(tid, user_id)
+            if task:
+                text, kb = UI.task_card(task)
+                await _edit(text, kb)
+            else:
+                await _edit("Task not found.", None)
+        except (ValueError, TypeError):
+            await _edit("Invalid task.", None)
+
+    elif page == "goals":
+        goals = get_goals_full(user_id)
+        text, kb = UI.goal_card(goals)
+        await _edit(text, kb)
+
+    elif page == "goalplus" and arg:
+        try:
+            res = update_goal_progress(int(arg), user_id, 10)
+            if res and res[2]:
+                await query.answer("🎉 Goal complete!", show_alert=True)
+        except (ValueError, TypeError):
+            pass
+        text, kb = UI.goal_card(get_goals_full(user_id))
+        await _edit(text, kb)
+
+    elif page == "goalminus" and arg:
+        try:
+            update_goal_progress(int(arg), user_id, -10)
+        except (ValueError, TypeError):
+            pass
+        text, kb = UI.goal_card(get_goals_full(user_id))
+        await _edit(text, kb)
+
+    elif page == "habits":
+        habits = get_habits(user_id)
+        text, kb = UI.habit_card(habits)
+        await _edit(text, kb)
+
+    elif page == "stats":
+        text, kb = UI.stat_card(_build_stats(user_id))
+        await _edit(text, kb)
+
+    elif page == "edit" and arg:
+        # Hand off to existing edit flow
+        try:
+            tid = int(arg)
+            set_editing(user_id, tid)
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✏️ Editing task {code('['+str(tid)+']')}. "
+                     f"Tell me what to change (e.g. 'set time to 6pm', 'rename to X').",
+                parse_mode=HTML)
+        except (ValueError, TypeError):
+            pass
+
+    else:
+        text, kb = UI.dashboard_card(_gather_dashboard_data(user_id))
+        await _edit(text, kb)
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -2861,6 +3094,9 @@ def main():
     app.add_handler(CommandHandler("review", review_cmd))
     app.add_handler(CommandHandler("wellness", wellness_cmd))
     app.add_handler(CommandHandler("proactive", proactive_cmd))
+    app.add_handler(CommandHandler("dashboard", dashboard_cmd))
+    app.add_handler(CommandHandler("home", dashboard_cmd))
+    app.add_handler(CommandHandler("goals", goals_dash_cmd))
     # v6.1 admin commands
     app.add_handler(CommandHandler("myid", myid_cmd))
     app.add_handler(CommandHandler("claimadmin", claimadmin_cmd))
@@ -3022,25 +3258,50 @@ def main():
 
     # ── v7.0: End-of-day unresolved summary ──────────────
     async def end_of_day_summary(context):
-        """At 21:00, list tasks still unresolved today."""
+        """v9.0 Evening Review at 21:00: done today, missed, tomorrow preview."""
         try:
+            now = datetime.now(IST)
+            today = now.strftime("%Y-%m-%d")
+            tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
             for uid in get_all_active_user_ids():
                 if is_quiet_hours(uid):
                     continue
                 pending = get_unresolved_today(uid)
-                if not pending:
-                    continue
-                msg = f"🌙 *End of day check-in*\n\n"
-                if len(pending) == 1:
-                    msg += f"You have 1 task still pending today:\n\n"
-                else:
-                    msg += f"You have {len(pending)} tasks still pending today:\n\n"
-                for tid, title, dtime, cat, prio in pending[:8]:
-                    emoji = "🔴" if prio == "high" else "🟢" if prio == "low" else "🟡"
-                    msg += f"{emoji} [{tid}] {title}" + (f" ⏰ {dtime}" if dtime else "") + "\n"
-                msg += "\n_Mark them done, or they'll carry to tomorrow._"
                 try:
-                    await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+                    done_today = get_done_today_count(uid)
+                except Exception:
+                    done_today = 0
+                tomorrow_tasks = get_tasks_by_date(uid, tomorrow)
+                if not pending and not done_today and not tomorrow_tasks:
+                    continue
+
+                lines = [f"🌙 {b('Evening Review')}", f"<i>{esc(now.strftime('%A, %d %B'))}</i>", ""]
+                # Accomplishments
+                if done_today:
+                    lines.append(f"✅ {b(str(done_today) + ' completed')} today — nice work!")
+                # Missed / pending
+                if pending:
+                    lines.append(f"⏳ {b(str(len(pending)) + ' still pending')}:")
+                    for tid, title, dtime, cat, prio in pending[:6]:
+                        emoji = "🔴" if prio == "high" else "🟢" if prio == "low" else "🟡"
+                        tm = f" ⏰ {esc(dtime)}" if dtime else ""
+                        lines.append(f"   {emoji} {esc(title)}{tm}")
+                    lines.append(f"   <i>These carry to tomorrow automatically.</i>")
+                lines.append("")
+                # Tomorrow preview
+                if tomorrow_tasks:
+                    lines.append(f"🔮 {b('Tomorrow:')} {len(tomorrow_tasks)} task(s) lined up")
+                    for t in tomorrow_tasks[:4]:
+                        tm = f" ⏰ {esc(t[3])}" if len(t) > 3 and t[3] else ""
+                        lines.append(f"   • {esc(t[1])}{tm}")
+
+                kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📅 Tomorrow", callback_data="dash:today"),
+                    InlineKeyboardButton("📊 Stats", callback_data="dash:stats"),
+                ]])
+                try:
+                    await context.bot.send_message(chat_id=uid, text="\n".join(lines).rstrip(),
+                                                   parse_mode=HTML, reply_markup=kb)
                 except Exception:
                     pass
         except Exception as e:
@@ -3118,6 +3379,60 @@ def main():
             logger.error(f"priority_nudge failed: {e}")
 
     app.job_queue.run_repeating(priority_nudge, interval=1800, first=600)
+
+    # ── v9.0: Morning Briefing (08:00 daily) ─────────────
+    async def morning_briefing(context):
+        """Daily 08:00 briefing: today's priorities, deadlines, overdue, goals."""
+        try:
+            now = datetime.now(IST)
+            today = now.strftime("%Y-%m-%d")
+            current_time = now.strftime("%H:%M")
+            for uid in get_all_active_user_ids():
+                if is_quiet_hours(uid):
+                    continue
+                todays = get_tasks_by_date(uid, today)
+                overdue = get_overdue_tasks(uid, today, current_time)
+                deadlines = get_upcoming_deadlines(uid, today, days_ahead=2)
+                goals = get_goals_full(uid)
+                if not todays and not overdue and not deadlines:
+                    continue  # nothing to brief
+                lines = [f"☀️ {b('Good morning!')} Here's your day:", ""]
+                lines.append(f"<i>{esc(now.strftime('%A, %d %B'))}</i>\n")
+                if todays:
+                    high = [t for t in todays if len(t) > 5 and t[5] == "high"]
+                    lines.append(f"📅 {b(str(len(todays)) + ' task(s) today')}")
+                    for t in (high or todays)[:5]:
+                        dot = "🔴" if (len(t) > 5 and t[5] == "high") else "🟡"
+                        tm = f" ⏰ {esc(t[3])}" if len(t) > 3 and t[3] else ""
+                        lines.append(f"   {dot} {esc(t[1])}{tm}")
+                    lines.append("")
+                if overdue:
+                    lines.append(f"⚠️ {b(str(len(overdue)) + ' overdue')} — consider /review")
+                    lines.append("")
+                if deadlines:
+                    lines.append(f"📌 {b('Deadlines soon:')}")
+                    for d in deadlines[:3]:
+                        lines.append(f"   • {esc(d[1])} ({esc(d[2] or '?')})")
+                    lines.append("")
+                if goals:
+                    lines.append(f"🎯 {len(goals)} active goal(s) — tap below to review")
+                kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📅 Today", callback_data="dash:today"),
+                    InlineKeyboardButton("🏠 Dashboard", callback_data="dash:home"),
+                ]])
+                try:
+                    await context.bot.send_message(chat_id=uid, text="\n".join(lines).rstrip(),
+                                                   parse_mode=HTML, reply_markup=kb)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"morning_briefing failed: {e}")
+
+    app.job_queue.run_daily(morning_briefing,
+        time=datetime.strptime("08:00", "%H:%M").time(),
+        name="morning_briefing")
+
+
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""
