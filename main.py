@@ -30,6 +30,8 @@ from database import (
     get_snooze_count, get_stale_tasks, get_unresolved_today,
     get_all_active_user_ids,
     get_wellness_prefs, set_wellness, mark_wellness_sent,
+    search_all, save_template, get_template, get_all_templates,
+    delete_template, get_weekly_report_data, export_user_data,
     get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
@@ -37,7 +39,7 @@ from baka_brain import (
     get_baka_response, check_api_status,
     chat_with_ai, suggest_tasks, analyze_productivity,
     generate_study_plan, extract_memory_key,
-    generate_daily_plan, generate_weekly_plan,
+    generate_daily_plan, generate_weekly_plan, benchmark_ai,
     generate_task_breakdown, suggest_reschedule_time,
     generate_structured_plan
 )
@@ -235,12 +237,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`memory` — Stored memories\n"
         "`forget <key>` — Delete a memory\n\n"
         "━━━━━━━━━━━━━━━━━━━\n"
+        "🔍 *SEARCH & TOOLS*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "`search <keyword>` — Find tasks, memories, habits\n"
+        "`template` — List saved templates\n"
+        "`template <name>` — Create task from template\n"
+        "`savetemplate <name> <id>` — Save task as template\n"
+        "`export` — Backup all your data\n"
+        "`dashboard` — Central hub\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
         "⚙️ *SETTINGS*\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "`settings` — View preferences\n"
         "`quiethours <start> <end>` — Sleep window\n"
         "`interval <min>` — Reminder frequency\n"
-        "`status` — API health\n\n"
+        "`wellness on/off` — Health nudges\n"
+        "`status` — AI diagnostics\n"
+        "`status full` — Deep 6-test benchmark\n\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "🐞 *DEBUG*\n"
         "━━━━━━━━━━━━━━━━━━━\n"
@@ -420,32 +433,72 @@ async def suggest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🎯 *Tasks for: {goal}*\n\n{result}", parse_mode="Markdown", reply_markup=main_menu())
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    thinking = await update.message.reply_text("🔍 Running diagnostics...")
+    """v9.1: Enhanced AI diagnostic with benchmarking."""
+    user_id = update.message.from_user.id
+    # Check if user wants full benchmark
+    full = bool(context.args and context.args[0].lower() in ("full", "benchmark", "deep"))
+
+    thinking = await update.message.reply_text(
+        f"🔍 Running {'full benchmark (6 tests)' if full else 'quick diagnostic (3 tests)'}..."
+    )
+
+    # Basic connectivity check
     result = check_api_status()
-    if result["status"] == "online":
-        rt = result.get("response_time_ms", 0)
-        speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
-        text = (
-            f"✅ *NVIDIA API — Online*\n\n"
-            f"🤖 Model: `{result.get('model', 'glm-5.1')}`\n"
-            f"⏱ Response: {rt}ms ({speed})\n"
-            f"🔁 Finish: {result.get('finish_reason', 'N/A')}\n\n"
-            f"📊 *Tokens Used:*\n"
-            f"   Prompt: {result['prompt_tokens']}\n"
-            f"   Completion: {result['completion_tokens']}\n"
-            f"   Total: {result['total_tokens']}\n\n"
-            f"💳 *Free Tier Limits:*\n"
-            f"   1,000 calls/month | 40 req/min\n\n"
-            f"🔗 build.nvidia.com"
-        )
-    elif result["status"] == "rate_limited":
-        text = "⚠️ *Rate Limited*\n\nWait 1-2 min. (40 req/min limit)"
-    elif result["status"] == "invalid_key":
-        text = "❌ *Invalid Key* — Update at build.nvidia.com"
-    else:
-        text = f"❌ *Error* — `{str(result.get('error','Unknown'))[:150]}`"
+
+    if result["status"] != "online":
+        await thinking.delete()
+        if result["status"] == "rate_limited":
+            text = f"⚠️ {b('Rate Limited')}\nWait 1-2 min. (40 req/min limit)"
+        elif result["status"] == "invalid_key":
+            text = f"❌ {b('Invalid API Key')} — Regenerate at build.nvidia.com"
+        else:
+            text = f"❌ {b('Error')} — {code(str(result.get('error','Unknown'))[:150])}"
+        await update.message.reply_text(text, parse_mode=HTML, reply_markup=main_menu())
+        return
+
+    # Run benchmark
+    bench = benchmark_ai(quick=not full)
+
+    rt = result.get("response_time_ms", 0)
+    speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
+    grade = bench.get("grade", "?")
+    grade_emoji = "🏆" if grade in ("A+","A") else "✅" if grade == "B" else "⚠️"
+
+    lines = [
+        f"🤖 {b('BAKA AI Diagnostics')}",
+        "",
+        f"📡 {b('Connection')}",
+        f"   Model: {code(result.get('model', 'glm-5.1'))}",
+        f"   Ping: {rt}ms {speed}",
+        f"   Tokens: {result.get('prompt_tokens','?')}→{result.get('completion_tokens','?')} ({result.get('total_tokens','?')} total)",
+        "",
+        f"{grade_emoji} {b('Benchmark: ' + bench['score'])} (Grade: {b(grade)})",
+        f"   Avg latency: {bench['avg_latency_ms']}ms",
+        "",
+    ]
+
+    for t in bench["tests"]:
+        icon = "✅" if t["passed"] else "❌"
+        lines.append(f"   {icon} {t['name']} ({t['latency_ms']}ms)")
+        if t.get("error"):
+            lines.append(f"      <i>Error: {esc(t['error'][:80])}</i>")
+
+    lines.extend([
+        "",
+        f"💳 Free tier: 1,000 calls/month · 40 req/min",
+    ])
+
+    if not full:
+        lines.append(f"\n💡 Run {code('status full')} for a deep 6-test benchmark.")
+
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔄 Re-run", callback_data="dash:home"),
+    ]])
+
     await thinking.delete()
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode=HTML, reply_markup=kb
+    )
 
 
 # ── Task executor ─────────────────────────────────────
@@ -879,6 +932,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (["quiethours ", "quiet hours ", "set quiet "], quiethours_cmd, None),
         (["interval ", "reminder interval ", "set interval "], interval_cmd, None),
         (["suggest "], suggest_cmd, None),
+        (["search ", "find ", "look for "], search_cmd, None),
+        (["savetemplate ", "save template "], savetemplate_cmd, None),
+        (["template ", "use template "], template_cmd, None),
         (["streak "], streak_cmd, None),
         (["habitlog ", "habit log "], habitlog_cmd, None),
         (["addhabit ", "add habit ", "new habit "], addhabit_cmd, None),
@@ -941,6 +997,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("cancel", "stop", "nevermind", "never mind", "abort"): cancel_cmd,
         # Diagnostics
         ("checktasks", "check tasks", "diagnose tasks", "task diagnostics"): checktasks_cmd,
+        ("templates", "my templates", "show templates", "list templates"): template_cmd,
+        ("export", "export data", "backup", "export my data"): export_cmd,
     }
     for phrases, handler in _exact_handlers.items():
         if _low_full in phrases or any(_low_full == p for p in phrases):
@@ -1205,6 +1263,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     extra = f"\n\n💡 <i>Heads up: you already have {slot_count} task(s) at that exact time.</i>"
             except Exception:
                 pass
+            # v10.0: suggest time from learned patterns if no time was set
+            if not summary_data.get("time"):
+                try:
+                    suggested = suggest_time_for_task(user_id, summary_data.get("category", "General"))
+                    if suggested:
+                        extra += f"\n\n💡 <i>You usually do {esc(summary_data.get('category', 'these'))} tasks around {esc(suggested)}. Want me to set that?</i>"
+                except Exception:
+                    pass
             await update.message.reply_text(
                 f"Got it! Here's what I'll save:\n\n{summary}{extra}\n\nShall I save this?",
                 parse_mode=HTML, reply_markup=yes_no_menu()
@@ -3016,6 +3082,147 @@ async def route_dashboard_callback(update, context, parts):
         text, kb = UI.dashboard_card(_gather_dashboard_data(user_id))
         await _edit(text, kb)
 
+
+# ── v10.0: Search, Templates, Export ──────────────────
+async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Search tasks, memories, habits, goals by keyword."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            f"🔍 {b('Search')}\n\nUsage: {code('search <keyword>')}\n"
+            f"Searches task titles, categories, tags, memories, habits, and goals.",
+            parse_mode=HTML, reply_markup=main_menu()
+        )
+        return
+    keyword = " ".join(context.args)
+    results = search_all(user_id, keyword)
+    total = sum(len(v) for v in results.values())
+    if total == 0:
+        await update.message.reply_text(
+            f"🔍 No results for {b(keyword)}.",
+            parse_mode=HTML, reply_markup=main_menu()
+        )
+        return
+    lines = [f"🔍 {b('Results for: ' + keyword)} ({total} found)", ""]
+    if results["tasks"]:
+        lines.append(f"📋 {b('Tasks')} ({len(results['tasks'])})")
+        for t in results["tasks"][:5]:
+            done = "✅" if t[6] else "⏳"
+            lines.append(f"   {done} {code('['+str(t[0])+']')} {esc(t[1])}")
+        lines.append("")
+    if results["habits"]:
+        lines.append(f"🌱 {b('Habits')} ({len(results['habits'])})")
+        for h in results["habits"]:
+            lines.append(f"   🔁 {esc(h[1])} (streak {h[4] or 0})")
+        lines.append("")
+    if results["memories"]:
+        lines.append(f"🧠 {b('Memories')} ({len(results['memories'])})")
+        for k, v in results["memories"]:
+            lines.append(f"   {esc(k)}: {esc(v[:60])}")
+        lines.append("")
+    if results["goals"]:
+        lines.append(f"🎯 {b('Goals')} ({len(results['goals'])})")
+        for g in results["goals"]:
+            lines.append(f"   {esc(g[1])}")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+async def savetemplate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save a task as a reusable template."""
+    user_id = update.message.from_user.id
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            f"📝 {b('Save Template')}\n\nUsage: {code('savetemplate <name> <task_id>')}\n"
+            f"Example: {code('savetemplate gym 5')}\n\n"
+            f"Saves task #5 as a template called 'gym' that you can reuse anytime.",
+            parse_mode=HTML, reply_markup=main_menu()
+        )
+        return
+    name = context.args[0]
+    try:
+        tid = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("Usage: savetemplate <name> <task_id>", reply_markup=main_menu())
+        return
+    task = get_task_by_id(tid, user_id)
+    if not task:
+        await update.message.reply_text(f"❌ Task [{tid}] not found.", reply_markup=main_menu())
+        return
+    save_template(user_id, name, task[1],
+                  category=task[4] if len(task) > 4 else "General",
+                  priority=task[5] if len(task) > 5 else "medium",
+                  recurrence_type=task[7] if len(task) > 7 else None,
+                  default_time=task[3])
+    await update.message.reply_text(
+        f"📝 {b('Template saved!')}\n\n"
+        f"Name: {code(name)}\n"
+        f"Based on: {esc(task[1])}\n\n"
+        f"Use {code('template ' + name)} to create a task from it anytime.",
+        parse_mode=HTML, reply_markup=main_menu()
+    )
+
+
+async def template_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Create a task from a saved template."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        templates = get_all_templates(user_id)
+        if not templates:
+            await update.message.reply_text(
+                f"📝 {b('No templates yet')}\n\n"
+                f"Save one with: {code('savetemplate <name> <task_id>')}",
+                parse_mode=HTML, reply_markup=main_menu()
+            )
+            return
+        lines = [f"📝 {b('Your Templates')}", ""]
+        for t in templates:
+            name, title, cat, prio, rec, dtime = t
+            lines.append(f"  {code(name)} → {esc(title)} ({esc(cat)}, {esc(prio)})")
+        lines.append(f"\nUse: {code('template <name>')} to create a task from any template.")
+        await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+        return
+    name = context.args[0]
+    tmpl = get_template(user_id, name)
+    if not tmpl:
+        await update.message.reply_text(
+            f"❌ Template '{esc(name)}' not found. Use {code('template')} to list them.",
+            parse_mode=HTML, reply_markup=main_menu()
+        )
+        return
+    tname, title, category, priority, recurrence, default_time = tmpl
+    # Create the task with template defaults
+    set_pending_action(user_id, "create_task", {
+        "action": "create",
+        "title": title,
+        "date": datetime.now(IST).strftime("%Y-%m-%d"),
+        "time": default_time,
+        "category": category,
+        "priority": priority,
+        "recurrence": recurrence,
+    })
+    await update.message.reply_text(
+        f"📝 {b('From template: ' + tname)}\n\n"
+        + build_summary({"title": title, "date": datetime.now(IST).strftime("%Y-%m-%d"),
+                         "time": default_time, "category": category,
+                         "priority": priority, "recurrence": recurrence})
+        + "\n\nSave this task?",
+        parse_mode=HTML, reply_markup=yes_no_menu()
+    )
+
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export all your data as a plain-text summary."""
+    user_id = update.message.from_user.id
+    data = export_user_data(user_id)
+    # Split into chunks if too long for one message (Telegram limit 4096)
+    chunks = [data[i:i+4000] for i in range(0, len(data), 4000)]
+    for chunk in chunks:
+        await update.message.reply_text(f"{code(chunk)}", parse_mode=HTML)
+    await update.message.reply_text(
+        f"✅ Export complete. Copy the text above for your records.",
+        reply_markup=main_menu()
+    )
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -3096,6 +3303,11 @@ def main():
     app.add_handler(CommandHandler("proactive", proactive_cmd))
     app.add_handler(CommandHandler("dashboard", dashboard_cmd))
     app.add_handler(CommandHandler("home", dashboard_cmd))
+    app.add_handler(CommandHandler("search", search_cmd))
+    app.add_handler(CommandHandler("savetemplate", savetemplate_cmd))
+    app.add_handler(CommandHandler("template", template_cmd))
+    app.add_handler(CommandHandler("templates", template_cmd))
+    app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("goals", goals_dash_cmd))
     # v6.1 admin commands
     app.add_handler(CommandHandler("myid", myid_cmd))
@@ -3432,7 +3644,50 @@ def main():
         time=datetime.strptime("08:00", "%H:%M").time(),
         name="morning_briefing")
 
+    # ── v10.0: Weekly Report (Sunday 20:00) ──────────────
+    async def weekly_report(context):
+        """Automated weekly digest — sent every Sunday at 20:00."""
+        try:
+            for uid in get_all_active_user_ids():
+                if is_quiet_hours(uid):
+                    continue
+                data = get_weekly_report_data(uid)
+                if data["done_this_week"] == 0 and data["created_this_week"] == 0:
+                    continue
+                lines = [
+                    f"📊 {b('Weekly Report')}",
+                    f"<i>{datetime.now(IST).strftime('%d %b')} — week ending</i>",
+                    "",
+                    f"✅ Completed: {b(data['done_this_week'])}",
+                    f"📝 Created: {b(data['created_this_week'])}",
+                    f"📋 Still pending: {b(data['pending'])}",
+                ]
+                if data["overdue"]:
+                    lines.append(f"⚠️ Overdue: {b(data['overdue'])}")
+                lines.append(f"\n📈 Completion rate: {b(str(data['completion_rate']) + '%')}")
+                if data["top_habits"]:
+                    lines.append(f"\n🌱 {b('Top Habits')}")
+                    for title, streak, longest in data["top_habits"]:
+                        fire = "🔥" * min(streak or 0, 5) if streak else "○"
+                        lines.append(f"   {fire} {esc(title)} — streak {streak or 0} (best {longest or 0})")
+                lines.append(f"\n<i>Keep it up! 💪</i>")
+                kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 Dashboard", callback_data="dash:home"),
+                    InlineKeyboardButton("📊 Full Stats", callback_data="dash:stats"),
+                ]])
+                try:
+                    await context.bot.send_message(
+                        chat_id=uid, text="\n".join(lines),
+                        parse_mode=HTML, reply_markup=kb)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"weekly_report failed: {e}")
 
+    # Run on Sundays at 20:00 (days=(6,) = Sunday)
+    app.job_queue.run_daily(weekly_report,
+        time=datetime.strptime("20:00", "%H:%M").time(),
+        days=(6,), name="weekly_report")
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""

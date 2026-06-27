@@ -1,6 +1,53 @@
 # BAKA Bot — Version History
 
-## v9.0 — Dashboard & Rich UX Integration (current)
+## v10.0 — Search, Reports & Templates (current)
+Phase 10 — power-user features that make BAKA faster to use daily.
+
+Added:
+- /search <keyword> — universal search across tasks, memories, habits, goals.
+  Searches titles, categories, tags, memory keys+values. Slashless: "search exam"
+- Task Templates — save & reuse common task patterns:
+  /savetemplate <name> <task_id> — save any task as a template
+  /template <name> — create a task from a saved template (pre-fills everything)
+  /templates — list all saved templates
+  "template gym" / "my templates" / "save template study 5" all work without slash
+- /export — full data backup as plain text (tasks, memories, goals)
+  Slashless: "export" / "backup" / "export my data"
+- Weekly Report — automated Sunday 20:00 digest:
+  Tasks completed/created this week, pending, overdue, completion rate,
+  top habit streaks. Sent with Dashboard+Stats buttons.
+- Smart time suggestions in task creation:
+  When no time is set, BAKA checks your learned completion patterns (from v6.0)
+  and suggests: "You usually do Study tasks around 20:00. Want me to set that?"
+
+New table: task_templates (name, title, category, priority, recurrence, default_time)
+New functions: search_all, save/get/delete_template, get_weekly_report_data, export_user_data
+New job: weekly_report (Sunday 20:00)
+Modified: main.py, database.py
+
+---
+
+## v9.1 — GLM 5.1 AI Upgrade + Enhanced Diagnostics
+Switched AI model from Llama 3.1 8B to GLM 5.1 (much more capable).
+
+Added:
+- Model swap: meta/llama-3.1-8b-instruct → z-ai/glm-5.1
+- MODEL_MAIN constant for easy v11.0 multi-model swap
+- Bulletproof .env loading (manual fallback if dotenv fails)
+- top_p parameter support per NVIDIA NIM spec
+- /status upgraded to full AI benchmark:
+  Quick mode (3 tests): connectivity, JSON compliance, intent detection
+  Full mode (6 tests): adds Hindi understanding, task extraction, instruction following
+  Shows: per-test pass/fail + latency, overall grade (A+ to F), avg response time
+  Run: `status` (quick) or `status full` (deep benchmark)
+- v9.0.1 hotfix: goals table migration for legacy DBs (missing 'done'/'progress'/'target')
+  All goal queries now use PRAGMA table_info for column detection — never crashes
+
+Modified: baka_brain.py (model + benchmark), main.py (status cmd), database.py (goals migration)
+
+---
+
+## v9.0 — Dashboard & Rich UX Integration
 Phase 9 — transforms BAKA from chat-centric to dashboard-centric. Purely additive;
 every prior feature preserved. New ui.py component module keeps UI separate from logic.
 

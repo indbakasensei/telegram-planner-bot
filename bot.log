@@ -82865,3 +82865,32 @@ sqlite3.OperationalError: no such column: done
 2026-06-27 13:42:54,085 - INFO - Application is stopping. This might take a moment.
 2026-06-27 13:42:54,086 - INFO - Scheduler has been shut down
 2026-06-27 13:42:54,096 - INFO - Application.stop() complete
+2026-06-27 19:20:37,030 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,031 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,037 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,037 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,037 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,038 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,038 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,038 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,039 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,039 - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-06-27 19:20:37,039 - INFO - 🤖 BAKA is online!
+2026-06-27 19:20:37,557 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getMe "HTTP/1.1 200 OK"
+2026-06-27 19:20:37,721 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/deleteWebhook "HTTP/1.1 200 OK"
+2026-06-27 19:20:37,723 - INFO - Added job "check_reminders" to job store "default"
+2026-06-27 19:20:37,724 - INFO - Added job "check_followups" to job store "default"
+2026-06-27 19:20:37,724 - INFO - Added job "daily_carry_forward" to job store "default"
+2026-06-27 19:20:37,724 - INFO - Added job "check_did_you_finish" to job store "default"
+2026-06-27 19:20:37,724 - INFO - Added job "end_of_day_summary" to job store "default"
+2026-06-27 19:20:37,725 - INFO - Added job "wellness_reminder" to job store "default"
+2026-06-27 19:20:37,725 - INFO - Added job "priority_nudge" to job store "default"
+2026-06-27 19:20:37,726 - INFO - Added job "morning_briefing" to job store "default"
+2026-06-27 19:20:37,726 - INFO - Added job "weekly_report" to job store "default"
+2026-06-27 19:20:37,726 - INFO - Added job "check_deadlines" to job store "default"
+2026-06-27 19:20:37,726 - INFO - Scheduler started
+2026-06-27 19:20:37,726 - INFO - Application started
+2026-06-27 19:20:42,565 - INFO - HTTP Request: POST https://api.telegram.org/bot8975410971:AAFarWU0UjeoJQDZuMFqIx9bMFeSTgTanT0/getUpdates "HTTP/1.1 200 OK"
+2026-06-27 19:20:42,567 - INFO - Application is stopping. This might take a moment.
+2026-06-27 19:20:42,567 - INFO - Scheduler has been shut down
+2026-06-27 19:20:42,579 - INFO - Application.stop() complete

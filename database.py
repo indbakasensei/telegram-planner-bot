@@ -1252,3 +1252,200 @@ def get_done_today_count(user_id):
     n = c.fetchone()[0]
     conn.close()
     return n
+
+# ── v10.0: Search, Templates, Reports ─────────────────
+def search_all(user_id, keyword):
+    """Search tasks, memories, habits, goals by keyword. Returns categorized results."""
+    kw = f"%{keyword.lower()}%"
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    results = {"tasks": [], "memories": [], "habits": [], "goals": []}
+    # Tasks
+    c.execute("""SELECT id, title, due_date, due_time, category, priority, done
+        FROM tasks WHERE user_id=? AND COALESCE(is_habit,0)=0
+        AND (LOWER(title) LIKE ? OR LOWER(category) LIKE ? OR LOWER(tags) LIKE ?)
+        ORDER BY done ASC, due_date DESC LIMIT 10""",
+        (user_id, kw, kw, kw))
+    results["tasks"] = c.fetchall()
+    # Habits
+    c.execute("""SELECT id, title, due_time, recurrence_type, current_streak
+        FROM tasks WHERE user_id=? AND COALESCE(is_habit,0)=1
+        AND LOWER(title) LIKE ? LIMIT 5""",
+        (user_id, kw))
+    results["habits"] = c.fetchall()
+    # Memories
+    c.execute("""SELECT key, value FROM memories
+        WHERE user_id=? AND (LOWER(key) LIKE ? OR LOWER(value) LIKE ?)
+        LIMIT 5""",
+        (user_id, kw, kw))
+    results["memories"] = c.fetchall()
+    # Goals
+    try:
+        c.execute("PRAGMA table_info(goals)")
+        cols = {r[1] for r in c.fetchall()}
+        done_filter = " AND COALESCE(done,0)=0" if "done" in cols else ""
+        c.execute(f"""SELECT id, title FROM goals
+            WHERE user_id=? AND LOWER(title) LIKE ?{done_filter} LIMIT 5""",
+            (user_id, kw))
+        results["goals"] = c.fetchall()
+    except Exception:
+        pass
+    conn.close()
+    return results
+
+
+def _init_templates(conn):
+    conn.cursor().execute("""CREATE TABLE IF NOT EXISTS task_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        category TEXT DEFAULT 'General',
+        priority TEXT DEFAULT 'medium',
+        recurrence_type TEXT,
+        default_time TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+    )""")
+    conn.commit()
+
+
+def save_template(user_id, name, title, category="General", priority="medium",
+                  recurrence_type=None, default_time=None):
+    conn = sqlite3.connect(DB_NAME)
+    _init_templates(conn)
+    c = conn.cursor()
+    try:
+        c.execute("""INSERT INTO task_templates
+            (user_id, name, title, category, priority, recurrence_type, default_time)
+            VALUES (?,?,?,?,?,?,?)""",
+            (user_id, name.lower().strip(), title, category, priority, recurrence_type, default_time))
+    except sqlite3.IntegrityError:
+        c.execute("""UPDATE task_templates
+            SET title=?, category=?, priority=?, recurrence_type=?, default_time=?
+            WHERE user_id=? AND name=?""",
+            (title, category, priority, recurrence_type, default_time, user_id, name.lower().strip()))
+    conn.commit()
+    conn.close()
+
+
+def get_template(user_id, name):
+    conn = sqlite3.connect(DB_NAME)
+    _init_templates(conn)
+    c = conn.cursor()
+    c.execute("""SELECT name, title, category, priority, recurrence_type, default_time
+        FROM task_templates WHERE user_id=? AND name=?""",
+        (user_id, name.lower().strip()))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def get_all_templates(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_templates(conn)
+    c = conn.cursor()
+    c.execute("""SELECT name, title, category, priority, recurrence_type, default_time
+        FROM task_templates WHERE user_id=? ORDER BY name""", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def delete_template(user_id, name):
+    conn = sqlite3.connect(DB_NAME)
+    _init_templates(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM task_templates WHERE user_id=? AND name=?",
+              (user_id, name.lower().strip()))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def get_weekly_report_data(user_id):
+    """Gather data for a weekly digest."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST)
+    week_start = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    today = now.strftime("%Y-%m-%d")
+
+    # Tasks completed this week
+    c.execute("""SELECT COUNT(*) FROM tasks
+        WHERE user_id=? AND done=1
+        AND substr(COALESCE(last_completed, created_at),1,10) BETWEEN ? AND ?""",
+        (user_id, week_start, today))
+    done_this_week = c.fetchone()[0]
+
+    # Tasks created this week
+    c.execute("""SELECT COUNT(*) FROM tasks
+        WHERE user_id=? AND substr(created_at,1,10) BETWEEN ? AND ?""",
+        (user_id, week_start, today))
+    created_this_week = c.fetchone()[0]
+
+    # Currently pending
+    c.execute("SELECT COUNT(*) FROM tasks WHERE user_id=? AND done=0 AND paused=0",
+              (user_id,))
+    pending = c.fetchone()[0]
+
+    # Overdue
+    c.execute("""SELECT COUNT(*) FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0 AND due_date < ?
+        AND (recurrence_type IS NULL OR recurrence_type='')""",
+        (user_id, today))
+    overdue = c.fetchone()[0]
+
+    # Habits: best streaks
+    c.execute("""SELECT title, current_streak, longest_streak
+        FROM tasks WHERE user_id=? AND COALESCE(is_habit,0)=1 AND done=0
+        ORDER BY current_streak DESC LIMIT 3""", (user_id,))
+    top_habits = c.fetchall()
+
+    conn.close()
+    return {
+        "done_this_week": done_this_week,
+        "created_this_week": created_this_week,
+        "pending": pending,
+        "overdue": overdue,
+        "top_habits": top_habits,
+        "completion_rate": round(done_this_week / max(created_this_week, 1) * 100),
+    }
+
+
+def export_user_data(user_id):
+    """Export all user data as a plain-text summary for backup."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    lines = [f"=== BAKA Data Export ===", f"User ID: {user_id}", f"Date: {datetime.now(IST).strftime('%Y-%m-%d %H:%M')}", ""]
+
+    # Tasks
+    c.execute("SELECT id,title,due_date,due_time,category,priority,done FROM tasks WHERE user_id=? ORDER BY due_date", (user_id,))
+    tasks = c.fetchall()
+    lines.append(f"=== TASKS ({len(tasks)}) ===")
+    for t in tasks:
+        status = "✅" if t[6] else "⏳"
+        lines.append(f"{status} [{t[0]}] {t[1]} | {t[2] or '-'} {t[3] or '-'} | {t[4]} | {t[5]}")
+    lines.append("")
+
+    # Memories
+    c.execute("SELECT key, value FROM memories WHERE user_id=?", (user_id,))
+    mems = c.fetchall()
+    lines.append(f"=== MEMORIES ({len(mems)}) ===")
+    for k, v in mems:
+        lines.append(f"  {k}: {v}")
+    lines.append("")
+
+    # Goals
+    try:
+        c.execute("SELECT id, title, progress FROM goals WHERE user_id=?", (user_id,))
+        goals = c.fetchall()
+        lines.append(f"=== GOALS ({len(goals)}) ===")
+        for g in goals:
+            lines.append(f"  [{g[0]}] {g[1]} — {g[2]}%")
+    except Exception:
+        pass
+
+    conn.close()
+    return "\n".join(lines)

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 # Bulletproof .env loading — works regardless of working directory or import order
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 load_dotenv(_env_path)
-_api_key = os.getenv("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")
+_api_key = os.getenv("NVIDIA_API_KEY")
 if not _api_key:
     # Fallback: read .env manually if dotenv failed
     try:
@@ -250,6 +250,115 @@ def check_api_status() -> dict:
         else:
             status = "error"
         return {"status": status, "error": err, "response_time_ms": elapsed}
+
+
+
+def benchmark_ai(quick=True) -> dict:
+    """
+    Run a multi-test benchmark on the current AI model.
+    Tests: latency, intent accuracy, JSON compliance, language understanding, reasoning.
+    quick=True runs 3 tests; quick=False runs all 6.
+    Returns detailed results dict.
+    """
+    import time as _time
+    results = {
+        "model": MODEL_MAIN,
+        "tests": [],
+        "passed": 0,
+        "total": 0,
+        "avg_latency_ms": 0,
+    }
+    latencies = []
+
+    def _run_test(name, prompt, check_fn, max_tokens=100):
+        """Run a single test, return (passed, latency_ms, raw_output)."""
+        start = _time.time()
+        try:
+            raw = call_nvidia([{"role": "user", "content": prompt}],
+                              temperature=0, max_tokens=max_tokens)
+            ms = round((_time.time() - start) * 1000)
+            passed = check_fn(raw)
+            return {"name": name, "passed": passed, "latency_ms": ms,
+                    "output": raw[:150], "error": None}
+        except Exception as e:
+            ms = round((_time.time() - start) * 1000)
+            return {"name": name, "passed": False, "latency_ms": ms,
+                    "output": None, "error": str(e)[:100]}
+
+    # Test 1: Basic connectivity + latency
+    results["tests"].append(_run_test(
+        "Connectivity",
+        "Reply with exactly one word: ONLINE",
+        lambda r: "online" in r.lower()
+    ))
+
+    # Test 2: JSON compliance (critical for BAKA's intent system)
+    results["tests"].append(_run_test(
+        "JSON compliance",
+        'Reply ONLY with valid JSON: {"status": "ok", "number": 42}',
+        lambda r: '"status"' in r and '"ok"' in r,
+        max_tokens=50
+    ))
+
+    # Test 3: Intent classification accuracy
+    results["tests"].append(_run_test(
+        "Intent detection",
+        'Classify this message intent as exactly one of TASK/CHAT/VIEW/MEMORY_SAVE. '
+        'Message: "Remind me to call mom tomorrow at 5pm". Reply with ONLY the intent word.',
+        lambda r: "TASK" in r.upper()
+    ))
+
+    if not quick:
+        # Test 4: Hindi/Hinglish understanding
+        results["tests"].append(_run_test(
+            "Hindi understanding",
+            'What does "Kal subah 8 baje gym yaad dila dena" mean in English? '
+            'Reply in one sentence.',
+            lambda r: any(w in r.lower() for w in ["remind", "gym", "morning", "tomorrow"]),
+            max_tokens=100
+        ))
+
+        # Test 5: Reasoning / task extraction
+        results["tests"].append(_run_test(
+            "Task extraction",
+            'Extract the task title from: "Bhai next Friday assignment submit karna hai". '
+            'Reply with ONLY the title, nothing else.',
+            lambda r: "assignment" in r.lower(),
+            max_tokens=50
+        ))
+
+        # Test 6: Multi-step instruction following
+        results["tests"].append(_run_test(
+            "Instruction following",
+            'I will give you a task. Extract: 1) title 2) date 3) time. '
+            'Task: "Meeting with boss tomorrow at 3pm". '
+            'Reply as JSON: {"title":"...","date":"tomorrow","time":"15:00"}',
+            lambda r: '"title"' in r and ("15:00" in r or "3" in r),
+            max_tokens=100
+        ))
+
+    # Compute summary
+    results["total"] = len(results["tests"])
+    results["passed"] = sum(1 for t in results["tests"] if t["passed"])
+    latencies = [t["latency_ms"] for t in results["tests"] if t["latency_ms"]]
+    results["avg_latency_ms"] = round(sum(latencies) / len(latencies)) if latencies else 0
+    results["score"] = f"{results['passed']}/{results['total']}"
+
+    # Performance grade
+    pct = (results["passed"] / results["total"] * 100) if results["total"] else 0
+    avg = results["avg_latency_ms"]
+    if pct >= 100 and avg < 2000:
+        results["grade"] = "A+"
+    elif pct >= 80 and avg < 3000:
+        results["grade"] = "A"
+    elif pct >= 60:
+        results["grade"] = "B"
+    elif pct >= 40:
+        results["grade"] = "C"
+    else:
+        results["grade"] = "F"
+
+    return results
 
 
 def chat_with_ai(message: str) -> str:
