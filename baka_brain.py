@@ -154,7 +154,8 @@ Respond ONLY with valid JSON:
     "category": "Study|Health|Work|Personal|Other|null",
     "priority": "high|medium|low|null",
     "recurrence": "daily|weekly|monthly|null",
-    "recurrence_day": "weekday name or day number or null"
+    "recurrence_day": "weekday name or day number or null",
+    "is_deadline": "true if the task has deadline phrasing (due, submit by, deadline, before, tak), false otherwise"
   }},
   "memory_key": "key to store/retrieve or null",
   "memory_value": "value to store or null",

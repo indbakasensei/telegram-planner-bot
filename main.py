@@ -32,6 +32,7 @@ from database import (
     get_wellness_prefs, set_wellness, mark_wellness_sent,
     search_all, save_template, get_template, get_all_templates,
     delete_template, get_weekly_report_data, export_user_data,
+    mark_as_deadline, get_pending_deadlines, mark_buffer_sent, parse_buffer_sent,
     get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
@@ -550,12 +551,39 @@ async def execute_task_action(user_id: int, data: dict, update: Update):
             rec_type, rec_weekday, rec_day
         )
 
+        # v10.1: mark as deadline if user phrased it that way
+        is_deadline = bool(data.get("is_deadline"))
+        if is_deadline:
+            try:
+                mark_as_deadline(task_id, user_id, True)
+            except Exception:
+                pass
+
         rec_msg = f"\n🔁 Repeats: {esc(rec)}" if rec else ""
+        if is_deadline:
+            # Compute time-to-deadline for a friendly preview
+            try:
+                deadline_dt = IST.localize(datetime.strptime(
+                    f"{date} {data.get('time')}", "%Y-%m-%d %H:%M"))
+                hours_left = (deadline_dt - datetime.now(IST)).total_seconds() / 3600
+                if hours_left > 24:
+                    countdown = f"{int(hours_left/24)} days"
+                else:
+                    countdown = f"{int(hours_left)} hours"
+            except Exception:
+                countdown = "soon"
+            deadline_msg = (f"\n\n⏳ {b('Deadline mode ON')} — I'll ping you {b('before')} "
+                           f"the deadline (7d/3d/1d/6h/1h ahead) so you can plan, "
+                           f"not just panic at the last minute.\n"
+                           f"<i>Time until deadline: {esc(countdown)}</i>")
+        else:
+            deadline_msg = ""
+
         await update.message.reply_text(
             f"✅ {b('Saved!')}\n\n"
             f"📌 {b(title)}\n"
             f"<i>📅 {esc(date or 'No date')} · ⏰ {esc(data.get('time') or 'No time')} · 🏷 {esc(data.get('category', 'General'))}</i>"
-            f"{rec_msg}\n\n"
+            f"{rec_msg}{deadline_msg}\n\n"
             f"Use {code('/done ' + str(task_id))} when complete!",
             parse_mode=HTML, reply_markup=main_menu()
         )
@@ -999,6 +1027,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("checktasks", "check tasks", "diagnose tasks", "task diagnostics"): checktasks_cmd,
         ("templates", "my templates", "show templates", "list templates"): template_cmd,
         ("export", "export data", "backup", "export my data"): export_cmd,
+        ("deadline mode", "what is deadline mode",
+         "deadline help", "deadlines"): deadline_cmd,
     }
     for phrases, handler in _exact_handlers.items():
         if _low_full in phrases or any(_low_full == p for p in phrases):
@@ -1101,6 +1131,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             entities["recurrence"] = parsed["recurrence"]["type"]
         if parsed.get("priority") and not entities.get("priority"):
             entities["priority"] = parsed["priority"]
+        # v10.1: deadline detection — parser OR AI says so
+        if parsed.get("is_deadline") or entities.get("is_deadline"):
+            entities["is_deadline"] = True
 
         # Bug: invalid time / past date detection from the parser
         if parsed.get("is_invalid_time"):
@@ -1253,6 +1286,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             set_pending_action(user_id, "create_task", {
                 "action": "create", **summary_data,
                 "priority": entities.get("priority", "medium"),
+                "is_deadline": bool(entities.get("is_deadline")),
             })
             summary = confirm_summary or build_summary(summary_data)
             # v8.0: smart suggestion — warn if the time slot is crowded
@@ -1654,6 +1688,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "resume":
         resume_task(task_id, user_id)
         await query.edit_message_text("▶️ Task resumed. Reminders are back on.")
+
+    elif action == "unflagdeadline":
+        # v10.1: stop buffer reminders for a deadline task
+        if task_id:
+            try:
+                mark_as_deadline(task_id, user_id, False)
+                await query.edit_message_text(
+                    "🔕 Buffer reminders muted for this task. "
+                    "You'll still get the reminder at the deadline itself."
+                )
+            except Exception:
+                await query.edit_message_text("Couldn't update task.")
 
     elif action == "finish_yes":
         # v7.0: user confirms they finished
@@ -3223,6 +3269,57 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
+
+# ── v10.1: Deadline Toggle Command ────────────────────
+async def deadline_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle pre-deadline buffer reminders for a specific task."""
+    user_id = update.message.from_user.id
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            f"⏳ {b('Deadline Mode')}\n\n"
+            f"Mark a task as a deadline so BAKA reminds you {b('before')} it's due "
+            f"(7d/3d/1d/6h/1h ahead), not just at the deadline itself.\n\n"
+            f"Usage:\n"
+            f"   {code('deadline <id>')} — toggle deadline mode for a task\n"
+            f"   {code('deadline <id> on')} — force ON\n"
+            f"   {code('deadline <id> off')} — force OFF\n\n"
+            f"You can also just say things like:\n"
+            f"   <i>\"Assignment due Friday 5pm\"</i>\n"
+            f"   <i>\"Submit report by tomorrow 10am\"</i>\n"
+            f"and BAKA auto-detects them as deadlines.",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        tid = int(args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: deadline <task_id> [on|off]", reply_markup=main_menu())
+        return
+    task = get_task_by_id(tid, user_id)
+    if not task:
+        await update.message.reply_text(f"❌ Task [{tid}] not found.", reply_markup=main_menu())
+        return
+    # Determine target state
+    if len(args) > 1:
+        action = args[1].lower()
+        new_state = action in ("on", "yes", "true", "enable")
+    else:
+        # Toggle
+        import sqlite3
+        conn = sqlite3.connect("planner.db"); c = conn.cursor()
+        c.execute("SELECT COALESCE(is_deadline,0) FROM tasks WHERE id=?", (tid,))
+        row = c.fetchone()
+        new_state = not bool(row[0]) if row else True
+        conn.close()
+    mark_as_deadline(tid, user_id, new_state)
+    state_label = "ON" if new_state else "OFF"
+    state_emoji = "⏳" if new_state else "⚪"
+    await update.message.reply_text(
+        f"{state_emoji} Deadline mode {b(state_label)} for {b(task[1])}.\n"
+        + ("\nI'll ping you ahead of time so you can plan!" if new_state
+           else "\nNo more advance warnings for this task."),
+        parse_mode=HTML, reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -3308,6 +3405,7 @@ def main():
     app.add_handler(CommandHandler("template", template_cmd))
     app.add_handler(CommandHandler("templates", template_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("deadline", deadline_cmd))
     app.add_handler(CommandHandler("goals", goals_dash_cmd))
     # v6.1 admin commands
     app.add_handler(CommandHandler("myid", myid_cmd))
@@ -3688,6 +3786,95 @@ def main():
     app.job_queue.run_daily(weekly_report,
         time=datetime.strptime("20:00", "%H:%M").time(),
         days=(6,), name="weekly_report")
+
+    # ── v10.1: Smart Pre-Deadline Buffer Reminders ───────
+    # Buffer thresholds — each is (label, seconds_remaining_max).
+    # When a deadline is within this many seconds and the matching label
+    # hasn't been sent yet, send the warning. Largest buffer fires first.
+    BUFFER_STAGES = [
+        ("7d", 7 * 24 * 3600,  "7 days"),
+        ("3d", 3 * 24 * 3600,  "3 days"),
+        ("1d", 24 * 3600,      "1 day"),
+        ("6h", 6 * 3600,       "6 hours"),
+        ("1h", 3600,           "1 hour"),
+    ]
+
+    async def deadline_buffer_check(context):
+        """Send buffer reminders BEFORE deadlines, scaling with time-remaining."""
+        try:
+            now = datetime.now(IST)
+            for d in get_pending_deadlines():
+                tid, uid, title, ddate, dtime, priority, sent_str, category = d
+                if is_quiet_hours(uid):
+                    continue
+                already_sent = parse_buffer_sent(sent_str)
+                try:
+                    deadline_dt = IST.localize(datetime.strptime(
+                        f"{ddate} {dtime}", "%Y-%m-%d %H:%M"))
+                except Exception:
+                    continue
+                seconds_left = (deadline_dt - now).total_seconds()
+                if seconds_left <= 0:
+                    continue  # already passed → handled by normal reminders
+                # Find the smallest buffer threshold this deadline currently fits in
+                # that we haven't sent yet. Iterate small-to-large so we send the
+                # most urgent unsent buffer.
+                fire_label = None
+                fire_text = None
+                for label, threshold, human in BUFFER_STAGES:
+                    if seconds_left <= threshold and label not in already_sent:
+                        fire_label = label
+                        fire_text = human
+                        # Don't break — keep looking for smaller (more urgent) buffer
+                # If still nothing, check larger ones (case: just created, many days away)
+                if not fire_label:
+                    for label, threshold, human in BUFFER_STAGES:
+                        if seconds_left <= threshold and label not in already_sent:
+                            fire_label = label
+                            fire_text = human
+                            break
+                if not fire_label:
+                    continue
+                # Build the warning message
+                priority_emoji = "🔴" if priority == "high" else "🟢" if priority == "low" else "🟡"
+                # Compute a friendly countdown
+                if seconds_left > 24 * 3600:
+                    countdown = f"{int(seconds_left / 86400)} days"
+                elif seconds_left > 3600:
+                    countdown = f"{int(seconds_left / 3600)} hours"
+                else:
+                    countdown = f"{int(seconds_left / 60)} minutes"
+                msg = (
+                    f"⏳ {b('Deadline Approaching')}\n\n"
+                    f"{priority_emoji} {b(title)}\n"
+                    f"<i>🏷 {esc(category or 'General')}</i>\n\n"
+                    f"📅 Due: {esc(ddate)} at {esc(dtime)}\n"
+                    f"⏱ {b('Time remaining: ' + countdown)}\n\n"
+                    f"💡 <i>This is your {fire_text}-out warning. "
+                    f"Plan ahead — don't leave it for the deadline!</i>"
+                )
+                kb = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Done now", callback_data=f"done:{tid}"),
+                        InlineKeyboardButton("🔨 Break down", callback_data=f"dobreak:{tid}"),
+                    ],
+                    [
+                        InlineKeyboardButton("📅 Plan today", callback_data="dash:today"),
+                        InlineKeyboardButton("🔕 Mute buffers", callback_data=f"unflagdeadline:{tid}"),
+                    ],
+                ])
+                try:
+                    await context.bot.send_message(chat_id=uid, text=msg,
+                                                   parse_mode=HTML, reply_markup=kb)
+                    mark_buffer_sent(tid, fire_label)
+                    logger.info(f"[deadline] sent {fire_label} buffer for task {tid}")
+                except Exception as e:
+                    logger.error(f"deadline_buffer send failed: {e}")
+        except Exception as e:
+            logger.error(f"deadline_buffer_check failed: {e}")
+
+    # Check every 30 min — frequent enough for hour-scale buffers
+    app.job_queue.run_repeating(deadline_buffer_check, interval=1800, first=180)
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""

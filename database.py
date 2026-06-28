@@ -44,6 +44,8 @@ def init_db():
         ("followup_count", "INTEGER DEFAULT 0"),
         ("snooze_count", "INTEGER DEFAULT 0"),
         ("stale_flagged", "INTEGER DEFAULT 0"),
+        ("is_deadline", "INTEGER DEFAULT 0"),
+        ("buffer_sent", "TEXT DEFAULT ''"),
     ]:
         try:
             c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
@@ -1449,3 +1451,53 @@ def export_user_data(user_id):
 
     conn.close()
     return "\n".join(lines)
+
+# ── v10.1: Pre-Deadline Buffer Reminders ──────────────
+def mark_as_deadline(task_id, user_id, is_deadline=True):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET is_deadline=? WHERE id=? AND user_id=?",
+              (1 if is_deadline else 0, task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def get_pending_deadlines():
+    """All future deadline tasks (not done/paused) for buffer reminder checks."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST)
+    today = now.strftime("%Y-%m-%d")
+    current_time = now.strftime("%H:%M")
+    c.execute("""SELECT id, user_id, title, due_date, due_time, priority,
+                 COALESCE(buffer_sent,''), category
+        FROM tasks
+        WHERE done=0 AND paused=0
+        AND COALESCE(is_deadline,0)=1
+        AND due_date IS NOT NULL AND due_time IS NOT NULL
+        AND (due_date > ? OR (due_date = ? AND due_time > ?))
+        AND (recurrence_type IS NULL OR recurrence_type='')""",
+        (today, today, current_time))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def mark_buffer_sent(task_id, buffer_label):
+    """Record which buffer reminder has already been sent (e.g. '7d', '3d', '1d', '6h', '1h')."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(buffer_sent,'') FROM tasks WHERE id=?", (task_id,))
+    row = c.fetchone()
+    current = row[0] if row else ""
+    sent = set(current.split(",")) if current else set()
+    sent.discard("")
+    sent.add(buffer_label)
+    new_value = ",".join(sorted(sent))
+    c.execute("UPDATE tasks SET buffer_sent=? WHERE id=?", (new_value, task_id))
+    conn.commit()
+    conn.close()
+
+def parse_buffer_sent(buffer_sent_str):
+    """Convert the comma-separated buffer_sent string to a set."""
+    if not buffer_sent_str:
+        return set()
+    return set(s for s in buffer_sent_str.split(",") if s)

@@ -1,6 +1,36 @@
 # BAKA Bot — Version History
 
-## v10.0 — Search, Reports & Templates (current)
+## v10.1 — Pre-Deadline Buffer Reminders (current)
+A new way to handle "due by" tasks — warn AHEAD so you can plan, not panic.
+
+Added:
+- Auto-detect deadline phrasing in natural language:
+  English: "due", "deadline", "submit by", "deliver by", "finish by",
+           "complete by", "done by", "before deadline", "hand in", "turn in"
+  Hindi: "tak", "tak karna hai", "deadline hai", "submission"
+- Smart buffer reminders at 7d / 3d / 1d / 6h / 1h ahead of the deadline
+- Each warning shows time remaining + inline buttons:
+  ✅ Done now · 🔨 Break down · 📅 Plan today · 🔕 Mute buffers
+- /deadline <id> [on|off] — manually toggle deadline mode for any task
+- All buffer reminders respect quiet hours
+- Once a buffer level is sent, it's recorded (comma-separated 'buffer_sent' column)
+  so the same warning never fires twice for the same task
+
+Detection works in TWO layers (defense in depth):
+- Parser regex (deterministic) detects deadline phrasing first
+- AI also has is_deadline as a new entity field
+- Either layer triggering enables deadline mode
+
+New columns: is_deadline, buffer_sent (in tasks table, migrated safely)
+New functions: mark_as_deadline, get_pending_deadlines, mark_buffer_sent, parse_buffer_sent
+New job: deadline_buffer_check (every 30 min)
+New callback: unflagdeadline (mute buffers for a task)
+New command: /deadline + "deadlines"/"deadline mode" natural lang
+Modified: main.py, database.py, date_parser.py, baka_brain.py
+
+---
+
+## v10.0 — Search, Reports & Templates
 Phase 10 — power-user features that make BAKA faster to use daily.
 
 Added:

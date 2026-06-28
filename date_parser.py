@@ -311,6 +311,17 @@ def parse_all(text: str, now: datetime = None) -> dict:
     else:
         priority = "medium"
 
+    # v10.1: detect deadline phrasing (parser fallback in case AI misses it)
+    # Catches: "due X", "submit by X", "deliver X by Y", "finish X by Y", "deadline...", "tak"
+    is_deadline = bool(re.search(
+        r'\b(due|deadline)\b'
+        r'|\b(submit|deliver|finish|complete|done|hand in|hand over|turn in)\b[^.]*\bby\b'
+        r'|\bby the end of\b|\bbefore (the )?(deadline|due date)\b'
+        r'|\b(submission|deadline hai)\b'
+        r'|\btak (karna hai|hai)?\b',
+        t_lower
+    ))
+
     return {
         "date": date_str,
         "time": time_str,
@@ -321,4 +332,5 @@ def parse_all(text: str, now: datetime = None) -> dict:
         "is_past": bool(date_err and "past" in date_err),
         "is_invalid_time": time_str is None and time_err is not None,
         "priority": priority,
+        "is_deadline": is_deadline,
     }
