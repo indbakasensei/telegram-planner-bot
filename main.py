@@ -1111,7 +1111,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _user_context = None
 
     result = get_baka_response(user_input, existing_tasks, get_history(user_id),
-                                memories, user_context=_user_context)
+                                memories, user_context=_user_context, user_id=user_id)
     intent = result.get("intent", "CHAT").upper()
     entities = result.get("entities", {})
     missing = result.get("missing", [])
@@ -3611,34 +3611,238 @@ async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── v11.0: Multi-model Status ─────────────────────────
 async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show status of all v11.0 AI models."""
+    """v11.1: Multi-Model AI status with real usage data."""
     user_id = update.message.from_user.id
     thinking = await update.message.reply_text("🔍 Checking all models...")
-    results = benchmark_all_models()
+
+    # Real usage data from analytics
+    try:
+        import analytics
+        stats = {s["model"]: s for s in analytics.get_model_stats(user_id)}
+    except Exception:
+        stats = {}
+
+    # Quick liveness probe
+    health = benchmark_all_models()
 
     lines = [f"🤖 {b('Multi-Model AI Status')}", ""]
-
-    for name, r in results.items():
+    for name, r in health.items():
+        model_id = r["model"]
         online = r["online"]
-        if online is True:
-            status = f"🟢 ONLINE ({r['ms']}ms)"
-        elif online is False:
-            status = f"🔴 OFFLINE — {esc((r.get('error') or 'unknown')[:80])}"
-        else:
-            status = f"⚪ {esc(str(online))}"
         role_label = {
             "main": "Main Brain", "fast": "Fast Tasks",
             "vision": "Image Understanding", "image": "Image Generation",
             "video": "Video Generation"
         }.get(name, name)
-        lines.append(f"{b(role_label)}")
-        lines.append(f"  {code(r['model'])}")
-        lines.append(f"  {status}")
+        # Live status
+        if online is True:
+            ping_str = f"🟢 {r['ms']}ms"
+        elif online is False:
+            ping_str = "🔴 offline"
+        else:
+            ping_str = f"⚪ {esc(str(online))}"
+        # Add real usage if we have it
+        s = stats.get(model_id)
+        lines.append(f"{b(role_label)} — {ping_str}")
+        lines.append(f"  {code(model_id)}")
+        if s and s["total_requests"]:
+            health_emoji = {"healthy": "🟢", "warning": "🟡",
+                           "degraded": "🔴", "slow": "🐢"}.get(s["health"], "⚪")
+            lines.append(f"  Today: {b(s['today_requests'])} · Total: {b(s['total_requests'])} · "
+                         f"{health_emoji} {esc(s['health'])}")
+            lines.append(f"  Avg: {s['avg_latency_ms']}ms · Success: {s['success_rate']}%")
         lines.append("")
 
     lines.append(f"<i>Toggles in baka_brain.py: ENABLE_VISION, ENABLE_IMAGE_GEN, ENABLE_VIDEO_GEN</i>")
     await thinking.delete()
     await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+# ── v11.1: Usage Analytics Dashboard ──────────────────
+async def usage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display AI usage analytics — today + lifetime + top patterns."""
+    user_id = update.message.from_user.id
+    try:
+        import analytics
+        today = analytics.get_today_overview(user_id)
+        lifetime = analytics.get_lifetime_overview(user_id)
+        top_models = analytics.get_most_used(user_id, "model_name", limit=3)
+        top_providers = analytics.get_most_used(user_id, "provider", limit=3)
+        top_types = analytics.get_most_used(user_id, "request_type", limit=5)
+        recent = analytics.get_recent_activity(user_id, limit=5)
+    except Exception as e:
+        await update.message.reply_text(f"Analytics not ready yet: {esc(str(e))}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+
+    if lifetime["lifetime_requests"] == 0:
+        await update.message.reply_text(
+            f"📊 {b('AI Usage')}\n\nNo AI calls logged yet. As you use BAKA, "
+            f"every AI request will be tracked here.",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+
+    lines = [f"📊 {b('AI Usage Analytics')}", ""]
+    lines.append(f"{b('Today')}")
+    lines.append(f"  Requests: {b(today['requests_today'])}")
+    lines.append(f"  Tokens: {b(today['tokens_today'])}")
+    if today["cost_today"] > 0:
+        lines.append(f"  Est. cost: ${today['cost_today']:.4f}")
+    lines.append(f"  Avg latency: {today['avg_latency_ms']}ms")
+    lines.append(f"  Success rate: {today['success_rate']}%")
+    lines.append("")
+
+    lines.append(f"{b('Lifetime')}")
+    lines.append(f"  Total requests: {b(lifetime['lifetime_requests'])}")
+    lines.append(f"  Total tokens: {b(lifetime['lifetime_tokens'])}")
+    if lifetime["lifetime_cost"] > 0:
+        lines.append(f"  Est. total cost: ${lifetime['lifetime_cost']:.4f}")
+    lines.append(f"  Success rate: {lifetime['lifetime_success_rate']}%")
+    lines.append("")
+
+    if top_models:
+        lines.append(f"{b('Most-used models')}")
+        for m, n in top_models:
+            lines.append(f"  • {esc(m)}: {n}")
+        lines.append("")
+
+    if top_providers:
+        lines.append(f"{b('Providers')}")
+        for p, n in top_providers:
+            lines.append(f"  • {esc(p)}: {n}")
+        lines.append("")
+
+    if top_types:
+        lines.append(f"{b('Request types')}")
+        for t, n in top_types:
+            lines.append(f"  • {esc(t)}: {n}")
+        lines.append("")
+
+    if recent:
+        lines.append(f"{b('Recent activity')}")
+        for ts, model, rtype, lat, tok, status in recent[:5]:
+            icon = "✅" if status == "success" else "❌"
+            time_part = ts.split(" ")[1][:5] if ts and " " in ts else "?"
+            lines.append(f"  {icon} {esc(time_part)} {esc((model or '?')[:25])} "
+                         f"({esc(rtype or '?')}, {lat}ms)")
+
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🤖 Models", callback_data="dash:models_view"),
+        InlineKeyboardButton("⚡ Performance", callback_data="dash:perf_view"),
+        InlineKeyboardButton("❌ Errors", callback_data="dash:errors_view"),
+    ]])
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=kb)
+
+
+async def performance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Latency percentiles, fastest/slowest, trends."""
+    user_id = update.message.from_user.id
+    try:
+        import analytics
+        perc = analytics.latency_percentiles(user_id, days=7)
+        trends = analytics.get_trends(user_id)
+        fastest, slowest = analytics.get_fastest_slowest(user_id)
+        most_reliable = analytics.get_most_reliable(user_id)
+    except Exception as e:
+        await update.message.reply_text(f"Analytics error: {esc(str(e))}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+
+    lines = [f"⚡ {b('AI Performance')}", ""]
+
+    if perc["n"] == 0:
+        lines.append(i("No data yet — make some AI calls first."))
+    else:
+        lines.append(f"{b('Latency (last 7 days, n=' + str(perc['n']) + ')')}")
+        lines.append(f"  Median (p50): {b(str(perc['p50']) + 'ms')}")
+        lines.append(f"  p95: {b(str(perc['p95']) + 'ms')}")
+        lines.append(f"  p99: {b(str(perc['p99']) + 'ms')}")
+        lines.append("")
+
+    if fastest:
+        lines.append(f"⚡ {b('Fastest')}: {esc(fastest['model'])} ({fastest['avg_latency_ms']}ms avg)")
+    if slowest:
+        lines.append(f"🐢 {b('Slowest')}: {esc(slowest['model'])} ({slowest['avg_latency_ms']}ms avg)")
+    if most_reliable:
+        lines.append(f"🛡 {b('Most reliable')}: {esc(most_reliable['model'])} ({most_reliable['success_rate']}%)")
+    lines.append("")
+
+    lines.append(f"{b('Trend')}")
+    lines.append(f"  Today: {b(trends['daily'])}")
+    lines.append(f"  Yesterday: {trends['yesterday']}")
+    lines.append(f"  This week: {trends['weekly']}")
+    lines.append(f"  This month: {trends['monthly']}")
+    lines.append(f"  Direction: {b(trends['daily_trend'])}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+async def errors_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recent errors + breakdown."""
+    user_id = update.message.from_user.id
+    try:
+        import analytics
+        bd = analytics.get_error_breakdown(user_id)
+        recent = analytics.get_recent_errors(user_id, limit=8)
+    except Exception as e:
+        await update.message.reply_text(f"Analytics error: {esc(str(e))}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+
+    lines = [f"❌ {b('AI Errors')}", ""]
+    if bd["total_errors"] == 0:
+        lines.append(f"✅ No errors logged. Everything's clean!")
+        await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+        return
+
+    lines.append(f"Total errors: {b(bd['total_errors'])}")
+    if bd["fallback_activations"]:
+        lines.append(f"Fallbacks activated: {b(bd['fallback_activations'])}")
+    lines.append("")
+
+    if bd["top_errors"]:
+        lines.append(f"{b('Most common errors')}")
+        for err, n in bd["top_errors"]:
+            lines.append(f"  • ({n}x) {esc((err or '?')[:100])}")
+        lines.append("")
+
+    if bd["models_with_errors"]:
+        lines.append(f"{b('Models causing errors')}")
+        for m, n in bd["models_with_errors"]:
+            lines.append(f"  • {esc(m or '?')}: {n}")
+        lines.append("")
+
+    if recent:
+        lines.append(f"{b('Recent error timeline')}")
+        for ts, model, rtype, err in recent[:5]:
+            time_part = ts.split(" ")[1][:5] if ts and " " in ts else "?"
+            lines.append(f"  ❌ {esc(time_part)} {esc((model or '?')[:25])} "
+                         f"<i>{esc((err or '?')[:80])}</i>")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+# ── v11.1: AI Status snippet for the main dashboard ───
+def get_ai_status_summary(user_id: int) -> str:
+    """Returns an HTML snippet for embedding in the main dashboard card."""
+    try:
+        import analytics
+        today = analytics.get_today_overview(user_id)
+        models = analytics.get_model_stats(user_id)
+        primary = models[0] if models else None
+        if today["requests_today"] == 0 and not primary:
+            return ""
+        lines = [f"\n{DIVIDER}\n🧠 {b('AI STATUS')}"]
+        if primary:
+            lines.append(f"  Provider: {esc(primary['provider'])}")
+            lines.append(f"  Primary: {code(primary['model'])}")
+        lines.append(f"  Requests today: {b(today['requests_today'])}")
+        if today["avg_latency_ms"]:
+            lines.append(f"  Avg response: {today['avg_latency_ms']}ms")
+        lines.append(f"  Success rate: {today['success_rate']}%")
+        return "\n".join(lines)
+    except Exception:
+        return ""
 
 
 # ── v11.0: AI Observations / Suggestions ──────────────
@@ -3824,6 +4028,9 @@ def main():
     app.add_handler(CommandHandler("image", image_cmd))
     app.add_handler(CommandHandler("generate", image_cmd))
     app.add_handler(CommandHandler("models", models_cmd))
+    app.add_handler(CommandHandler("usage", usage_cmd))
+    app.add_handler(CommandHandler("performance", performance_cmd))
+    app.add_handler(CommandHandler("errors", errors_cmd))
     app.add_handler(CommandHandler("suggestions", suggestions_cmd))
     app.add_handler(CommandHandler("approve", approve_cmd))
     app.add_handler(CommandHandler("dismiss", dismiss_cmd))

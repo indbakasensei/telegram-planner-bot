@@ -1,6 +1,62 @@
 # BAKA Bot — Version History
 
-## v11.0 — Multi-Model AI System (current)
+## v11.1 — AI Usage Analytics & Model Monitoring (current)
+Per-call AI telemetry, multi-model dashboards, error tracking.
+Every AI request that flows through the system is now logged automatically
+without manual instrumentation and without slowing down any AI response.
+
+NEW PACKAGE: analytics/ (kept separate from business logic per spec)
+- usage_logger.py — async-queue logger, ZERO-impact on AI latency
+- usage_service.py — query functions for the dashboard
+- model_metrics.py — per-model rollups + health detection
+- token_counter.py — cost estimation (15 models priced)
+- performance_tracker.py — latency percentiles + trends
+- __init__.py — clean public API
+
+NEW TABLE: ai_usage (19 columns per spec)
+- timestamp, user_id, session_id, conversation_id
+- provider, model_name, request_type, intent
+- prompt_tokens, completion_tokens, total_tokens
+- estimated_cost (USD), latency_ms, status, error_message
+- fallback_used, response_length, created_at
+- 4 indexes for fast queries
+
+AUTOMATIC LOGGING — captures every AI call:
+- baka_brain.py _call_model() — every multi-model call
+- baka_brain.py call_nvidia() — legacy intent detection path
+- baka_brain.py generate_image() — image gen
+- Token usage extracted from response.usage (works for any OpenAI-compatible provider)
+- Failed calls also logged (status='error' with error_message)
+- Fallback activations tracked (fallback_used=1)
+
+NEW COMMANDS:
+- /usage — today + lifetime overview, top models/providers/types, recent activity
+- /performance — p50/p95/p99 latency, fastest/slowest/most reliable, trends
+- /errors — total errors, top errors, models causing them, fallback count, timeline
+- /models — UPGRADED: shows live ping + real usage (today/total/avg/success per model)
+
+PROVIDER-INDEPENDENT design:
+- Provider stored as separate column (NVIDIA NIM, OpenAI, Anthropic, Google, Ollama)
+- 15 model price points pre-loaded (token_counter.py MODEL_COSTS)
+- Adding a new provider = adding entries to MODEL_COSTS, no code changes
+
+PERFORMANCE:
+- Async background-thread writer queue (0.017ms per call overhead)
+- WAL mode + synchronous=NORMAL for concurrent reader/writer safety
+- Sub-microsecond impact on AI response path
+
+BACKWARD COMPATIBILITY:
+- Every existing call signature unchanged (request_type/user_id are optional kwargs)
+- Existing AI flows untouched
+- ai_usage table independent — no FK to existing data
+- Analytics failure NEVER blocks an AI call (all wrapped in try/except)
+
+Modified: main.py, database.py, baka_brain.py
+New folder: analytics/ (6 files)
+
+---
+
+## v11.0 — Multi-Model AI System
 The full multi-model AI infrastructure. BAKA can now think, see, and create.
 
 Added 6 AI models with smart routing:

@@ -60,8 +60,12 @@ def clean_json(content: str) -> str:
         content = content[start:end]
     return content
 
-def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1) -> str:
-    """Legacy call function — defaults to MODEL_MAIN. Use call_main/call_fast/etc instead for new code."""
+def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
+                request_type="INTENT_DETECTION", user_id=None) -> str:
+    """Legacy call function — defaults to MODEL_MAIN. v11.1: now logs to analytics."""
+    import time as _time
+    start = _time.time()
+    last_err = None
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
@@ -71,17 +75,50 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1) -> st
                 temperature=temperature,
                 top_p=top_p
             )
-            return response.choices[0].message.content.strip()
+            ms = round((_time.time() - start) * 1000)
+            text = response.choices[0].message.content.strip()
+            # v11.1: log to analytics
+            try:
+                from analytics import log_ai_request
+                usage = getattr(response, "usage", None)
+                log_ai_request(
+                    model_name=MODEL_MAIN,
+                    latency_ms=ms,
+                    status="success",
+                    user_id=user_id,
+                    request_type=request_type,
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+                    response_text=text,
+                    fallback_used=(attempt > 0),
+                )
+            except Exception:
+                pass
+            return text
         except Exception as e:
+            last_err = str(e)
             logger.error(f"API attempt {attempt+1} failed: {e}")
             if attempt < 2:
                 time.sleep(2)
             else:
+                # Log the failure before raising
+                try:
+                    from analytics import log_ai_request
+                    log_ai_request(
+                        model_name=MODEL_MAIN,
+                        latency_ms=round((_time.time() - start) * 1000),
+                        status="error",
+                        user_id=user_id,
+                        request_type=request_type,
+                        error_message=last_err[:300],
+                    )
+                except Exception:
+                    pass
                 raise e
 
 def get_baka_response(user_input: str, existing_tasks: list,
                         history: list = None, memories: list = None,
-                        user_context: dict = None) -> dict:
+                        user_context: dict = None, user_id: int = None) -> dict:
     today = datetime.now()
     tomorrow = today + timedelta(days=1)
     day_after = today + timedelta(days=2)
@@ -211,7 +248,7 @@ For MULTIPLE intent, populate tasks array:
         content = call_nvidia([
             {"role": "system", "content": system},
             {"role": "user", "content": user_input}
-        ], temperature=0.1)
+        ], temperature=0.1, request_type="INTENT_DETECTION", user_id=user_id)
 
         cleaned = clean_json(content)
         result = json.loads(cleaned)
@@ -401,14 +438,18 @@ def benchmark_ai(quick=True) -> dict:
 
 # ── v11.0: Per-Model Call Functions ───────────────────
 def _call_model(model_id: str, messages: list, temperature=0.1, max_tokens=1024,
-                top_p=1, model_label="?") -> tuple:
+                top_p=1, model_label="?", request_type="UNKNOWN", user_id=None) -> tuple:
     """
     Internal multi-model dispatcher. Returns (response_text, latency_ms, error).
     On failure, returns (None, latency_ms, error_str).
+
+    v11.1: Automatically logs every call to the ai_usage analytics table.
+    Logging never raises — analytics failures are invisible to callers.
     """
     import time as _time
     start = _time.time()
     last_err = None
+    response_obj = None
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
@@ -421,6 +462,23 @@ def _call_model(model_id: str, messages: list, temperature=0.1, max_tokens=1024,
             ms = round((_time.time() - start) * 1000)
             text = response.choices[0].message.content.strip()
             logger.info(f"[{model_label}] {ms}ms ok ({len(text)} chars)")
+            # v11.1: capture token usage + log to analytics
+            try:
+                from analytics import log_ai_request
+                usage = getattr(response, "usage", None)
+                log_ai_request(
+                    model_name=model_id,
+                    latency_ms=ms,
+                    status="success",
+                    user_id=user_id,
+                    request_type=request_type,
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+                    response_text=text,
+                    fallback_used=(attempt > 0),
+                )
+            except Exception as _e:
+                logger.error(f"analytics log failed (non-fatal): {_e}")
             return text, ms, None
         except Exception as e:
             last_err = str(e)
@@ -428,43 +486,59 @@ def _call_model(model_id: str, messages: list, temperature=0.1, max_tokens=1024,
             if attempt < 2:
                 time.sleep(1)
     ms = round((_time.time() - start) * 1000)
+    # v11.1: log the failed call too
+    try:
+        from analytics import log_ai_request
+        log_ai_request(
+            model_name=model_id,
+            latency_ms=ms,
+            status="error",
+            user_id=user_id,
+            request_type=request_type,
+            error_message=last_err[:300] if last_err else "unknown",
+        )
+    except Exception:
+        pass
     return None, ms, last_err
 
 
-def call_main(messages: list, temperature=0.1, max_tokens=1024, top_p=1) -> str:
+def call_main(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
+              request_type="CHAT", user_id=None) -> str:
     """Main brain — for intent detection, planning, important reasoning."""
-    text, _, _ = _call_model(MODEL_MAIN, messages, temperature, max_tokens, top_p, "MAIN")
+    text, _, _ = _call_model(MODEL_MAIN, messages, temperature, max_tokens, top_p,
+                              "MAIN", request_type=request_type, user_id=user_id)
     return text or ""
 
 
-def call_fast(messages: list, temperature=0.1, max_tokens=256) -> str:
+def call_fast(messages: list, temperature=0.1, max_tokens=256,
+              request_type="CLASSIFICATION", user_id=None) -> str:
     """
     Fast/cheap model (Llama 3.1 8B) for quick classification.
-    Use for: simple intent detection, yes/no decisions, short answers.
     Falls back to MAIN if FAST fails or returns nothing.
     """
-    text, _, err = _call_model(MODEL_FAST, messages, temperature, max_tokens, 1, "FAST")
+    text, _, err = _call_model(MODEL_FAST, messages, temperature, max_tokens, 1,
+                                "FAST", request_type=request_type, user_id=user_id)
     if text:
         return text
-    # Fallback to main brain if fast model errored
     logger.warning(f"FAST failed ({err[:80] if err else 'empty'}), falling back to MAIN")
-    return call_main(messages, temperature, max_tokens)
+    return call_main(messages, temperature, max_tokens, request_type=request_type, user_id=user_id)
 
 
-def call_think(messages: list, temperature=0.6, max_tokens=800) -> str:
+def call_think(messages: list, temperature=0.6, max_tokens=800,
+               request_type="THINK", user_id=None) -> str:
     """
     Deep reasoning — for /think, advice, multi-step problem solving.
     Higher temperature for more natural reasoning.
     """
-    text, _, _ = _call_model(MODEL_THINK, messages, temperature, max_tokens, 0.95, "THINK")
+    text, _, _ = _call_model(MODEL_THINK, messages, temperature, max_tokens, 0.95,
+                              "THINK", request_type=request_type, user_id=user_id)
     return text or "I had trouble thinking through that."
 
 
-def call_vision(image_data_or_url: str, prompt: str, max_tokens=600) -> str:
+def call_vision(image_data_or_url: str, prompt: str, max_tokens=600,
+                request_type="VISION", user_id=None) -> str:
     """
     Image understanding via Llama 3.2 Vision.
-    Accepts: a data URL (data:image/jpeg;base64,...) or an HTTP URL.
-    Returns the AI's description/answer about the image.
     """
     if not ENABLE_VISION:
         return "Image understanding is currently disabled."
@@ -475,23 +549,23 @@ def call_vision(image_data_or_url: str, prompt: str, max_tokens=600) -> str:
             {"type": "image_url", "image_url": {"url": image_data_or_url}}
         ]
     }]
-    text, _, err = _call_model(MODEL_VISION, messages, 0.2, max_tokens, 1, "VISION")
+    text, _, err = _call_model(MODEL_VISION, messages, 0.2, max_tokens, 1,
+                                "VISION", request_type=request_type, user_id=user_id)
     if not text:
         return f"Couldn't process the image: {(err or '?')[:100]}"
     return text
 
 
-def generate_image(prompt: str, size: str = "1024x1024") -> dict:
+def generate_image(prompt: str, size: str = "1024x1024", user_id: int = None) -> dict:
     """
     Generate an image with FLUX.1-dev.
     Returns {"url": "...", "error": None} on success, {"url": None, "error": "..."} on failure.
-    NOTE: requires ENABLE_IMAGE_GEN=True and uses more credits than text models.
     """
     if not ENABLE_IMAGE_GEN:
         return {"url": None, "error": "Image generation disabled. Set ENABLE_IMAGE_GEN=True in baka_brain.py."}
+    import time as _time
+    start = _time.time()
     try:
-        # FLUX uses the /images/generations endpoint (OpenAI-compatible)
-        # NIM exposes it via the same client interface
         response = client.images.generate(
             model=MODEL_IMAGE,
             prompt=prompt,
@@ -499,9 +573,36 @@ def generate_image(prompt: str, size: str = "1024x1024") -> dict:
             n=1,
         )
         url = response.data[0].url if response.data else None
+        ms = round((_time.time() - start) * 1000)
+        # v11.1: log to analytics
+        try:
+            from analytics import log_image_request
+            log_image_request(
+                model_name=MODEL_IMAGE,
+                latency_ms=ms,
+                status="success",
+                user_id=user_id,
+                prompt_text=prompt,
+                image_count=1,
+            )
+        except Exception:
+            pass
         return {"url": url, "error": None}
     except Exception as e:
+        ms = round((_time.time() - start) * 1000)
         logger.error(f"image gen failed: {e}")
+        try:
+            from analytics import log_image_request
+            log_image_request(
+                model_name=MODEL_IMAGE,
+                latency_ms=ms,
+                status="error",
+                user_id=user_id,
+                prompt_text=prompt,
+                error_message=str(e)[:200],
+            )
+        except Exception:
+            pass
         return {"url": None, "error": str(e)[:200]}
 
 

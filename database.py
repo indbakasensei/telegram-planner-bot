@@ -107,6 +107,13 @@ def init_db():
         _init_learning_tables(conn)
     except Exception:
         pass
+    # v11.1: ai_usage analytics table
+    try:
+        from analytics import init_usage_table
+        init_usage_table(DB_NAME)
+    except Exception as e:
+        # Don't break startup if analytics module isn't available
+        pass
     conn.commit()
     conn.close()
 
