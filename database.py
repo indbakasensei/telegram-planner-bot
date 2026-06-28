@@ -1501,3 +1501,110 @@ def parse_buffer_sent(buffer_sent_str):
     if not buffer_sent_str:
         return set()
     return set(s for s in buffer_sent_str.split(",") if s)
+
+# ── v11.0 prep: Missed Capabilities Log ───────────────
+def _init_missed_capabilities(conn):
+    conn.cursor().execute("""CREATE TABLE IF NOT EXISTS missed_capabilities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        user_input TEXT NOT NULL,
+        ai_intent TEXT,
+        ai_response TEXT,
+        miss_type TEXT,
+        confidence REAL,
+        notes TEXT,
+        reviewed INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    conn.commit()
+
+
+def log_missed_capability(user_id, user_input, ai_intent=None, ai_response=None,
+                           miss_type="low_confidence", confidence=None, notes=None):
+    """
+    Record an interaction where the AI didn't handle something well.
+    miss_type: 'low_confidence' | 'chat_no_action' | 'fallback' | 'user_repeated' | 'thumbs_down'
+    Reviewing these later tells us what features to build.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    _init_missed_capabilities(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO missed_capabilities
+        (user_id, user_input, ai_intent, ai_response, miss_type, confidence, notes)
+        VALUES (?,?,?,?,?,?,?)""",
+        (user_id, user_input, ai_intent, ai_response, miss_type, confidence, notes))
+    conn.commit()
+    conn.close()
+
+
+def get_missed_capabilities(user_id, limit=50, only_unreviewed=True):
+    conn = sqlite3.connect(DB_NAME)
+    _init_missed_capabilities(conn)
+    c = conn.cursor()
+    where = "WHERE user_id=?"
+    params = [user_id]
+    if only_unreviewed:
+        where += " AND reviewed=0"
+    c.execute(f"""SELECT id, user_input, ai_intent, ai_response, miss_type,
+                  confidence, notes, created_at
+                  FROM missed_capabilities {where}
+                  ORDER BY created_at DESC LIMIT ?""", params + [limit])
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def mark_missed_reviewed(miss_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE missed_capabilities SET reviewed=1 WHERE id=?", (miss_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── v11.0 prep: AI Context Helper ─────────────────────
+def get_user_context_for_ai(user_id, history_limit=5):
+    """
+    Build a rich context bundle the AI sees in every important call.
+    This is the foundation of true autonomous behavior — the AI now reasons
+    WITH your data, not in a vacuum.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST)
+    today = now.strftime("%Y-%m-%d")
+
+    # Recent completions
+    c.execute("""SELECT title, category, last_completed FROM tasks
+        WHERE user_id=? AND done=1
+        ORDER BY COALESCE(last_completed, created_at) DESC LIMIT 5""", (user_id,))
+    recent_done = c.fetchall()
+
+    # Open commitments by category
+    c.execute("""SELECT category, COUNT(*) FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0
+        GROUP BY category""", (user_id,))
+    open_by_cat = dict(c.fetchall())
+
+    # Overdue count
+    c.execute("""SELECT COUNT(*) FROM tasks
+        WHERE user_id=? AND done=0 AND paused=0 AND due_date < ?
+        AND (recurrence_type IS NULL OR recurrence_type='')""", (user_id, today))
+    overdue_n = c.fetchone()[0]
+
+    # Active habits
+    c.execute("""SELECT title, COALESCE(current_streak,0) FROM tasks
+        WHERE user_id=? AND COALESCE(is_habit,0)=1 AND done=0
+        ORDER BY current_streak DESC LIMIT 5""", (user_id,))
+    habits = c.fetchall()
+
+    conn.close()
+    return {
+        "today_date": today,
+        "current_time": now.strftime("%H:%M"),
+        "weekday": now.strftime("%A"),
+        "recent_completions": recent_done,
+        "open_tasks_by_category": open_by_cat,
+        "overdue_count": overdue_n,
+        "active_habits": habits,
+    }

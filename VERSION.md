@@ -1,6 +1,37 @@
 # BAKA Bot — Version History
 
-## v10.1 — Pre-Deadline Buffer Reminders (current)
+## v10.2 — AI Autonomy Foundation (current)
+Three pieces that move BAKA from "scripted bot" toward "real assistant",
+laying the groundwork for full v11.0 multi-model autonomy.
+
+Added:
+- Rich AI context: every AI call now sees the user's open tasks by category,
+  recent completions, overdue count, and active habits + streaks.
+  The AI can now reason WITH your actual data, not in a vacuum.
+- /think (or /ask) — free-form AI reasoning, no JSON schema, no constraints.
+  GLM 5.1 sees your full profile + open tasks + memories and answers
+  conversationally. Examples:
+    "think what should I focus on today?"
+    "ask am I taking on too much?"
+    "what should I prioritize this week?"
+- Missed-Capability Log: every time the AI fails to handle something well
+  (low confidence OR chat-fallback when there were action verbs), we log:
+    user input, AI's intent, AI's response, miss type, confidence
+  Review them with /misses (admin-only) to pick which features to build next.
+  This is the "log it for later" infrastructure for choosing real-world
+  feature priorities instead of guessing.
+- Natural-language entry for think mode: "what should I...", "should I...",
+  "help me decide", "what do you think", "your opinion"
+
+New table: missed_capabilities (input, intent, response, miss_type, confidence, reviewed)
+New functions: get_user_context_for_ai, log_missed_capability, get_missed_capabilities,
+               mark_missed_reviewed, think_freely
+New commands: /think, /ask, /misses (admin), /reviewed (admin)
+Modified: main.py, database.py, baka_brain.py
+
+---
+
+## v10.1 — Pre-Deadline Buffer Reminders
 A new way to handle "due by" tasks — warn AHEAD so you can plan, not panic.
 
 Added:

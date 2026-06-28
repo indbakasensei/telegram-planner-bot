@@ -33,6 +33,8 @@ from database import (
     search_all, save_template, get_template, get_all_templates,
     delete_template, get_weekly_report_data, export_user_data,
     mark_as_deadline, get_pending_deadlines, mark_buffer_sent, parse_buffer_sent,
+    log_missed_capability, get_missed_capabilities, mark_missed_reviewed,
+    get_user_context_for_ai,
     get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
@@ -40,7 +42,7 @@ from baka_brain import (
     get_baka_response, check_api_status,
     chat_with_ai, suggest_tasks, analyze_productivity,
     generate_study_plan, extract_memory_key,
-    generate_daily_plan, generate_weekly_plan, benchmark_ai,
+    generate_daily_plan, generate_weekly_plan, benchmark_ai, think_freely,
     generate_task_breakdown, suggest_reschedule_time,
     generate_structured_plan
 )
@@ -961,6 +963,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (["interval ", "reminder interval ", "set interval "], interval_cmd, None),
         (["suggest "], suggest_cmd, None),
         (["search ", "find ", "look for "], search_cmd, None),
+        (["think ", "ask ", "what should i ", "should i ",
+          "help me decide", "what do you think", "your opinion"], think_cmd, None),
         (["savetemplate ", "save template "], savetemplate_cmd, None),
         (["template ", "use template "], template_cmd, None),
         (["streak "], streak_cmd, None),
@@ -1092,13 +1096,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     memories = get_all_memories(user_id)
     existing_tasks = get_tasks(user_id)
 
-    result = get_baka_response(user_input, existing_tasks, get_history(user_id), memories)
+    # v11.0: fetch rich user context so the AI reasons WITH user data
+    try:
+        _user_context = get_user_context_for_ai(user_id)
+    except Exception:
+        _user_context = None
+
+    result = get_baka_response(user_input, existing_tasks, get_history(user_id),
+                                memories, user_context=_user_context)
     intent = result.get("intent", "CHAT").upper()
     entities = result.get("entities", {})
     missing = result.get("missing", [])
     needs_confirm = result.get("needs_confirm", False)
     response_text = result.get("response", "")
     confirm_summary = result.get("confirm_summary")
+    confidence = result.get("confidence", 1.0)
+
+    # v11.0 prep: Auto-log missed capabilities for later feature mining.
+    # Triggers: low confidence, OR AI said CHAT but message has action verbs.
+    try:
+        _msg_lower = user_input.lower()
+        _action_verbs = ("remind", "schedule", "add ", "create", "make ",
+                         "show ", "list ", "find ", "search ", "track ",
+                         "help me", "what should", "should i", "can you",
+                         "do i have", "when is", "how many")
+        _looks_like_action = any(v in _msg_lower for v in _action_verbs)
+        _low_confidence = confidence is not None and confidence < 0.6
+        _chat_but_action = (intent == "CHAT" and _looks_like_action
+                            and len(user_input) > 5)
+        if _low_confidence or _chat_but_action:
+            miss_type = "low_confidence" if _low_confidence else "chat_no_action"
+            log_missed_capability(
+                user_id, user_input,
+                ai_intent=intent,
+                ai_response=response_text[:200] if response_text else None,
+                miss_type=miss_type,
+                confidence=confidence,
+                notes=f"verbs_in_input={_looks_like_action}"
+            )
+            logger.info(f"[missed_capability] logged {miss_type} for: {user_input[:50]}")
+    except Exception as e:
+        logger.error(f"miss-logging failed: {e}")
 
     # Merge local parser results — ONLY for task-like intents.
     # Bug 13: don't let a stray "today" in casual chat turn CHAT into a task.
@@ -3320,6 +3358,95 @@ async def deadline_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
            else "\nNo more advance warnings for this task."),
         parse_mode=HTML, reply_markup=main_menu())
 
+
+# ── v11.0 prep: View missed capabilities ──────────────
+@admin_only
+async def misses_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show what the AI is failing to handle — for picking next features to add."""
+    user_id = update.message.from_user.id
+    misses = get_missed_capabilities(user_id, limit=30, only_unreviewed=True)
+    if not misses:
+        await update.message.reply_text(
+            f"🧠 {b('AI Miss Log')}\n\nNothing logged yet. As you use BAKA, "
+            f"any input the AI handles poorly will appear here. Review it later "
+            f"to pick what features to build next.",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    # Group by miss_type
+    by_type = {}
+    for m in misses:
+        mid, inp, intent, resp, mtype, conf, notes, created = m
+        by_type.setdefault(mtype, []).append((mid, inp, intent, conf))
+    lines = [f"🧠 {b('AI Miss Log')} ({len(misses)} unreviewed)", ""]
+    for mtype, items in by_type.items():
+        lines.append(f"\n{b(mtype)} ({len(items)})")
+        for mid, inp, intent, conf in items[:8]:
+            conf_str = f"conf={conf:.2f}" if conf else "?"
+            lines.append(f"  {code('#'+str(mid))} {esc(inp[:80])}")
+            lines.append(f"     <i>→ {esc(intent or '?')} ({conf_str})</i>")
+        if len(items) > 8:
+            lines.append(f"     <i>...and {len(items)-8} more</i>")
+    lines.append(f"\n💡 <i>Use {code('reviewed <id>')} to mark a miss as reviewed.</i>")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+@admin_only
+async def reviewed_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mark a missed-capability log entry as reviewed (admin-only)."""
+    if not context.args:
+        await update.message.reply_text(f"Usage: {code('reviewed <id>')}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        mid = int(context.args[0])
+        mark_missed_reviewed(mid)
+        await update.message.reply_text(f"✅ Miss #{mid} marked reviewed.",
+                                        reply_markup=main_menu())
+    except (ValueError, Exception) as e:
+        await update.message.reply_text(f"❌ {esc(str(e))}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+
+
+# ── v11.0 prep: Free-Form AI Reasoning ────────────────
+async def think_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Ask BAKA to think about anything — no JSON, no constraints.
+    Sees your full profile and gives personalized, contextual advice.
+    """
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            f"🧠 {b('Think Mode')}\n\n"
+            f"Ask me anything and I'll think about it using your actual data:\n"
+            f"  • Your recent completions and active habits\n"
+            f"  • Your open tasks across categories\n"
+            f"  • Your stored memories\n\n"
+            f"Examples:\n"
+            f"  {code('think what should I focus on today?')}\n"
+            f"  {code('think am I taking on too much?')}\n"
+            f"  {code('think how can I improve my mornings?')}\n"
+            f"  {code('think do you see any pattern in my snoozes?')}",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    question = " ".join(context.args)
+    thinking = await update.message.reply_text("🧠 <i>Thinking...</i>", parse_mode=HTML)
+    try:
+        user_ctx = get_user_context_for_ai(user_id)
+        open_tasks = get_tasks(user_id)[:10]
+        mems = get_all_memories(user_id)
+        answer = think_freely(question, user_context=user_ctx,
+                              recent_tasks=open_tasks, memories=mems)
+        await thinking.delete()
+        await update.message.reply_text(
+            f"🧠 {b('BAKA thinks:')}\n\n{esc(answer)}",
+            parse_mode=HTML, reply_markup=main_menu())
+    except Exception as e:
+        logger.error(f"think_cmd failed: {e}")
+        await thinking.delete()
+        await update.message.reply_text(
+            f"I had trouble thinking about that — {esc(str(e)[:100])}",
+            parse_mode=HTML, reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -3406,6 +3533,10 @@ def main():
     app.add_handler(CommandHandler("templates", template_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("deadline", deadline_cmd))
+    app.add_handler(CommandHandler("misses", misses_cmd))
+    app.add_handler(CommandHandler("think", think_cmd))
+    app.add_handler(CommandHandler("ask", think_cmd))
+    app.add_handler(CommandHandler("reviewed", reviewed_cmd))
     app.add_handler(CommandHandler("goals", goals_dash_cmd))
     # v6.1 admin commands
     app.add_handler(CommandHandler("myid", myid_cmd))

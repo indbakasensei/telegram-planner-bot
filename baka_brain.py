@@ -67,11 +67,31 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1) -> st
                 raise e
 
 def get_baka_response(user_input: str, existing_tasks: list,
-                        history: list = None, memories: list = None) -> dict:
+                        history: list = None, memories: list = None,
+                        user_context: dict = None) -> dict:
     today = datetime.now()
     tomorrow = today + timedelta(days=1)
     day_after = today + timedelta(days=2)
     next_week = today + timedelta(days=7)
+
+    # v11.0: rich context — let the AI reason WITH the user's actual data
+    profile_ctx = ""
+    if user_context:
+        parts = []
+        if user_context.get("recent_completions"):
+            parts.append("Recent completions: " + ", ".join(
+                f"{t[0]} ({t[1]})" for t in user_context["recent_completions"][:3]))
+        if user_context.get("open_tasks_by_category"):
+            cats = user_context["open_tasks_by_category"]
+            parts.append("Open tasks by category: " + ", ".join(
+                f"{k}: {v}" for k, v in cats.items() if k))
+        if user_context.get("overdue_count"):
+            parts.append(f"Overdue tasks: {user_context['overdue_count']}")
+        if user_context.get("active_habits"):
+            parts.append("Active habits: " + ", ".join(
+                f"{h[0]} (streak {h[1]})" for h in user_context["active_habits"][:3]))
+        if parts:
+            profile_ctx = "USER PROFILE (use this to give personalized responses):\n" + "\n".join(parts) + "\n\n"
 
     task_ctx = ""
     if existing_tasks:
@@ -100,7 +120,7 @@ NextWeek={next_week.strftime('%Y-%m-%d')}
 
 {task_ctx}
 {memory_ctx}
-Recent chat: {hist_ctx}
+{profile_ctx}Recent chat: {hist_ctx}
 
 LANGUAGE SUPPORT — You understand:
 - English: "remind me to call mom tomorrow at 5pm"
@@ -361,6 +381,65 @@ def benchmark_ai(quick=True) -> dict:
 
     return results
 
+
+
+
+def think_freely(user_question: str, user_context: dict = None,
+                  recent_tasks: list = None, memories: list = None) -> str:
+    """
+    v11.0: Free-form AI reasoning — no JSON, no constraints.
+    The AI sees the user's profile, open tasks, and memories, then
+    answers the question conversationally with real insight.
+    This is where BAKA stops being a command bot and becomes an assistant.
+    """
+    today = datetime.now()
+
+    ctx_lines = [
+        f"You are BAKA, the user's personal AI assistant. Today is {today.strftime('%A, %d %B %Y at %H:%M')}.",
+        "Your job is to give thoughtful, personalized advice based on what you know about the user.",
+        "Don't be generic — reference their actual tasks, habits, and patterns when relevant.",
+        "Be warm but direct. Keep responses under 200 words unless the question demands more.",
+        "",
+    ]
+
+    if user_context:
+        if user_context.get("recent_completions"):
+            ctx_lines.append("Recent things they completed:")
+            for t in user_context["recent_completions"][:5]:
+                ctx_lines.append(f"  - {t[0]} ({t[1] or 'General'})")
+        if user_context.get("open_tasks_by_category"):
+            cats = user_context["open_tasks_by_category"]
+            ctx_lines.append(f"Currently open tasks: {sum(cats.values())} total — "
+                             + ", ".join(f"{k}: {v}" for k, v in cats.items() if k))
+        if user_context.get("overdue_count"):
+            ctx_lines.append(f"They have {user_context['overdue_count']} overdue task(s).")
+        if user_context.get("active_habits"):
+            ctx_lines.append("Active habits:")
+            for h in user_context["active_habits"][:3]:
+                ctx_lines.append(f"  - {h[0]} (streak {h[1]})")
+
+    if recent_tasks:
+        ctx_lines.append("\nRecent open tasks:")
+        for t in recent_tasks[:5]:
+            ctx_lines.append(f"  [{t[0]}] {t[1]} due {t[2] or '?'} {t[3] or ''}")
+
+    if memories:
+        ctx_lines.append("\nUser's stored memories (facts they told BAKA):")
+        for key, val in memories[:10]:
+            ctx_lines.append(f"  {key}: {val}")
+
+    system_prompt = "\n".join(ctx_lines)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_question},
+    ]
+    try:
+        # Use slightly higher temperature for more natural reasoning
+        return call_nvidia(messages, temperature=0.6, max_tokens=600, top_p=0.95)
+    except Exception as e:
+        logger.error(f"think_freely failed: {e}")
+        return f"I had trouble thinking about that. Try again, or rephrase."
 
 def chat_with_ai(message: str) -> str:
     try:
