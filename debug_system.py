@@ -191,19 +191,94 @@ def export_all_bugs() -> str:
 # ── Self-test message bank ────────────────────────────
 # Each tuple: (test message, what to verify)
 SELFTEST_MESSAGES = [
-    ("Study Physics today at 8 PM", "TASK intent, date=today, time=20:00"),
-    ("Remind me to call mom today", "TASK intent, date=today, time empty"),
-    ("Kal subah 8 baje gym", "TASK intent, date=tomorrow, time=08:00"),
-    ("Parso doctor appointment hai", "TASK intent, date=day after tomorrow"),
-    ("Remind me in 2 hours", "TASK intent, time=now+2hrs"),
-    ("3 baje meeting hai", "Ambiguous — should ask AM or PM"),
-    ("Create task at 25 PM", "Invalid time — should reject"),
-    ("Remind me yesterday", "Past date — should warn"),
-    ("Go to gym every day at 6 AM", "Recurring daily, time=06:00"),
-    ("What do I have today?", "VIEW intent, period=today"),
-    ("Show my tasks for this month", "VIEW intent, period=month"),
-    ("Remember my exam is on June 20", "MEMORY_SAVE intent"),
-    ("When is my exam?", "MEMORY_GET intent"),
-    ("Tomorrow buy groceries and call mom", "MULTIPLE intent, 2 tasks"),
-    ("How do I focus better?", "CHAT or ADVICE intent"),
+    # ── SECTION A: Basic Task Creation ──────────────────
+    ("Study Physics today at 8 PM",          "TASK · date=today · time=20:00 · priority=medium"),
+    ("Remind me to call mom today",           "TASK · date=today · time=null (asks for time)"),
+    ("Tomorrow at 7 AM go for a run",         "TASK · date=tomorrow · time=07:00"),
+    ("Submit at 3pm",                         "TASK · time=15:00 (PM converted)"),
+    ("Meeting at noon",                       "TASK · time=12:00"),
+
+    # ── SECTION B: Hindi & Hinglish ─────────────────────
+    ("Kal subah 8 baje gym yaad dila dena",   "TASK · tomorrow · 08:00"),
+    ("Aaj raat 10 baje assignment submit",    "TASK · today · 22:00"),
+    ("Parso doctor appointment hai",           "TASK · day after tomorrow"),
+    ("Shaam ko meeting hai",                   "TASK · today · 18:00 (NOT 15:00)"),
+    ("Dopahar mein lunch",                     "TASK · today · 14:00"),
+    ("Jaldi karo, urgent task hai",            "TASK · priority=high · time=now+30min"),
+
+    # ── SECTION C: Date & Time Parsing ──────────────────
+    ("Remind me in 2 hours",                  "TASK · time=now+2hrs (relative)"),
+    ("Remind me in 1 min to test",            "TASK · time=now+1min (NOT 01:00 — known bug fixed)"),
+    ("Meeting at 1400",                       "TASK · time=14:00 (military)"),
+    ("3 baje meeting hai",                    "Ambiguous → asks AM or PM buttons"),
+    ("Create task tomorrow at 25 PM",         "⚠️ Invalid time rejected"),
+    ("Remind me yesterday",                   "⚠️ Past date warning"),
+    ("Submit on 2026-12-25",                  "TASK (NOT MEMORY_SAVE — date+verb=task)"),
+
+    # ── SECTION D: Deadline Detection ───────────────────
+    ("Submit assignment by Friday 5pm",       "TASK + is_deadline=True → confirms '⏳ Deadline mode ON'"),
+    ("Assignment due tomorrow 10am",          "TASK + is_deadline=True"),
+    ("Deliver presentation by Wednesday",     "TASK + is_deadline=True"),
+    ("Meeting at 5pm",                        "TASK + is_deadline=False (no deadline phrasing)"),
+
+    # ── SECTION E: Recurring Tasks & Habits ─────────────
+    ("Go to gym every day at 6 AM",           "HABIT · daily · time=06:00"),
+    ("Har Monday gym jana hai",               "HABIT · weekly Mon (NOT GOAL — regression test)"),
+    ("Yoga every Sunday at 8 AM",             "HABIT · weekly Sun · time=08:00"),
+    ("Pay rent on the 1st of every month",    "HABIT · monthly · day=1"),
+    ("Har roz exercise karna hai",            "HABIT · daily (Hindi)"),
+
+    # ── SECTION F: Memory System ─────────────────────────
+    ("Remember my exam is on June 20",        "MEMORY_SAVE · key=exam · value=June 20"),
+    ("When is my exam?",                      "MEMORY_GET → retrieves stored value"),
+    ("Remember my favorite color is blue",    "MEMORY_SAVE new entry"),
+    ("Remember my favorite color is red",     "MEMORY_SAVE → UPDATES (no duplicate)"),
+
+    # ── SECTION G: Goals ────────────────────────────────
+    ("I want to read 12 books this year",     "GOAL intent → saved + Dashboard link shown"),
+    ("I want to get fit by December",         "GOAL intent · deadline=December"),
+
+    # ── SECTION H: View & Planning ──────────────────────
+    ("What do I have today?",                 "VIEW · period=today (no task created)"),
+    ("Show my tasks for this week",           "VIEW · period=week"),
+    ("plan today",                            "PLAN → time-blocked schedule, asks Apply?"),
+    ("plan my week",                          "PLAN → 7-day view with overload warnings"),
+
+    # ── SECTION I: Multiple Tasks ────────────────────────
+    ("Tomorrow buy groceries and call mom",   "MULTIPLE · 2 tasks detected and confirmed"),
+    ("Gym at 7 and study at 9 tomorrow",      "MULTIPLE · 2 tasks · different times"),
+
+    # ── SECTION J: AI Reasoning (v10.2+) ────────────────
+    ("think what should I focus on today?",   "THINK → free AI reasoning with your profile context"),
+    ("think am I taking on too much?",        "THINK → analysis of open + overdue tasks"),
+    ("ask how can I improve my mornings?",    "THINK → personalized advice (uses habits/history)"),
+
+    # ── SECTION K: Search & Tools (v10.0) ───────────────
+    ("search physics",                        "SEARCH → finds matching tasks + memories + habits"),
+    ("templates",                             "LIST → shows all saved templates"),
+    ("export",                                "EXPORT → full plain-text data backup"),
+
+    # ── SECTION L: AI Models & Analytics (v11.0+) ───────
+    ("status",                                "STATUS → 3-test AI benchmark (Connectivity/JSON/Intent)"),
+    ("status full",                           "STATUS → 6-test benchmark with grade A+-F"),
+    ("models",                                "MODELS → 6 model statuses + real usage from analytics"),
+    ("usage",                                 "USAGE → today + lifetime AI call stats"),
+    ("performance",                           "PERF → p50/p95/p99 latency + fastest/slowest model"),
+    ("errors",                                "ERRORS → error timeline + breakdown by model"),
+
+    # ── SECTION M: Dashboard (v9.0) ─────────────────────
+    ("dashboard",                             "DASHBOARD → home hub with all counts + inline buttons"),
+
+    # ── SECTION N: Settings & Wellness ──────────────────
+    ("settings",                              "SETTINGS → quiet hours, interval, wellness status"),
+    ("wellness on",                           "WELLNESS → enabled (pings water/break/eyes nudges)"),
+    ("insights",                              "INSIGHTS → learned patterns: tone, active hours, snoozes"),
+    ("proactive",                             "PROACTIVE → control panel for all automatic features"),
+
+    # ── SECTION O: Edge Cases ───────────────────────────
+    ("I'm tired today",                       "CHAT intent (NOT a task — no stray task creation)"),
+    ("How are you?",                          "CHAT intent → conversational reply"),
+    ("Show plan for today",                   "VIEW intent (NOT task creation)"),
+    ("Meeting this evening",                  "time=18:00 (NOT 15:00 — vague-time parser wins)"),
+    ("What time is it?",                      "CHAT → shows current IST time"),
 ]

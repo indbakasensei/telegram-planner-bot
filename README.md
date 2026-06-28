@@ -1,273 +1,337 @@
-# 🤖 BAKA — AI Personal Assistant Bot for Telegram
+# 🤖 BAKA — AI Personal Assistant (Telegram)
 
-A conversational AI-powered Telegram bot that manages your tasks, reminders, goals, and productivity through natural language — in **English, Hindi, and Hinglish**.
+**Behavioral Adaptive Knowledge Assistant** — A multi-model AI Telegram bot that manages your tasks, deadlines, habits, goals, and productivity through natural conversation in **English, Hindi, and Hinglish**.
 
-Unlike typical reminder bots, BAKA **owns your tasks until they're done** — it keeps reminding you with escalating urgency, respects your sleep hours, and carries forward anything you miss.
+> BAKA doesn't just remind you — it **owns your tasks until they're done**, learns your patterns, monitors its own AI performance, and gets smarter every day.
 
 ---
 
-## ✨ Key Features
+## ✨ What makes BAKA different
 
-### 💬 Natural Language — Just Talk
-No commands needed. Just type like you're texting a friend.
-```
-"Remind me to call mom tomorrow at 5pm"
-"Kal 8 baje gym yaad dila dena"
-"Physics assignment next Friday tak complete karni hai"
-"What do I have today?"
-```
-
-### 🔔 Persistent Reminders
-- Reminders come with **tap-able buttons**: ✅ Done, ⏰ Snooze 10m, 🕐 Snooze 1h, 📅 Tomorrow
-- **Keeps reminding** overdue tasks at configurable intervals
-- **Escalates** near deadlines (30min → 15min → 10min → 5min)
-- **Quiet hours** — no pings while you sleep (default 11PM–7AM)
-- **Auto carry-forward** — overdue tasks move to today at midnight
-
-### 🧠 AI-Powered
-- Understands intent: task, reminder, goal, memory, chat, plan
-- Stores personal facts: _"Remember my exam is June 20"_ → retrieves later
-- Productivity analysis and task suggestions
-- Study plan generation
-
-### 📊 Tracking & Organization
-- View tasks by: today, week, month, year, or all
-- Overdue detection with visual indicators
-- Deadline warnings (3-day lookahead)
-- Tags for custom organization
-- Priority levels (🔴 high, 🟡 medium, 🟢 low)
-- Recurring tasks: daily, weekly, monthly
+| Feature | Other reminder bots | BAKA |
+|---------|---------------------|------|
+| Language | English only | English + Hindi + Hinglish |
+| Reminders | Fires once | Persists until done, escalates |
+| Intelligence | Rule-based | Multi-model AI (GLM 5.1 + Llama 3.1 + Vision) |
+| Learning | None | Learns your patterns, active hours, tone |
+| Deadlines | At the time | **Before** — warns 7d/3d/1d/6h/1h ahead |
+| Habits | Not built-in | Full habit engine with streaks + grid |
+| Analytics | None | Tracks every AI call — latency, tokens, cost |
+| Dashboard | None | Interactive hub with inline buttons |
+| Photos | Not supported | Llama 3.2 Vision understands images |
 
 ---
 
 ## 🚀 Quick Setup
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.12+
 - A Telegram account
-- [NVIDIA NIM API key](https://build.nvidia.com) (free tier)
+- [NVIDIA NIM API key](https://build.nvidia.com) (free tier: 1,000 calls/month)
 
-### 1. Create your Telegram bot
-1. Open Telegram → search **@BotFather**
-2. Send `/newbot` and follow the prompts
-3. Copy the bot token
+### 1. Clone and install
 
-### 2. Get NVIDIA API key
-1. Go to [build.nvidia.com](https://build.nvidia.com)
-2. Find **z-ai/glm-5.1**
-3. Click **Get API Key**
-
-### 3. Clone and setup
 ```bash
-git clone https://github.com/indbakasensei/telegram-planner-bot.git
+git clone https://github.com/indbakasensei/telegram-planner-bot
 cd telegram-planner-bot
-
 python3 -m venv venv
 source venv/bin/activate
-
-pip install -r requirements.txt
+pip install python-telegram-bot[job-queue]==20.7 httpx==0.25.2 openai python-dotenv pytz
 ```
 
-### 4. Configure
-Create a `.env` file:
+### 2. Get your tokens
+
+**Telegram Bot Token:**
 ```
-BOT_TOKEN=your_telegram_bot_token
-NVIDIA_API_KEY=your_nvidia_api_key
+Open Telegram → @BotFather → /newbot → copy the token
 ```
 
-### 5. Run
+**NVIDIA NIM API Key:**
+```
+Go to build.nvidia.com → find z-ai/glm-5.1 → Generate API Key
+```
+
+### 3. Create `.env`
+
+```bash
+cat > .env << 'EOF'
+BOT_TOKEN=your_telegram_bot_token_here
+NVIDIA_API_KEY=nvapi-your_nvidia_key_here
+EOF
+```
+
+### 4. Run
+
 ```bash
 python3 main.py
 ```
 
-For persistent running (survives terminal close):
-```bash
-screen -S baka
-bash run.sh
-# Press Ctrl+A then D to detach
+### 5. Claim admin (first run)
+
+In Telegram, send `/claimadmin` — this locks admin access permanently to your Telegram ID.
+
+---
+
+## 💬 Just Talk
+
+No commands needed. Just type naturally:
+
+```
+"Remind me to submit assignment by Friday 5pm"    → saves as deadline, warns 7d/3d/1d/6h/1h before
+"Kal subah 8 baje gym yaad dila dena"             → tomorrow 08:00 task
+"Go to gym every day at 6 AM"                     → daily habit with streak tracking
+"I want to read 12 books this year"               → goal with progress dashboard
+"think what should I focus on today?"             → AI reasons with your actual task list
+"search physics"                                  → finds tasks + memories + habits + goals
+```
+
+Slash is optional for every command:
+```
+/list  =  list  =  "show my tasks"
+/done 5  =  done 5
 ```
 
 ---
 
-## 📱 Bot Commands
+## 📋 Commands Reference
 
-### Task Management
+### Tasks
 | Command | What it does |
 |---------|-------------|
-| `/list` | Show all pending tasks |
-| `/today` | Today's schedule |
-| `/week` | This week's tasks |
-| `/done <id>` | Mark a task complete |
-| `/edit <id>` | Modify a task |
-| `/delete <id>` | Remove a task |
+| `list` | All pending tasks |
+| `today` | Today's schedule |
+| `week` | This week's plan |
+| `done <id>` | Mark complete |
+| `edit <id>` | Modify a task |
+| `delete <id>` | Remove a task |
+| `deadline <id>` | Toggle pre-deadline warnings |
 
 ### Reminders
+Every reminder has tap-able buttons: ✅ Done · ⏰ 10m · 🕐 1h · 📅 Tomorrow · 🔕 Stop · 🗑 Delete
+
 | Command | What it does |
 |---------|-------------|
-| `/pause <id>` | Stop reminders for a task |
-| `/resume <id>` | Restart reminders |
-| `/paused` | View paused tasks |
+| `snooze <id> <min>` | Custom snooze duration |
+| `pause <id>` | Stop reminders temporarily |
+| `resume <id>` | Restart reminders |
+| `paused` | View all paused tasks |
 
-### Tracking
-| Command | What it does |
-|---------|-------------|
-| `/overdue` | List overdue tasks |
-| `/deadlines` | Tasks due in 3 days |
-| `/carryforward` | Move all overdue to today |
-| `/tag <id> <tags>` | Add tags to a task |
-| `/tagged <tag>` | Find tasks by tag |
-
-### AI Features
-| Command | What it does |
-|---------|-------------|
-| `/memory` | View stored memories |
-| `/analyze` | Productivity analysis |
-| `/suggest <goal>` | Get task suggestions |
-
-### Settings
-| Command | What it does |
-|---------|-------------|
-| `/settings` | View all preferences |
-| `/quiethours <start> <end>` | Set sleep hours (no reminders) |
-| `/interval <minutes>` | Change reminder frequency |
-| `/status` | Check AI API health |
-
-### Debug
-| Command | What it does |
-|---------|-------------|
-| `/debug` | Toggle debug mode (shows AI reasoning) |
-| `/report <issue>` | Report a bug (auto-captures context) |
-| `/bugs` | View reported bugs |
-| `/selftest` | Get test checklist |
-
----
-
-## 🏗 Architecture
+### Deadlines ⏳
+Say "due by", "submit by", "deliver before", "tak karna hai" and BAKA auto-enables deadline mode — warns you **before** the deadline at:
 
 ```
-main.py               → Telegram handlers, conversation flow, state machine
-baka_brain.py        → NVIDIA NIM API, intent detection, AI responses
-database.py            → SQLite operations (tasks, memories, goals, preferences)
-date_parser.py         → Regex date/time parser (English + Hindi + Hinglish)
-conversation_state.py  → Per-user state machine (idle/gathering/confirming/editing)
-scheduler.py           → Reminder engine with escalation + quiet hours
-debug_system.py        → In-bot bug tracking + interaction tracing
+7 days → 3 days → 1 day → 6 hours → 1 hour before
 ```
 
-### How Messages Are Processed
-1. User sends a message in any language
-2. Keyword shortcuts checked first (fast path for "show", "list", etc.)
-3. State machine checked (are we mid-conversation?)
-4. Deterministic regex parser extracts date/time/recurrence
-5. AI classifies intent and extracts task title
-6. Parser results override AI for dates (regex is more reliable)
-7. Bot shows confirmation → user approves → task saved
+Each warning has: ✅ Done now · 🔨 Break down · 📅 Plan today · 🔕 Mute
+
+### Habits 🌱
+| Command | What it does |
+|---------|-------------|
+| `habits` | All active habits with streaks |
+| `streak <id>` | 14-day visual grid |
+| `habitlog <id>` | 30-day history |
+| `addhabit <title>` | Quick creation |
+| `skiphabit <id>` | Skip (resets streak) |
+
+### Goals 🎯
+| Command | What it does |
+|---------|-------------|
+| `goals` | Progress dashboard with bars |
+| Say "I want to X" | Auto-detected as goal |
+| ➕/➖ buttons | Adjust progress inline |
+
+### AI & Planning 🧠
+| Command | What it does |
+|---------|-------------|
+| `think <question>` | Free-form AI reasoning with your data |
+| `plan today` | Time-blocked AI plan (asks to apply) |
+| `plan week` | 7-day schedule with overload warnings |
+| `breakdown <id>` | Split big task into subtasks |
+| `reschedule <id>` | AI picks a conflict-free time |
+| `analyze` | Productivity report |
+| `insights` | What BAKA learned about you |
+| `suggestions` | Daily AI-generated suggestions |
+| `approve <id>` | Apply a suggestion (auto-creates if applicable) |
+
+### Search & Tools 🔍
+| Command | What it does |
+|---------|-------------|
+| `search <keyword>` | Search tasks, memories, habits, goals |
+| `template` | List saved templates |
+| `template <name>` | Create task from template |
+| `savetemplate <name> <id>` | Save task as template |
+| `export` | Full data backup as plain text |
+
+### AI Models (v11.0) 🤖
+| Command | What it does |
+|---------|-------------|
+| `models` | All 6 model statuses with real usage |
+| `image <prompt>` | Generate an image (opt-in) |
+| Send a photo | Llama Vision describes it or extracts todos |
+
+### AI Analytics (v11.1) 📊
+| Command | What it does |
+|---------|-------------|
+| `usage` | Today + lifetime AI call stats |
+| `performance` | p50/p95/p99 latency + trends |
+| `errors` | Error timeline + breakdown |
+| `status` | Quick 3-test AI benchmark |
+| `status full` | Deep 6-test benchmark (graded A+-F) |
+
+### Settings ⚙️
+| Command | What it does |
+|---------|-------------|
+| `settings` | View all preferences |
+| `quiethours <start> <end>` | Sleep window (no pings) |
+| `interval <min>` | Reminder frequency |
+| `wellness on/off` | 💧 Water/break/eye nudges |
+| `proactive` | All automatic features panel |
+
+### Debug 🐞
+| Command | What it does |
+|---------|-------------|
+| `debug` | Toggle verbose debug mode |
+| `report <issue>` | File a bug (auto-captures context) |
+| `bugs` | View open bug reports |
+| `trace` | Last AI interaction details |
+| `selftest` | Step-by-step test checklist (50 tests) |
+
+### Admin (owner only) 👑
+These commands are invisible to non-admins. Only the account that ran `/claimadmin` can use them.
+
+| Command | What it does |
+|---------|-------------|
+| `admin` | Control panel with data stats |
+| `adminmode` | Toggle verbose debug |
+| `resettasks` | Delete all tasks + reset IDs to 1 |
+| `resetall` | Nuclear wipe (requires `YES NUKE EVERYTHING`) |
+| `sql <query>` | Read-only SQL for debugging |
+| `misses` | View what AI couldn't handle |
+| `myid` | Your Telegram ID |
 
 ---
 
-## 🗄 Database Schema
+## 🤖 AI Architecture (v11.0)
 
-### tasks
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER | Auto-increment primary key |
-| user_id | INTEGER | Telegram user ID |
-| title | TEXT | Task name |
-| due_date | TEXT | YYYY-MM-DD |
-| due_time | TEXT | HH:MM |
-| category | TEXT | Study/Health/Work/Personal/Other |
-| priority | TEXT | high/medium/low |
-| done | INTEGER | 0=pending, 1=complete |
-| recurrence_type | TEXT | daily/weekly/monthly |
-| paused | INTEGER | 0=active, 1=paused |
-| snooze_until | TEXT | Snooze expiry timestamp |
-| reminder_count | INTEGER | Times reminded |
-| tags | TEXT | Space-separated tags |
+BAKA uses 6 specialized models via NVIDIA NIM:
 
-### memories
-| Column | Type | Description |
-|--------|------|-------------|
-| user_id | INTEGER | Telegram user ID |
-| key | TEXT | Lowercased memory key |
-| value | TEXT | What to remember |
+| Role | Model | Purpose |
+|------|-------|---------|
+| 🧠 Main Brain | `z-ai/glm-5.1` | Intent detection, planning, save logic |
+| ⚡ Fast | `meta/llama-3.1-8b-instruct` | Quick classification, daily observations |
+| 💭 Think | `z-ai/glm-5.1` | `/think` free-form reasoning |
+| 👀 Vision | `meta/llama-3.2-90b-vision-instruct` | Image understanding |
+| 🎨 Image | `black-forest-labs/flux.1-dev` | Image generation |
+| 🎬 Video | `nvidia/cosmos-1.0-7b-text2world` | Video generation |
 
-### user_preferences
-| Column | Type | Description |
-|--------|------|-------------|
-| user_id | INTEGER | Primary key |
-| quiet_start | TEXT | Quiet hours start (HH:MM) |
-| quiet_end | TEXT | Quiet hours end (HH:MM) |
-| reminder_interval | INTEGER | Minutes between re-reminders |
-| max_reminders_per_task | INTEGER | Stop after N reminders |
+Feature toggles in `baka_brain.py`:
+```python
+ENABLE_FAST_ROUTING = False  # Llama 8B pre-filter (saves credits)
+ENABLE_VISION       = True   # Image understanding
+ENABLE_IMAGE_GEN    = False  # Opt-in (costs more credits)
+ENABLE_VIDEO_GEN    = False  # Opt-in (expensive)
+```
 
 ---
 
-## 🌍 Language Support
+## 📊 AI Analytics (v11.1)
 
-| Language | Example |
-|----------|---------|
-| English | "Remind me to study at 8 PM" |
-| Hindi | "Kal subah 8 baje gym yaad dila dena" |
-| Hinglish | "Bhai next Friday assignment submit karna hai" |
+Every AI call is automatically logged to a `ai_usage` SQLite table with:
+- Provider, model, latency, token counts, estimated cost
+- Success/failure status, error messages, fallback activations
+- Session tracking
 
-**Hindi date/time words understood:**
-`aaj` (today), `kal` (tomorrow), `parso` (day after),
-`subah` (morning), `dopahar` (afternoon), `shaam` (evening), `raat` (night),
-`baje` (o'clock), `har roz` (daily), `har hafte` (weekly)
+Zero overhead — uses an async background-thread writer (0.017ms per call).
 
 ---
 
-## ⚙️ Configuration
+## 🗄️ File Structure
 
-All settings are configurable via Telegram:
-
-| Setting | Default | Command |
-|---------|---------|---------|
-| Quiet hours | 11 PM – 7 AM | `/quiethours 23:00 07:00` |
-| Reminder interval | 30 min | `/interval 30` |
-| Max reminders | 5 per task | Via settings |
-
----
-
-## 🔧 Tech Stack
-
-- **Python 3.12** with async/await
-- **python-telegram-bot 20.7** (Telegram API)
-- **NVIDIA NIM API** — z-ai/glm-5.1 (free tier: 1000 calls/month)
-- **SQLite** — zero-config database
-- **pytz** — IST timezone handling
-- **APScheduler** — reminder scheduling
-
----
-
-## 📝 Version History
-
-| Version | What was added |
-|---------|---------------|
-| v1.0 | Debug system — /debug, /report, /bugs, /trace, /selftest |
-| v1.1 | Snooze, postpone, pause/resume, inline reminder buttons |
-| v1.2 | Overdue handling, deadline warnings, tags, carry-forward |
-| v2.0 | Passive PA — remind until done, escalation, quiet hours, batching |
-
-See [VERSION.md](VERSION.md) for full changelog.
+```
+telegram-planner-bot/
+├── main.py              — All handlers, dashboard, state machine, scheduler
+├── baka_brain.py        — Multi-model AI, intent detection, reasoning
+├── database.py          — SQLite CRUD + all migrations
+├── date_parser.py       — Regex date/time parser (EN/Hindi/Hinglish)
+├── scheduler.py         — Reminder engine (snooze/escalation/quiet-hours)
+├── conversation_state.py — State machine (idle/gathering/confirming/editing)
+├── debug_system.py      — Bug tracking, selftest messages
+├── preferences.py       — Behavioral analysis (v6.0 learning)
+├── fmt.py               — HTML formatting helpers
+├── ui.py                — Dashboard card components
+├── analytics/           — AI usage monitoring package (v11.1)
+│   ├── __init__.py
+│   ├── usage_logger.py  — Async logger (background thread)
+│   ├── usage_service.py — Dashboard query functions
+│   ├── model_metrics.py — Per-model rollups + health detection
+│   ├── token_counter.py — Cost estimation (15 models)
+│   └── performance_tracker.py — Latency percentiles + trends
+├── .env                 — Secrets (gitignored)
+├── admin_id.txt         — Admin lock (gitignored)
+├── planner.db           — Main database (gitignored)
+└── bugs.db              — Bug tracker (gitignored)
+```
 
 ---
 
-## 🤝 Contributing
+## 🗃️ Database Schema
 
-1. Fork the repo
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Enable debug mode in the bot: `/debug`
-4. Test with `/selftest` checklist
-5. Report issues with `/report` from inside the bot
-6. Push and open a PR
+13 active tables in `planner.db`:
+
+| Table | Purpose |
+|-------|---------|
+| `tasks` | Tasks + habits (24 columns inc. streak, snooze, deadline) |
+| `memories` | Key-value personal facts |
+| `goals` | Goals with progress + target columns |
+| `habit_log` | Daily habit completion log |
+| `user_preferences` | Quiet hours, interval, wellness settings |
+| `completions_log` | v6.0 — when tasks were completed |
+| `snooze_log` | v6.0 — snooze patterns by category |
+| `interaction_log` | v6.0 — active-hours tracking |
+| `task_templates` | Reusable task patterns |
+| `missed_capabilities` | What AI couldn't handle (feature mining) |
+| `ai_observations` | AI-generated daily suggestions |
+| `ai_usage` | Every AI call: model, tokens, latency, cost |
+
+---
+
+## 🔄 Version History
+
+| Version | Highlights |
+|---------|-----------|
+| v1.0 | Debug system, task lifecycle |
+| v1.1 | Snooze/pause/postpone, inline buttons |
+| v1.2 | Overdue detection, deadline warnings, tags |
+| v2.0 | Passive PA — persistent reminders, quiet hours |
+| v3.0 | Vague time (shaam/evening/morning), urgency detection |
+| v4.0 | Smart planning, task breakdown, subtasks |
+| v5.0 | Habit engine, streaks, 14-day grid |
+| v5.1 | JARVIS → BAKA rebrand |
+| v6.0 | Preference learning — learns your patterns |
+| v6.1 | Admin mode — owner-only panel, task ID reset |
+| v7.0 | Follow-up intelligence, repeated-snooze detection |
+| v7.1 | Bug fixes from live logs, HTML formatting |
+| v8.0 | Proactive wellness nudges, slot-crowding hints |
+| v9.0 | Dashboard system — 6 card types, inline navigation |
+| v9.1 | GLM 5.1 AI upgrade, enhanced /status benchmark |
+| v10.0 | Search, templates, weekly report, export |
+| v10.1 | Pre-deadline buffer reminders (7d/3d/1d/6h/1h) |
+| v10.2 | AI autonomy foundation — context, /think, miss log |
+| v11.0 | Multi-model AI — 6 models, vision, image gen, observation engine |
+| v11.1 | AI analytics — every call logged, /usage /performance /errors |
+
+---
+
+## ⚠️ Important Notes
+
+- **httpx must be pinned to 0.25.2** — newer versions break python-telegram-bot 20.7
+- **All datetime must use IST** — system clock is UTC, never use bare `datetime.now()`
+- **`.env` is gitignored** — never commit it; re-create after cloning
+- **`admin_id.txt` is gitignored** — run `/claimadmin` after fresh deploy
 
 ---
 
 ## 📜 License
 
-MIT License — use it, modify it, make it yours.
-
----
-
-Built with ❤️ using Claude AI + NVIDIA NIM
+MIT — build on it freely.

@@ -190,90 +190,154 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """v11.1: Full help menu with rich HTML formatting."""
+    user_id = update.message.from_user.id
+
     help1 = (
-        "🤖 *BAKA — Behavioral Adaptive Knowledge Assistant*\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "💬 *TWO WAYS TO TALK*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "*1. Natural language:*\n"
-        "_'Remind me to study at 5pm'_\n"
-        "_'Kal gym yaad dila dena'_\n"
-        "_'plan my day'_\n\n"
-        "*2. Commands work WITH or WITHOUT slash:*\n"
-        "`/list` ≡ `list`\n"
-        "`/done 5` ≡ `done 5`\n"
-        "`/breakdown 3` ≡ `breakdown 3`\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "📌 *TASKS*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "`list` — All pending tasks\n"
-        "`today` — Today's schedule\n"
-        "`week` — This week's plan\n"
-        "`done <id>` — Mark complete\n"
-        "`edit <id>` — Modify a task\n"
-        "`delete <id>` — Remove a task\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "🔔 *REMINDERS*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "Tap-able buttons on every reminder:\n"
-        "  ✅ Done  ⏰ Snooze  📅 Tomorrow\n"
-        "`snooze <id> <min>` — Custom snooze\n"
-        "`pause <id>` — Stop reminders\n"
-        "`resume <id>` — Restart\n"
-        "`paused` — View paused tasks\n"
-        "`stopreminder <id>` — Disable for one task\n"
+        f"🤖 {b('BAKA')} — Behavioral Adaptive Knowledge Assistant\n"
+        f"<i>v11.1 · GLM 5.1 · English / Hindi / Hinglish</i>\n\n"
+        f"{b('Two ways to talk:')}\n"
+        f"  1️⃣ Natural language: {i('say anything')}\n"
+        f"     <i>\"Remind me to submit assignment by Friday 5pm\"</i>\n"
+        f"     <i>\"Kal subah gym yaad dila dena\"</i>\n"
+        f"     <i>\"What should I focus on today?\"</i>\n\n"
+        f"  2️⃣ Commands: slash is optional everywhere\n"
+        f"     {code('/list')} = {code('list')} = {code('show my tasks')}\n\n"
+        f"{DIVIDER}\n"
+        f"📌 {b('TASKS')}\n"
+        f"{DIVIDER}\n"
+        f"{code('list')}              All pending tasks\n"
+        f"{code('today')}             Today\'s schedule\n"
+        f"{code('week')}              This week\'s plan\n"
+        f"{code('done <id>')}         Mark complete\n"
+        f"{code('edit <id>')}         Modify a task\n"
+        f"{code('delete <id>')}       Remove a task\n"
+        f"{code('deadline <id>')}     Toggle deadline mode (pre-warns you)\n\n"
+        f"{DIVIDER}\n"
+        f"🔔 {b('REMINDERS')}\n"
+        f"{DIVIDER}\n"
+        f"Every reminder has tap-able buttons:\n"
+        f"  ✅ Done  ⏰ 10m  🕐 1h  📅 Tomorrow  🔕 Stop  🗑 Delete\n\n"
+        f"{code('snooze <id> <min>')}  Custom snooze\n"
+        f"{code('pause <id>')}         Stop reminders temporarily\n"
+        f"{code('resume <id>')}        Restart reminders\n"
+        f"{code('paused')}             View all paused tasks\n"
     )
+
     help2 = (
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "📅 *TRACKING*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "`overdue` — Overdue tasks\n"
-        "`deadlines` — Due in 3 days\n"
-        "`carryforward` — Move overdue to today\n"
-        "`tag <id> <tags>` — Add tags\n"
-        "`tagged <tag>` — Search by tag\n"
-        "`checktasks` — Diagnose reminders\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "🧠 *PLANNING & AI*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "`plan today` / `plan week` — Time-blocked plan (asks to apply!)\n"
-        "`breakdown <id>` — Split big task into subtasks\n"
-        "`reschedule <id>` — AI picks new time\n"
-        "`overload` — Find overloaded days\n"
-        "`analyze` — Productivity report\n"
-        "`suggest <goal>` — Task suggestions\n"
-        "`memory` — Stored memories\n"
-        "`forget <key>` — Delete a memory\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "🔍 *SEARCH & TOOLS*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "`search <keyword>` — Find tasks, memories, habits\n"
-        "`template` — List saved templates\n"
-        "`template <name>` — Create task from template\n"
-        "`savetemplate <name> <id>` — Save task as template\n"
-        "`export` — Backup all your data\n"
-        "`dashboard` — Central hub\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "⚙️ *SETTINGS*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "`settings` — View preferences\n"
-        "`quiethours <start> <end>` — Sleep window\n"
-        "`interval <min>` — Reminder frequency\n"
-        "`wellness on/off` — Health nudges\n"
-        "`status` — AI diagnostics\n"
-        "`status full` — Deep 6-test benchmark\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "🐞 *DEBUG*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "`debug` — Toggle debug mode\n"
-        "`report <issue>` — Report a bug\n"
-        "`bugs` — View open bugs\n"
-        "`trace` — Last AI interaction\n"
-        "`selftest` — Test checklist\n\n"
-        "💡 _Slash is optional everywhere!_"
+        f"{DIVIDER}\n"
+        f"📅 {b('TRACKING & DEADLINES')}\n"
+        f"{DIVIDER}\n"
+        f"{code('overdue')}            Overdue tasks with days-over count\n"
+        f"{code('deadlines')}          Tasks due in next 3 days\n"
+        f"{code('carryforward')}       Move all overdue to today\n"
+        f"{code('review')}             Stale tasks (3+ days overdue)\n"
+        f"{code('tag <id> <tags>')}    Add tags to a task\n"
+        f"{code('tagged <tag>')}       Find tasks by tag\n\n"
+        f"  ⏳ {b('Deadline mode:')} Say \"due by\" or \"submit by\" and BAKA\n"
+        f"  automatically warns you 7d/3d/1d/6h/1h before the deadline.\n\n"
+        f"{DIVIDER}\n"
+        f"🌱 {b('HABITS')}\n"
+        f"{DIVIDER}\n"
+        f"{code('habits')}             All active habits + streaks\n"
+        f"{code('streak <id>')}        14-day grid view\n"
+        f"{code('habitlog <id>')}      30-day completion history\n"
+        f"{code('addhabit <title>')}   Quick habit creation\n"
+        f"{code('skiphabit <id>')}     Skip a day (resets streak)\n\n"
+        f"{DIVIDER}\n"
+        f"🎯 {b('GOALS')}\n"
+        f"{DIVIDER}\n"
+        f"{code('goals')}              Goals dashboard with progress bars\n"
+        f"Tell BAKA: {i('\"I want to read 12 books this year\"')}\n"
+        f"Then tap ➕/➖ buttons to track progress inline.\n"
     )
-    await update.message.reply_text(help1, parse_mode="Markdown")
-    await update.message.reply_text(help2, parse_mode="Markdown", reply_markup=main_menu())
+
+    help3 = (
+        f"{DIVIDER}\n"
+        f"🧠 {b('AI & PLANNING')}\n"
+        f"{DIVIDER}\n"
+        f"{code('think <question>')}   Free-form AI reasoning with your data\n"
+        f"  → {i('\"think what should I focus on today?\"')}\n"
+        f"  → {i('\"think am I taking on too much?\"')}\n\n"
+        f"{code('plan today')}         Time-blocked AI plan (asks to apply)\n"
+        f"{code('plan week')}          7-day schedule with overload warnings\n"
+        f"{code('breakdown <id>')}     Split big task into subtasks\n"
+        f"{code('reschedule <id>')}    AI picks a conflict-free time\n"
+        f"{code('overload')}           Find overloaded days\n"
+        f"{code('analyze')}            Productivity report\n"
+        f"{code('insights')}           What BAKA learned about you\n"
+        f"{code('suggestions')}        AI-generated suggestions (daily)\n"
+        f"{code('approve <id>')}       Apply an AI suggestion\n"
+        f"{code('dismiss <id>')}       Reject an AI suggestion\n\n"
+        f"{DIVIDER}\n"
+        f"🧠 {b('MEMORY')}\n"
+        f"{DIVIDER}\n"
+        f"Say: {i('\"Remember my exam is June 20\"')}\n"
+        f"Ask: {i('\"When is my exam?\"')}\n\n"
+        f"{code('memory')}             View all stored memories\n"
+        f"{code('forget <key>')}       Delete a memory\n"
+    )
+
+    help4 = (
+        f"{DIVIDER}\n"
+        f"🔍 {b('SEARCH & TOOLS')}\n"
+        f"{DIVIDER}\n"
+        f"{code('search <keyword>')}   Searches tasks, memories, habits, goals\n"
+        f"{code('template')}           List saved templates\n"
+        f"{code('template <name>')}    Create task from template\n"
+        f"{code('savetemplate <n> <id>')} Save task as reusable template\n"
+        f"{code('export')}             Full data backup as plain text\n\n"
+        f"{DIVIDER}\n"
+        f"🤖 {b('AI MODELS (v11.0)')}\n"
+        f"{DIVIDER}\n"
+        f"{code('models')}             All 6 model statuses + real usage\n"
+        f"{code('image <prompt>')}     Generate an image (toggle in baka_brain.py)\n"
+        f"📷 Send any photo → BAKA describes it or extracts todos\n\n"
+        f"{DIVIDER}\n"
+        f"📊 {b('AI ANALYTICS (v11.1)')}\n"
+        f"{DIVIDER}\n"
+        f"{code('usage')}              Today + lifetime AI request stats\n"
+        f"{code('performance')}        Latency percentiles + trend\n"
+        f"{code('errors')}             Error timeline + breakdown\n"
+        f"{code('status')}             Quick 3-test AI benchmark\n"
+        f"{code('status full')}        Deep 6-test benchmark (graded A+-F)\n"
+    )
+
+    help5 = (
+        f"{DIVIDER}\n"
+        f"⚙️ {b('SETTINGS')}\n"
+        f"{DIVIDER}\n"
+        f"{code('settings')}           View all preferences\n"
+        f"{code('quiethours <s> <e>')} Set sleep window (no pings)\n"
+        f"{code('interval <min>')}     Reminder frequency\n"
+        f"{code('wellness on/off')}    💧 Water/break/eye nudges\n"
+        f"{code('proactive')}          View all proactive features\n\n"
+        f"{DIVIDER}\n"
+        f"🏠 {b('DASHBOARD')}\n"
+        f"{DIVIDER}\n"
+        f"Tap 🏠 in the menu — or say {code('dashboard')}\n"
+        f"Navigate with inline buttons. All views edit in-place.\n"
+        f"  📅 Today · 📋 Tasks · 🎯 Goals · 🌱 Habits · 📊 Stats\n\n"
+        f"{DIVIDER}\n"
+        f"🐞 {b('DEBUG')}\n"
+        f"{DIVIDER}\n"
+        f"{code('debug')}              Toggle verbose debug mode\n"
+        f"{code('report <issue>')}     File a bug (auto-captures context)\n"
+        f"{code('bugs')}               View open bug reports\n"
+        f"{code('trace')}              Last AI interaction details\n"
+        f"{code('selftest')}           Step-by-step test checklist\n\n"
+        f"👑 {b('ADMIN ONLY')} (you only — locked by Telegram ID)\n"
+        f"{code('admin')}  {code('adminmode')}  {code('resettasks')}  {code('resetall')}  {code('sql <query>')}\n"
+        f"{code('misses')}  {code('reviewed <id>')}  {code('usage')}  {code('errors')}\n\n"
+        f"💡 <i>Slash is optional for every command.</i>\n"
+        f"💡 <i>Speak English, Hindi, or Hinglish — all understood.</i>"
+    )
+    await update.message.reply_text(help1, parse_mode=HTML)
+    await update.message.reply_text(help2, parse_mode=HTML)
+    await update.message.reply_text(help3, parse_mode=HTML)
+    await update.message.reply_text(help4, parse_mode=HTML)
+    await update.message.reply_text(help5, parse_mode=HTML, reply_markup=main_menu())
+
 
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_state(update.message.from_user.id)
@@ -1599,16 +1663,75 @@ async def trace_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🧪 *Self-Test Checklist*\n\n"
-        "Send each of these messages one by one and check the result.\n"
-        "If any behaves wrong, reply with /report <what went wrong>.\n",
-        parse_mode="Markdown"
+    """v11.1: Rich HTML selftest checklist with sections and tables."""
+    # Group tests by section prefix
+    sections = {}
+    for test_msg, expected in dbg.SELFTEST_MESSAGES:
+        # Extract section from the comment-like prefix if present
+        # We label them A-O in order
+        sections.setdefault("all", []).append((test_msg, expected))
+
+    # Send intro
+    intro = (
+        f"🧪 {b('BAKA Self-Test Checklist')} v11.1\n\n"
+        f"<i>{len(dbg.SELFTEST_MESSAGES)} tests across 15 categories.</i>\n\n"
+        f"How to use:\n"
+        f"  1. Enable debug: send {code('debug')}\n"
+        f"  2. Copy a test message and send it\n"
+        f"  3. Check the result matches the expected column\n"
+        f"  4. If wrong: {code('report <test>: <what happened>')}\n\n"
+        f"Tests are grouped A-O. Send them in any order.\n"
+        f"{DIVIDER}"
     )
-    msg = "*Test messages to try:*\n\n"
-    for i, (test_msg, expected) in enumerate(dbg.SELFTEST_MESSAGES, 1):
-        msg += f"{i}. `{test_msg}`\n     ✓ _{expected}_\n\n"
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(intro, parse_mode=HTML)
+
+    # Build and send one message per section
+    section_defs = [
+        ("A", "📌 Basic Task Creation",     [0,4]),
+        ("B", "🇮🇳 Hindi & Hinglish",        [5,10]),
+        ("C", "⏰ Date & Time Parsing",      [11,17]),
+        ("D", "⏳ Deadline Detection",        [18,21]),
+        ("E", "🔁 Recurring / Habits",       [22,26]),
+        ("F", "🧠 Memory System",             [27,30]),
+        ("G", "🎯 Goals",                    [31,32]),
+        ("H", "📅 View & Planning",          [33,36]),
+        ("I", "📋 Multiple Tasks",           [37,38]),
+        ("J", "🤖 AI Reasoning (v10.2)",     [39,41]),
+        ("K", "🔍 Search & Tools (v10.0)",   [42,44]),
+        ("L", "📊 AI Analytics (v11.1)",     [45,50]),
+        ("M", "🏠 Dashboard (v9.0)",         [51,51]),
+        ("N", "⚙️ Settings & Wellness",      [52,55]),
+        ("O", "🔀 Edge Cases",               [56,60]),
+    ]
+    all_tests = dbg.SELFTEST_MESSAGES
+
+    for letter, title, (start, end) in section_defs:
+        tests_in_section = all_tests[start:end+1]
+        lines = [f"{b('Section ' + letter + ':')} {title}", ""]
+        for idx, (test_msg, expected) in enumerate(tests_in_section, start=start+1):
+            lines.append(f"{b(str(idx)+'.')} {code(test_msg[:60])}")
+            lines.append(f"     ✓ <i>{esc(expected)}</i>")
+            lines.append("")
+        try:
+            await update.message.reply_text("\n".join(lines), parse_mode=HTML)
+        except Exception:
+            pass
+
+    footer = (
+        f"{DIVIDER}\n"
+        f"🐞 {b('Reporting bugs:')}\n\n"
+        f"If any test fails, send:\n"
+        f"  {code('report A1: bot saved 01:00 instead of now+1min')}\n\n"
+        f"Then send {code('bugs')} and paste the output.\n\n"
+        f"💡 {b('Speed-run:')}\n"
+        f"Send just these 5 critical ones first:\n"
+        f"  {code('Kal subah 8 baje gym')}  → tomorrow 08:00\n"
+        f"  {code('Meeting this evening')}   → 18:00 (not 15:00)\n"
+        f"  {code('Remind me in 1 min')}     → now+1 (not 01:00)\n"
+        f"  {code('Har Monday gym jana')}    → HABIT (not GOAL)\n"
+        f"  {code('Submit by Friday 5pm')}   → Deadline mode ON"
+    )
+    await update.message.reply_text(footer, parse_mode=HTML, reply_markup=main_menu())
 
 
 

@@ -551,3 +551,112 @@ Modified: main.py (wired in all debug commands + auto exception logging + debug 
 - v8.0 — Proactive suggestions: deadlines, subtasks, break reminders
 - v9.0 — Dashboards: morning briefing, evening review, weekly reports
 - v10.0 — Advanced: calendar, location, voice notes, attachments
+
+---
+
+# 🗺️ Planned Roadmap
+
+Everything below is planned but NOT yet built. Listed in rough priority order.
+
+---
+
+## v12.0 — Voice Notes
+- Accept Telegram voice messages
+- Transcribe via Whisper (on-device or via API)
+- Treat transcript as regular text input — create tasks from voice
+- Show transcript before acting so user can confirm
+
+## v12.1 — Task Dependencies
+- "Task B depends on Task A" — B's reminder only fires after A is done
+- `/depends <task_b_id> <task_a_id>` command
+- Visual chain in task list: "→ unblocked by [5]"
+- Existing `parent_task_id` column in tasks table is the foundation
+
+## v12.2 — Location-Based Reminders
+- "Remind me to buy milk when I'm near a grocery store"
+- Uses Telegram's location-sharing feature
+- Geofence check runs in the reminder scheduler
+- Requires user to share live location
+
+## v12.3 — Personalized Briefing Times
+- v6.0 already collects active-hours data
+- Instead of fixed 08:00 morning briefing, send it at the user's actual wake-up hour
+- Inferred from `interaction_log` timestamps
+
+## v12.4 — Bulk Task Import
+- Paste a numbered/bulleted list of tasks
+- BAKA parses all of them in one AI call
+- Presents a confirmation of all detected tasks before saving
+- Handles: "1. Call dentist\n2. Buy groceries\n3. Pay rent" etc.
+
+## v12.5 — Named Goal Milestones + Task Linking
+- Goals can have named milestones: "Read 4/12 books" → "Q1 done"
+- Individual tasks can be linked to a goal: completing the task ticks progress
+- ai_observations table already supports the action_type hook for this
+
+---
+
+## v13.0 — GLM 5.2 Upgrade (when available)
+- MODEL_MAIN = "z-ai/glm-5.2" (constant already in baka_brain.py)
+- Benchmark both 5.1 and 5.2 side-by-side using the v11.1 analytics
+- Switch when 5.2 shows clearly better intent accuracy
+
+## v13.1 — Fast Routing Enabled
+- Set ENABLE_FAST_ROUTING = True in baka_brain.py
+- Llama 3.1 8B handles simple intent pre-classification
+- If confidence ≥ 0.8 → skip GLM call entirely (saves 70% of API calls)
+- Fallback to GLM for anything ambiguous
+- Analytics will measure the actual savings
+
+## v13.2 — /replay Command
+- Full debug timeline for any interaction by timestamp
+- Pulls from: ai_usage table, missed_capabilities, interaction_log, debug_system
+- Shows: what user sent → parser result → AI intent → entities → action taken
+- Foundation already in analytics/ logging
+
+## v13.3 — /export_usage
+- Export ai_usage table as CSV or JSON
+- Analytics query infrastructure already exists in usage_service.py
+- Just needs the command + file creation
+- 30-line implementation
+
+---
+
+## v14.0 — Multi-User Mode
+- Currently all features work per-user via user_id scoping in DB
+- But the admin panel is single-user
+- Multi-user would add: per-user API key, per-user preferences panel, user management
+- Non-trivial but the data model already supports it
+
+## v14.1 — Pomodoro Mode
+- `/pomodoro <task_id>` starts a 25-min focus timer
+- Bot sends "Focus started on: Study Physics"
+- After 25 min: "Time! Take a 5-min break."
+- Logs focus sessions to a new `pomodoro_log` table
+- Integrates with productivity dashboard
+
+## v14.2 — AI Weekly Insights
+- Every Sunday, GLM 5.2 analyzes the week's ai_usage + completions data
+- Generates a natural-language productivity narrative
+- "You were most productive on Wednesday evenings. Physics tasks take you ~2hrs. Consider scheduling them before 8pm."
+- More personal than the /insights command (which is pattern-based, not narrative)
+
+## v14.3 — Themes / Personalities
+- User can switch BAKA's communication style:
+  - `baka mode strict` — no fluff, just facts
+  - `baka mode friendly` — warm, emoji-heavy
+  - `baka mode motivator` — hype-forward
+  - `baka mode sarcastic` — roast mode
+- Stored in user_preferences, applied in think_freely() system prompt
+
+---
+
+## Future Integrations (No timeline yet)
+
+- **Calendar sync** — Google Calendar two-way sync
+- **Email integration** — "did I get a reply from them yet?" (Gmail via OAuth)
+- **Notion/Obsidian** — export tasks as notes
+- **Spotify/music** — "play study playlist" (via Telegram MusicBot API)
+- **Streak heatmap** — GitHub-style year view of completed tasks per day
+- **Claude/Gemini fallback** — if NVIDIA NIM is down, route through another provider
+  (analytics provider column already supports this — just add the client init)
