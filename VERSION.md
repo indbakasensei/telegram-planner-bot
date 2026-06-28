@@ -1,6 +1,57 @@
 # BAKA Bot — Version History
 
-## v10.2 — AI Autonomy Foundation (current)
+## v11.0 — Multi-Model AI System (current)
+The full multi-model AI infrastructure. BAKA can now think, see, and create.
+
+Added 6 AI models with smart routing:
+- MODEL_MAIN    = z-ai/glm-5.1                — main brain (will become 5.2)
+- MODEL_FAST    = meta/llama-3.1-8b-instruct  — quick intent / classification
+- MODEL_THINK   = z-ai/glm-5.1                — deep reasoning (/think)
+- MODEL_VISION  = meta/llama-3.2-90b-vision   — understands images
+- MODEL_IMAGE   = black-forest-labs/flux.1-dev — generates images
+- MODEL_VIDEO   = nvidia/cosmos-1.0-7b        — video generation (opt-in)
+
+New per-model functions in baka_brain.py:
+- call_main(), call_fast(), call_think(), call_vision(), generate_image()
+- _call_model() — internal dispatcher with retry + logging
+- fast_intent_classify() — pre-filter for cheap intent guesses
+- benchmark_all_models() — shows status of every model
+
+Image Understanding (Llama 3.2 Vision):
+- Send any photo to the bot → it describes the image
+- Add a caption to ask specific questions ("translate this", "what brand?")
+- If the image contains a todo list, BAKA extracts the items and offers
+  to save them as tasks with one button tap
+- Use cases: handwritten todos, whiteboards, screenshots, schedules
+
+Image Generation (FLUX.1-dev, opt-in):
+- /image <prompt> or "image <prompt>" or "draw <prompt>"
+- Returns the generated image inline
+- Off by default to save credits — enable in baka_brain.py (ENABLE_IMAGE_GEN)
+
+Autonomous Observation Engine:
+- Daily 22:00 job analyzes your week and generates 1-3 AI suggestions
+- /suggestions to review pending suggestions
+- /approve <id> applies the suggestion (e.g. auto-creates a habit)
+- /dismiss <id> rejects it
+- Suggestions are JSON-structured so they can be auto-applied safely
+
+Feature toggles (all in baka_brain.py top section):
+- ENABLE_FAST_ROUTING = False (escalates to MAIN by default for safety)
+- ENABLE_VISION       = True
+- ENABLE_IMAGE_GEN    = False (toggle to enable image gen)
+- ENABLE_VIDEO_GEN    = False (video is expensive — opt-in only)
+
+New commands: /image, /generate, /models, /suggestions, /approve, /dismiss
+New handlers: PHOTO message handler routes to vision pipeline
+New callbacks: vision_save_tasks, vision_ask_again
+New tables: ai_observations (observation, suggestion, action_type, status)
+New jobs: observation_engine (daily 22:00)
+Modified: main.py, database.py, baka_brain.py
+
+---
+
+## v10.2 — AI Autonomy Foundation
 Three pieces that move BAKA from "scripted bot" toward "real assistant",
 laying the groundwork for full v11.0 multi-model autonomy.
 

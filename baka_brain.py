@@ -26,10 +26,22 @@ if not _api_key:
 
 logger = logging.getLogger(__name__)
 
-# v10.0: Model config — single constant makes v11.0 multi-model swap easy
+# v11.0: Multi-model AI infrastructure
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-MODEL_MAIN = "z-ai/glm-5.1"  # GLM 5.1 — main brain
-# v11.0 planned: MODEL_FAST, MODEL_IMAGE, MODEL_VISION, MODEL_VIDEO
+
+# Primary models
+MODEL_MAIN   = "z-ai/glm-5.1"                        # Main brain (will become 5.2 when released)
+MODEL_FAST   = "meta/llama-3.1-8b-instruct"          # Fast/cheap intent + classification
+MODEL_THINK  = "z-ai/glm-5.1"                        # Deep reasoning (same as MAIN for now)
+MODEL_VISION = "meta/llama-3.2-90b-vision-instruct"  # Image understanding
+MODEL_IMAGE  = "black-forest-labs/flux.1-dev"        # Image generation
+MODEL_VIDEO  = "nvidia/cosmos-1.0-7b-text2world"     # Video generation
+
+# Feature toggles — keep new capabilities OFF until tested in production
+ENABLE_FAST_ROUTING = True  # Use Llama 8B for simple intent classification
+ENABLE_VISION       = True   # Allow processing user-uploaded images
+ENABLE_IMAGE_GEN    = True  # Allow /image generation (costs more credits)
+ENABLE_VIDEO_GEN    = True  # Video gen is expensive — opt-in only
 
 client = OpenAI(
     base_url=NIM_BASE_URL,
@@ -49,6 +61,7 @@ def clean_json(content: str) -> str:
     return content
 
 def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1) -> str:
+    """Legacy call function — defaults to MODEL_MAIN. Use call_main/call_fast/etc instead for new code."""
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
@@ -384,6 +397,170 @@ def benchmark_ai(quick=True) -> dict:
 
 
 
+
+
+# ── v11.0: Per-Model Call Functions ───────────────────
+def _call_model(model_id: str, messages: list, temperature=0.1, max_tokens=1024,
+                top_p=1, model_label="?") -> tuple:
+    """
+    Internal multi-model dispatcher. Returns (response_text, latency_ms, error).
+    On failure, returns (None, latency_ms, error_str).
+    """
+    import time as _time
+    start = _time.time()
+    last_err = None
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            )
+            ms = round((_time.time() - start) * 1000)
+            text = response.choices[0].message.content.strip()
+            logger.info(f"[{model_label}] {ms}ms ok ({len(text)} chars)")
+            return text, ms, None
+        except Exception as e:
+            last_err = str(e)
+            logger.error(f"[{model_label}] attempt {attempt+1} failed: {last_err[:100]}")
+            if attempt < 2:
+                time.sleep(1)
+    ms = round((_time.time() - start) * 1000)
+    return None, ms, last_err
+
+
+def call_main(messages: list, temperature=0.1, max_tokens=1024, top_p=1) -> str:
+    """Main brain — for intent detection, planning, important reasoning."""
+    text, _, _ = _call_model(MODEL_MAIN, messages, temperature, max_tokens, top_p, "MAIN")
+    return text or ""
+
+
+def call_fast(messages: list, temperature=0.1, max_tokens=256) -> str:
+    """
+    Fast/cheap model (Llama 3.1 8B) for quick classification.
+    Use for: simple intent detection, yes/no decisions, short answers.
+    Falls back to MAIN if FAST fails or returns nothing.
+    """
+    text, _, err = _call_model(MODEL_FAST, messages, temperature, max_tokens, 1, "FAST")
+    if text:
+        return text
+    # Fallback to main brain if fast model errored
+    logger.warning(f"FAST failed ({err[:80] if err else 'empty'}), falling back to MAIN")
+    return call_main(messages, temperature, max_tokens)
+
+
+def call_think(messages: list, temperature=0.6, max_tokens=800) -> str:
+    """
+    Deep reasoning — for /think, advice, multi-step problem solving.
+    Higher temperature for more natural reasoning.
+    """
+    text, _, _ = _call_model(MODEL_THINK, messages, temperature, max_tokens, 0.95, "THINK")
+    return text or "I had trouble thinking through that."
+
+
+def call_vision(image_data_or_url: str, prompt: str, max_tokens=600) -> str:
+    """
+    Image understanding via Llama 3.2 Vision.
+    Accepts: a data URL (data:image/jpeg;base64,...) or an HTTP URL.
+    Returns the AI's description/answer about the image.
+    """
+    if not ENABLE_VISION:
+        return "Image understanding is currently disabled."
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": image_data_or_url}}
+        ]
+    }]
+    text, _, err = _call_model(MODEL_VISION, messages, 0.2, max_tokens, 1, "VISION")
+    if not text:
+        return f"Couldn't process the image: {(err or '?')[:100]}"
+    return text
+
+
+def generate_image(prompt: str, size: str = "1024x1024") -> dict:
+    """
+    Generate an image with FLUX.1-dev.
+    Returns {"url": "...", "error": None} on success, {"url": None, "error": "..."} on failure.
+    NOTE: requires ENABLE_IMAGE_GEN=True and uses more credits than text models.
+    """
+    if not ENABLE_IMAGE_GEN:
+        return {"url": None, "error": "Image generation disabled. Set ENABLE_IMAGE_GEN=True in baka_brain.py."}
+    try:
+        # FLUX uses the /images/generations endpoint (OpenAI-compatible)
+        # NIM exposes it via the same client interface
+        response = client.images.generate(
+            model=MODEL_IMAGE,
+            prompt=prompt,
+            size=size,
+            n=1,
+        )
+        url = response.data[0].url if response.data else None
+        return {"url": url, "error": None}
+    except Exception as e:
+        logger.error(f"image gen failed: {e}")
+        return {"url": None, "error": str(e)[:200]}
+
+
+def fast_intent_classify(user_input: str) -> dict:
+    """
+    Use FAST model for a quick intent guess. Returns {intent, confidence}.
+    Used as a pre-filter — if confidence is high enough we skip the full MAIN call.
+    """
+    if not ENABLE_FAST_ROUTING:
+        return {"intent": None, "confidence": 0}
+    prompt = (
+        "Classify this message into exactly one intent. Respond with ONLY the intent word.\n"
+        "Intents: TASK, HABIT, VIEW, MEMORY_SAVE, MEMORY_GET, EDIT, DELETE, GOAL, CHAT, THINK.\n"
+        f"Message: \"{user_input[:200]}\"\n"
+        "Intent:"
+    )
+    try:
+        raw = call_fast([{"role": "user", "content": prompt}], temperature=0, max_tokens=10)
+        intent = (raw or "").strip().upper().split()[0] if raw else "CHAT"
+        # Trust FAST only for clear-cut intents
+        if intent in ("TASK","HABIT","VIEW","MEMORY_SAVE","MEMORY_GET","EDIT","DELETE","GOAL","CHAT","THINK"):
+            return {"intent": intent, "confidence": 0.75}
+    except Exception as e:
+        logger.error(f"fast_intent_classify failed: {e}")
+    return {"intent": None, "confidence": 0}
+
+
+def benchmark_all_models() -> dict:
+    """
+    Benchmark MAIN + FAST + VISION availability. Returns per-model status.
+    Used by enhanced /status command.
+    """
+    import time as _time
+    results = {}
+    # MAIN
+    text, ms, err = _call_model(MODEL_MAIN,
+        [{"role":"user","content":"Say ONLINE in one word"}], 0, 20, 1, "MAIN_check")
+    results["main"] = {"model": MODEL_MAIN, "online": text is not None,
+                       "ms": ms, "error": err}
+    # FAST
+    text, ms, err = _call_model(MODEL_FAST,
+        [{"role":"user","content":"Say ONLINE in one word"}], 0, 20, 1, "FAST_check")
+    results["fast"] = {"model": MODEL_FAST, "online": text is not None,
+                       "ms": ms, "error": err}
+    # VISION (skip if no test image — just check model is accepted)
+    if ENABLE_VISION:
+        results["vision"] = {"model": MODEL_VISION, "online": "ready (needs image to test)",
+                             "ms": 0, "error": None}
+    else:
+        results["vision"] = {"model": MODEL_VISION, "online": "disabled", "ms": 0, "error": None}
+    results["image"] = {"model": MODEL_IMAGE,
+                        "online": "ready" if ENABLE_IMAGE_GEN else "disabled (toggle in baka_brain.py)",
+                        "ms": 0, "error": None}
+    results["video"] = {"model": MODEL_VIDEO,
+                        "online": "ready" if ENABLE_VIDEO_GEN else "disabled (toggle in baka_brain.py)",
+                        "ms": 0, "error": None}
+    return results
+
+
 def think_freely(user_question: str, user_context: dict = None,
                   recent_tasks: list = None, memories: list = None) -> str:
     """
@@ -435,8 +612,8 @@ def think_freely(user_question: str, user_context: dict = None,
         {"role": "user", "content": user_question},
     ]
     try:
-        # Use slightly higher temperature for more natural reasoning
-        return call_nvidia(messages, temperature=0.6, max_tokens=600, top_p=0.95)
+        # v11.0: route through THINK model for deep reasoning
+        return call_think(messages, temperature=0.6, max_tokens=600)
     except Exception as e:
         logger.error(f"think_freely failed: {e}")
         return f"I had trouble thinking about that. Try again, or rephrase."

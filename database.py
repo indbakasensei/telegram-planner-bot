@@ -1608,3 +1608,67 @@ def get_user_context_for_ai(user_id, history_limit=5):
         "overdue_count": overdue_n,
         "active_habits": habits,
     }
+
+# ── v11.0: AI Observations / Daily Suggestions ────────
+def _init_observations(conn):
+    conn.cursor().execute("""CREATE TABLE IF NOT EXISTS ai_observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        observation TEXT NOT NULL,
+        suggestion TEXT,
+        action_type TEXT,
+        action_payload TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        responded_at TEXT
+    )""")
+    conn.commit()
+
+
+def add_observation(user_id, observation, suggestion=None, action_type=None, action_payload=None):
+    """Store an AI-generated observation/suggestion for user review."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_observations(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO ai_observations
+        (user_id, observation, suggestion, action_type, action_payload)
+        VALUES (?,?,?,?,?)""",
+        (user_id, observation, suggestion, action_type, action_payload))
+    obs_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return obs_id
+
+
+def get_pending_observations(user_id, limit=10):
+    conn = sqlite3.connect(DB_NAME)
+    _init_observations(conn)
+    c = conn.cursor()
+    c.execute("""SELECT id, observation, suggestion, action_type, action_payload, created_at
+        FROM ai_observations WHERE user_id=? AND status='pending'
+        ORDER BY created_at DESC LIMIT ?""", (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def respond_to_observation(obs_id, status):
+    """Mark an observation as approved / rejected / dismissed."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M")
+    c.execute("UPDATE ai_observations SET status=?, responded_at=? WHERE id=?",
+              (status, now, obs_id))
+    conn.commit()
+    conn.close()
+
+
+def get_observation(obs_id, user_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_observations(conn)
+    c = conn.cursor()
+    c.execute("""SELECT id, observation, suggestion, action_type, action_payload, status
+        FROM ai_observations WHERE id=? AND user_id=?""", (obs_id, user_id))
+    row = c.fetchone()
+    conn.close()
+    return row

@@ -35,6 +35,7 @@ from database import (
     mark_as_deadline, get_pending_deadlines, mark_buffer_sent, parse_buffer_sent,
     log_missed_capability, get_missed_capabilities, mark_missed_reviewed,
     get_user_context_for_ai,
+    add_observation, get_pending_observations, respond_to_observation, get_observation,
     get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
@@ -43,6 +44,10 @@ from baka_brain import (
     chat_with_ai, suggest_tasks, analyze_productivity,
     generate_study_plan, extract_memory_key,
     generate_daily_plan, generate_weekly_plan, benchmark_ai, think_freely,
+    call_main, call_fast, call_think, call_vision,
+    generate_image, benchmark_all_models,
+    MODEL_MAIN, MODEL_FAST, MODEL_VISION, MODEL_IMAGE,
+    ENABLE_VISION, ENABLE_IMAGE_GEN,
     generate_task_breakdown, suggest_reschedule_time,
     generate_structured_plan
 )
@@ -965,6 +970,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (["search ", "find ", "look for "], search_cmd, None),
         (["think ", "ask ", "what should i ", "should i ",
           "help me decide", "what do you think", "your opinion"], think_cmd, None),
+        (["image ", "generate image", "create image", "draw "], image_cmd, None),
         (["savetemplate ", "save template "], savetemplate_cmd, None),
         (["template ", "use template "], template_cmd, None),
         (["streak "], streak_cmd, None),
@@ -1033,6 +1039,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("export", "export data", "backup", "export my data"): export_cmd,
         ("deadline mode", "what is deadline mode",
          "deadline help", "deadlines"): deadline_cmd,
+        ("suggestions", "my suggestions", "ai suggestions",
+         "what do you suggest", "show suggestions"): suggestions_cmd,
     }
     for phrases, handler in _exact_handlers.items():
         if _low_full in phrases or any(_low_full == p for p in phrases):
@@ -1738,6 +1746,50 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception:
                 await query.edit_message_text("Couldn't update task.")
+
+    elif action == "vision_save_tasks":
+        # v11.0: extract bullet-point tasks from vision result and create them
+        atype, vdata = get_pending_action(user_id)
+        if atype != "vision_result" or not vdata:
+            await query.edit_message_text("Image analysis expired — please send the photo again.")
+            return
+        text = vdata.get("text", "")
+        # Find bullet-point or numbered tasks in the AI's response
+        import re as _re
+        candidates = []
+        for line in text.split("\n"):
+            line = line.strip()
+            # Match common task formats: "- task", "* task", "1. task", "• task"
+            m = _re.match(r'^[-*•]\s+(.+)$', line) or _re.match(r'^\d+[.)]\s+(.+)$', line)
+            if m:
+                candidate = m.group(1).strip()
+                if 3 < len(candidate) < 200:
+                    candidates.append(candidate)
+        if not candidates:
+            await query.edit_message_text(
+                "Couldn't find clear task items in the image analysis. "
+                "Try sending the photo again with a caption like 'extract todos'.")
+            return
+        # Create tasks for today
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        created = []
+        for title in candidates[:10]:  # cap at 10 to avoid spam
+            if not task_exists(user_id, title, today_str):
+                tid = add_task(user_id, title, today_str, None, "General", "medium")
+                created.append((tid, title))
+        clear_state(user_id)
+        if created:
+            lines = [f"✅ {b(f'Created {len(created)} task(s) from your image:')}", ""]
+            for tid, title in created:
+                lines.append(f"  {code('['+str(tid)+']')} {esc(title)}")
+            await query.edit_message_text("\n".join(lines), parse_mode=HTML)
+        else:
+            await query.edit_message_text("All those tasks already exist!")
+
+    elif action == "vision_ask_again":
+        await query.edit_message_text(
+            "👀 Send the same image again with a more specific caption "
+            "(e.g. 'what brand is this product?' or 'translate this text').")
 
     elif action == "finish_yes":
         # v7.0: user confirms they finished
@@ -3447,6 +3499,225 @@ async def think_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"I had trouble thinking about that — {esc(str(e)[:100])}",
             parse_mode=HTML, reply_markup=main_menu())
 
+
+# ── v11.0: Photo/Image Handler ────────────────────────
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    When user sends a photo, use Llama 3.2 Vision to understand it.
+    Common use cases: handwritten todo lists, screenshots of schedules,
+    photos of whiteboards/notes, receipts to track.
+    """
+    user_id = update.message.from_user.id
+    if not ENABLE_VISION:
+        await update.message.reply_text(
+            "📷 Image understanding is currently disabled. "
+            "Enable it in baka_brain.py: ENABLE_VISION = True",
+            reply_markup=main_menu())
+        return
+
+    thinking = await update.message.reply_text(
+        "👀 <i>Looking at your image...</i>", parse_mode=HTML)
+    try:
+        # Get the highest-res photo Telegram sent
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        # Download as bytes, then base64 encode for the vision API
+        import base64
+        img_bytes = await file.download_as_bytearray()
+        b64 = base64.b64encode(bytes(img_bytes)).decode("utf-8")
+        data_url = f"data:image/jpeg;base64,{b64}"
+
+        # Use caption as the prompt, or default to "describe + extract tasks"
+        caption = (update.message.caption or "").strip()
+        if not caption:
+            prompt = (
+                "Look at this image and: "
+                "1) Briefly describe what you see (1 sentence). "
+                "2) If you see any tasks, todos, schedules, or actionable items, "
+                "list them as bullet points so the user can add them. "
+                "If no actionable items, just describe."
+            )
+        else:
+            prompt = caption
+
+        result = call_vision(data_url, prompt, max_tokens=500)
+        await thinking.delete()
+
+        # Offer to act on the extracted info
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📋 Save as tasks", callback_data="vision_save_tasks"),
+            InlineKeyboardButton("💬 Ask again", callback_data="vision_ask_again"),
+        ]])
+        # Cache the result so the "save as tasks" button can use it
+        set_pending_action(user_id, "vision_result", {
+            "action": "vision_result",
+            "text": result[:2000],
+            "image_url": data_url[:100] + "...",  # truncate for state
+        })
+
+        await update.message.reply_text(
+            f"📷 {b('Image Analysis')}\n\n{esc(result)}",
+            parse_mode=HTML, reply_markup=kb)
+    except Exception as e:
+        logger.error(f"vision processing failed: {e}")
+        await thinking.delete()
+        await update.message.reply_text(
+            f"Sorry, I couldn't process that image: {esc(str(e)[:150])}",
+            parse_mode=HTML, reply_markup=main_menu())
+
+
+# ── v11.0: Image Generation Command ───────────────────
+async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an image with FLUX.1-dev (must be enabled in baka_brain.py)."""
+    user_id = update.message.from_user.id
+    if not ENABLE_IMAGE_GEN:
+        await update.message.reply_text(
+            f"🎨 {b('Image Generation')}\n\n"
+            f"Currently disabled (saves credits). To enable:\n"
+            f"  Edit {code('baka_brain.py')}\n"
+            f"  Set {code('ENABLE_IMAGE_GEN = True')}\n"
+            f"  Restart the bot.\n\n"
+            f"Then use: {code('image <prompt>')}",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    if not context.args:
+        await update.message.reply_text(
+            f"Usage: {code('image <prompt>')}\n"
+            f"Example: {code('image a productivity dashboard with charts')}",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    prompt = " ".join(context.args)
+    thinking = await update.message.reply_text(
+        f"🎨 <i>Generating image...</i>", parse_mode=HTML)
+    try:
+        result = generate_image(prompt)
+        await thinking.delete()
+        if result.get("url"):
+            await update.message.reply_photo(
+                photo=result["url"],
+                caption=f"🎨 {b('Generated')}: {esc(prompt[:200])}",
+                parse_mode=HTML)
+        else:
+            await update.message.reply_text(
+                f"❌ Couldn't generate: {esc(result.get('error', 'unknown error'))}",
+                parse_mode=HTML, reply_markup=main_menu())
+    except Exception as e:
+        logger.error(f"image_cmd failed: {e}")
+        await thinking.delete()
+        await update.message.reply_text(
+            f"❌ Error: {esc(str(e)[:150])}",
+            parse_mode=HTML, reply_markup=main_menu())
+
+
+# ── v11.0: Multi-model Status ─────────────────────────
+async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show status of all v11.0 AI models."""
+    user_id = update.message.from_user.id
+    thinking = await update.message.reply_text("🔍 Checking all models...")
+    results = benchmark_all_models()
+
+    lines = [f"🤖 {b('Multi-Model AI Status')}", ""]
+
+    for name, r in results.items():
+        online = r["online"]
+        if online is True:
+            status = f"🟢 ONLINE ({r['ms']}ms)"
+        elif online is False:
+            status = f"🔴 OFFLINE — {esc((r.get('error') or 'unknown')[:80])}"
+        else:
+            status = f"⚪ {esc(str(online))}"
+        role_label = {
+            "main": "Main Brain", "fast": "Fast Tasks",
+            "vision": "Image Understanding", "image": "Image Generation",
+            "video": "Video Generation"
+        }.get(name, name)
+        lines.append(f"{b(role_label)}")
+        lines.append(f"  {code(r['model'])}")
+        lines.append(f"  {status}")
+        lines.append("")
+
+    lines.append(f"<i>Toggles in baka_brain.py: ENABLE_VISION, ENABLE_IMAGE_GEN, ENABLE_VIDEO_GEN</i>")
+    await thinking.delete()
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+# ── v11.0: AI Observations / Suggestions ──────────────
+async def suggestions_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show AI-generated suggestions waiting for your review."""
+    user_id = update.message.from_user.id
+    obs = get_pending_observations(user_id, limit=10)
+    if not obs:
+        await update.message.reply_text(
+            f"💡 {b('AI Suggestions')}\n\n"
+            f"<i>No pending suggestions. BAKA generates these once a day at 22:00 "
+            f"by analyzing your patterns. They'll appear here for your review.</i>",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    lines = [f"💡 {b('AI Suggestions')} ({len(obs)} pending)", ""]
+    for o in obs:
+        oid, observation, suggestion, atype, apayload, created = o
+        lines.append(f"{b('#'+str(oid))} {esc(observation)}")
+        if suggestion:
+            lines.append(f"   💭 <i>{esc(suggestion)}</i>")
+        lines.append(f"   {code('approve ' + str(oid))}  |  {code('dismiss ' + str(oid))}")
+        lines.append("")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+async def approve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Approve an AI suggestion — applies it if it has an action_type."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(f"Usage: {code('approve <id>')}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        oid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Invalid ID.", reply_markup=main_menu())
+        return
+    obs = get_observation(oid, user_id)
+    if not obs:
+        await update.message.reply_text(f"❌ Suggestion #{oid} not found.",
+                                        reply_markup=main_menu())
+        return
+    _, observation, suggestion, atype, apayload, status = obs
+    if status != "pending":
+        await update.message.reply_text(f"Suggestion already {esc(status)}.",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+    respond_to_observation(oid, "approved")
+    msg = f"✅ Approved: <i>{esc(observation)}</i>"
+    # Auto-apply if action_type is set
+    if atype == "create_habit" and apayload:
+        try:
+            import json as _json
+            data = _json.loads(apayload)
+            hid = add_habit(user_id, data["title"],
+                            time=data.get("time"),
+                            recurrence_type=data.get("recurrence", "daily"))
+            msg += f"\n\n🌱 Created habit: {b(data['title'])} [{hid}]"
+        except Exception as e:
+            msg += f"\n\n<i>(Couldn't auto-apply: {esc(str(e)[:80])})</i>"
+    await update.message.reply_text(msg, parse_mode=HTML, reply_markup=main_menu())
+
+
+async def dismiss_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dismiss an AI suggestion."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(f"Usage: {code('dismiss <id>')}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        oid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Invalid ID.", reply_markup=main_menu())
+        return
+    respond_to_observation(oid, "dismissed")
+    await update.message.reply_text(f"❌ Dismissed suggestion #{oid}.",
+                                    reply_markup=main_menu())
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -3550,6 +3821,13 @@ def main():
     app.add_handler(CommandHandler("resetall", resetall_cmd))
     app.add_handler(CommandHandler("sql", sql_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(CommandHandler("image", image_cmd))
+    app.add_handler(CommandHandler("generate", image_cmd))
+    app.add_handler(CommandHandler("models", models_cmd))
+    app.add_handler(CommandHandler("suggestions", suggestions_cmd))
+    app.add_handler(CommandHandler("approve", approve_cmd))
+    app.add_handler(CommandHandler("dismiss", dismiss_cmd))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
 
@@ -4006,6 +4284,101 @@ def main():
 
     # Check every 30 min — frequent enough for hour-scale buffers
     app.job_queue.run_repeating(deadline_buffer_check, interval=1800, first=180)
+
+    # ── v11.0: Daily AI Observation Engine ──────────────
+    async def observation_engine(context):
+        """
+        Once a day at 22:00 — AI looks at user's week, generates suggestions.
+        This is the autonomous behavior: BAKA proactively notices patterns
+        instead of waiting to be asked.
+        """
+        try:
+            for uid in get_all_active_user_ids():
+                # Skip if user has many pending suggestions already (don't pile up)
+                existing = get_pending_observations(uid, limit=5)
+                if len(existing) >= 5:
+                    continue
+                # Get rich context
+                try:
+                    user_ctx = get_user_context_for_ai(uid)
+                except Exception:
+                    continue
+                if not user_ctx.get("recent_completions") and not user_ctx.get("open_tasks_by_category"):
+                    continue  # not enough data yet
+
+                # Build the analysis prompt
+                ctx_lines = [
+                    "You are BAKA. Analyze this user's recent activity and identify "
+                    "1-3 USEFUL observations or suggestions. Be specific and actionable. "
+                    "Return ONLY valid JSON in this exact format:",
+                    '{"observations":[{"observation":"...","suggestion":"...","action_type":null}]}',
+                    "",
+                    "action_type can be 'create_habit' if you spot a recurring activity worth tracking.",
+                    "Otherwise leave action_type as null.",
+                    "",
+                    "DATA:",
+                    f"Today: {user_ctx.get('today_date')} ({user_ctx.get('weekday')})",
+                ]
+                if user_ctx.get("recent_completions"):
+                    ctx_lines.append("Recent completions:")
+                    for t in user_ctx["recent_completions"][:10]:
+                        ctx_lines.append(f"  - {t[0]} ({t[1] or 'General'}) at {t[2] or '?'}")
+                if user_ctx.get("open_tasks_by_category"):
+                    ctx_lines.append(f"Open tasks by category: {user_ctx['open_tasks_by_category']}")
+                if user_ctx.get("overdue_count"):
+                    ctx_lines.append(f"Overdue: {user_ctx['overdue_count']}")
+                if user_ctx.get("active_habits"):
+                    ctx_lines.append("Active habits:")
+                    for h in user_ctx["active_habits"]:
+                        ctx_lines.append(f"  - {h[0]} (streak {h[1]})")
+
+                prompt = "\n".join(ctx_lines)
+
+                # Use the FAST model — this is a quick periodic check, not deep reasoning
+                try:
+                    raw = call_fast([
+                        {"role": "system", "content": "You return ONLY valid JSON. No prose, no markdown."},
+                        {"role": "user", "content": prompt}
+                    ], temperature=0.3, max_tokens=400)
+                except Exception as e:
+                    logger.error(f"observation_engine AI call failed: {e}")
+                    continue
+
+                # Parse the JSON
+                try:
+                    import json as _json
+                    import re as _re
+                    # Extract JSON block
+                    m = _re.search(r'\{.*\}', raw or "", _re.DOTALL)
+                    if not m:
+                        continue
+                    parsed = _json.loads(m.group())
+                    obs_list = parsed.get("observations", [])
+                except Exception as e:
+                    logger.error(f"observation_engine parse failed: {e}")
+                    continue
+
+                # Store observations
+                added = 0
+                for obs in obs_list[:3]:
+                    if not isinstance(obs, dict):
+                        continue
+                    observation = obs.get("observation", "").strip()
+                    suggestion = obs.get("suggestion", "").strip() or None
+                    action_type = obs.get("action_type")
+                    if not observation or len(observation) < 10:
+                        continue
+                    add_observation(uid, observation, suggestion, action_type, None)
+                    added += 1
+
+                logger.info(f"[observation_engine] added {added} observations for user {uid}")
+        except Exception as e:
+            logger.error(f"observation_engine failed: {e}")
+
+    # Run once daily at 22:00
+    app.job_queue.run_daily(observation_engine,
+        time=datetime.strptime("22:00", "%H:%M").time(),
+        name="observation_engine")
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""
