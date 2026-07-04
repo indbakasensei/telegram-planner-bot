@@ -203,7 +203,7 @@ SELFTEST_MESSAGES = [
     ("Aaj raat 10 baje assignment submit",    "TASK · today · 22:00"),
     ("Parso doctor appointment hai",           "TASK · day after tomorrow"),
     ("Shaam ko meeting hai",                   "TASK · today · 18:00 (NOT 15:00)"),
-    ("Dopahar mein lunch",                     "TASK · today · 14:00"),
+    ("Dopahar mein lunch",                     "TASK · today · 13:00 (lunch=13:00 since v3.0)"),
     ("Jaldi karo, urgent task hai",            "TASK · priority=high · time=now+30min"),
 
     # ── SECTION C: Date & Time Parsing ──────────────────
@@ -262,6 +262,8 @@ SELFTEST_MESSAGES = [
     ("status",                                "STATUS → 3-test AI benchmark (Connectivity/JSON/Intent)"),
     ("status full",                           "STATUS → 6-test benchmark with grade A+-F"),
     ("models",                                "MODELS → 6 model statuses + real usage from analytics"),
+    ("image a sunset over mountains",         "IMAGE → FLUX.1-schnell via NIM, ~10s"),
+    ("video waves on a beach",                "VIDEO → FLUX frame + SVD animation via NIM, 1-3 min"),
     ("usage",                                 "USAGE → today + lifetime AI call stats"),
     ("performance",                           "PERF → p50/p95/p99 latency + fastest/slowest model"),
     ("errors",                                "ERRORS → error timeline + breakdown by model"),

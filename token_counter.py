@@ -17,6 +17,7 @@ MODEL_COSTS = {
     "meta/llama-3.2-90b-vision-instruct":      {"in": 0.40, "out": 0.40, "provider": "NVIDIA NIM"},
     "black-forest-labs/flux.1-dev":            {"in": 0,    "out": 0,    "provider": "NVIDIA NIM", "per_image": 0.04},
     "nvidia/cosmos-1.0-7b-text2world":         {"in": 0,    "out": 0,    "provider": "NVIDIA NIM", "per_video": 0.20},
+    "stabilityai/stable-video-diffusion":      {"in": 0,    "out": 0,    "provider": "NVIDIA NIM", "per_video": 0.10},
     "deepseek-ai/deepseek-r1":                 {"in": 0.55, "out": 2.19, "provider": "NVIDIA NIM"},
 
     # OpenAI (for future)

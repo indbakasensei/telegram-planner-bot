@@ -34,14 +34,14 @@ MODEL_MAIN   = "z-ai/glm-5.1"                        # Main brain (will become 5
 MODEL_FAST   = "meta/llama-3.1-8b-instruct"          # Fast/cheap intent + classification
 MODEL_THINK  = "z-ai/glm-5.1"                        # Deep reasoning (same as MAIN for now)
 MODEL_VISION = "meta/llama-3.2-90b-vision-instruct"  # Image understanding
-MODEL_IMAGE  = "black-forest-labs/flux.1-dev"        # Image generation
-MODEL_VIDEO  = "nvidia/cosmos-1.0-7b-text2world"     # Video generation
+MODEL_IMAGE  = "black-forest-labs/flux.1-schnell"   # Image generation via NIM chat completions
+MODEL_VIDEO  = "stabilityai/stable-video-diffusion"  # Video gen (only video model on hosted NIM; Cosmos has no hosted endpoint)
 
-# Feature toggles — keep new capabilities OFF until tested in production
+# Feature toggles — v11.2: image/video/vision ALWAYS ON per user request
 ENABLE_FAST_ROUTING = True  # Use Llama 8B for simple intent classification
-ENABLE_VISION       = True   # Allow processing user-uploaded images
-ENABLE_IMAGE_GEN    = True  # Allow /image generation (costs more credits)
-ENABLE_VIDEO_GEN    = True  # Video gen is expensive — opt-in only
+ENABLE_VISION       = True   # Photo understanding (Llama 3.2 Vision)
+ENABLE_IMAGE_GEN    = True   # FLUX.1-schnell via NVIDIA NIM (always on)
+ENABLE_VIDEO_GEN    = True   # Stable Video Diffusion via NVIDIA NIM (always on)
 
 client = OpenAI(
     base_url=NIM_BASE_URL,
@@ -558,52 +558,242 @@ def call_vision(image_data_or_url: str, prompt: str, max_tokens=600,
 
 def generate_image(prompt: str, size: str = "1024x1024", user_id: int = None) -> dict:
     """
-    Generate an image with FLUX.1-dev.
-    Returns {"url": "...", "error": None} on success, {"url": None, "error": "..."} on failure.
+    Generate an image with FLUX.1-schnell via NVIDIA NIM — the ONLY image source.
+
+    Official spec (docs.api.nvidia.com/nim/reference/black-forest-labs-flux_1-schnell-infer):
+      POST https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell
+      Body: {"prompt": str, "width": 1024, "height": 1024, "cfg_scale": 0,
+             "mode": "base", "samples": 1, "seed": 0, "steps": 4}
+      200 → {"artifacts": [{"base64": "...", "finishReason": "SUCCESS"}]}
+
+    Notes from the spec:
+      - prompt is a PLAIN STRING (not a text_prompts array)
+      - only width=height=1024 is supported on the hosted API
+      - cfg_scale allowed range is exactly 0
+      - steps 1-4 (schnell is distilled for 4)
+      - seed 0 = random
+
+    Returns {"data_url": "data:image/jpeg;base64,...", "error": None} on success.
     """
     if not ENABLE_IMAGE_GEN:
-        return {"url": None, "error": "Image generation disabled. Set ENABLE_IMAGE_GEN=True in baka_brain.py."}
+        return {"data_url": None, "error": "Image generation is disabled."}
     import time as _time
+    import httpx as _httpx
+
     start = _time.time()
+    nim_url = "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell"
+    body = {
+        "prompt": prompt[:10000],   # spec: length <= 10000
+        "width": 1024,              # spec: only 1024 supported
+        "height": 1024,             # spec: only 1024 supported
+        "cfg_scale": 0,             # spec: allowed range is 0 to 0
+        "mode": "base",
+        "samples": 1,               # spec: only 1 supported
+        "seed": 0,                  # 0 = random
+        "steps": 4,                 # schnell optimized for 4 steps
+    }
+    headers = {
+        "Authorization": f"Bearer {_api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    data_url = None
+    err_msg = None
     try:
-        response = client.images.generate(
-            model=MODEL_IMAGE,
-            prompt=prompt,
-            size=size,
-            n=1,
-        )
-        url = response.data[0].url if response.data else None
-        ms = round((_time.time() - start) * 1000)
-        # v11.1: log to analytics
-        try:
-            from analytics import log_image_request
-            log_image_request(
-                model_name=MODEL_IMAGE,
-                latency_ms=ms,
-                status="success",
-                user_id=user_id,
-                prompt_text=prompt,
-                image_count=1,
-            )
-        except Exception:
-            pass
-        return {"url": url, "error": None}
+        with _httpx.Client(timeout=120.0) as http:
+            resp = http.post(nim_url, headers=headers, json=body)
+            if resp.status_code == 200:
+                data = resp.json()
+                artifacts = data.get("artifacts") or []
+                if artifacts and isinstance(artifacts, list):
+                    b64 = artifacts[0].get("base64")
+                    finish = artifacts[0].get("finishReason", "")
+                    if b64:
+                        data_url = f"data:image/jpeg;base64,{b64}"
+                        logger.info(f"NIM FLUX ok ({len(b64)} chars, finish={finish})")
+                # Defensive: some NIM builds return top-level keys instead
+                if not data_url:
+                    for key in ("image", "b64_json", "data"):
+                        val = data.get(key)
+                        if isinstance(val, str) and len(val) > 100:
+                            data_url = f"data:image/jpeg;base64,{val}"
+                            break
+                if not data_url:
+                    err_msg = f"NIM returned 200 but no image data: {str(data)[:150]}"
+            elif resp.status_code == 422:
+                err_msg = f"Invalid request (422): {resp.text[:200]}"
+            elif resp.status_code == 404:
+                err_msg = ("FLUX.1-schnell endpoint not found (404). Your API key may not "
+                           "have Visual GenAI access — check build.nvidia.com/black-forest-labs/flux_1-schnell "
+                           "and regenerate your key from that page.")
+            elif resp.status_code in (401, 403):
+                err_msg = "NVIDIA_API_KEY rejected (401/403). Regenerate at build.nvidia.com."
+            elif resp.status_code == 429:
+                err_msg = "Rate limit (429). Free tier: 40 req/min, 1000/month. Wait a minute."
+            else:
+                err_msg = f"NIM {resp.status_code}: {resp.text[:200]}"
+    except _httpx.TimeoutException:
+        err_msg = "NIM timed out after 120s. The model may be under heavy load — try again."
     except Exception as e:
-        ms = round((_time.time() - start) * 1000)
-        logger.error(f"image gen failed: {e}")
-        try:
-            from analytics import log_image_request
-            log_image_request(
-                model_name=MODEL_IMAGE,
-                latency_ms=ms,
-                status="error",
-                user_id=user_id,
-                prompt_text=prompt,
-                error_message=str(e)[:200],
-            )
-        except Exception:
-            pass
-        return {"url": None, "error": str(e)[:200]}
+        err_msg = str(e)[:200]
+
+    ms = round((_time.time() - start) * 1000)
+    if err_msg:
+        logger.error(f"image gen failed: {err_msg}")
+
+    try:
+        from analytics import log_image_request
+        log_image_request(
+            model_name=MODEL_IMAGE,
+            latency_ms=ms,
+            status="success" if data_url else "error",
+            user_id=user_id,
+            prompt_text=prompt,
+            image_count=1 if data_url else 0,
+            error_message=err_msg,
+        )
+    except Exception:
+        pass
+
+    return {"data_url": data_url, "error": err_msg}
+
+
+def generate_video(image_data_url: str = None, prompt: str = None,
+                   user_id: int = None) -> dict:
+    """
+    Generate a short video with Stable Video Diffusion via NVIDIA NIM —
+    the ONLY hosted video model on NIM (Cosmos has no hosted endpoint).
+
+    Official spec (docs.api.nvidia.com/nim/reference/stabilityai-stable-video-diffusion-infer):
+      POST https://ai.api.nvidia.com/v1/genai/stabilityai/stable-video-diffusion
+      Body: {"image": "data:image/jpeg;base64,...", "seed": 0,
+             "cfg_scale": 1.8, "motion_bucket_id": 127}
+      The input image is scaled to 1024x576. Must be < 200KB inline.
+
+    SVD is image-to-video. For a text prompt, we first generate the frame
+    with FLUX (NIM), then animate it with SVD (NIM) — a 100% NVIDIA pipeline.
+
+    Returns {"video_b64": "<base64 mp4>", "frame_data_url": ..., "error": None}.
+    """
+    if not ENABLE_VIDEO_GEN:
+        return {"video_b64": None, "frame_data_url": None, "error": "Video generation is disabled."}
+    import time as _time
+    import base64 as _base64
+    import httpx as _httpx
+
+    start = _time.time()
+    frame_url = image_data_url
+
+    # Step 1: no image given → generate the first frame with FLUX (NIM)
+    if not frame_url:
+        if not prompt:
+            return {"video_b64": None, "frame_data_url": None,
+                    "error": "Need a prompt or an image to make a video."}
+        img_result = generate_image(prompt, user_id=user_id)
+        if not img_result.get("data_url"):
+            return {"video_b64": None, "frame_data_url": None,
+                    "error": f"Frame generation failed: {img_result.get('error')}"}
+        frame_url = img_result["data_url"]
+
+    # Step 1.5: SVD requires the inline image < 200KB — downscale if needed
+    try:
+        header, b64_data = frame_url.split(",", 1)
+        raw = _base64.b64decode(b64_data)
+        if len(raw) > 190_000:  # keep margin under the 200KB limit
+            try:
+                from PIL import Image
+                import io as _io
+                img = Image.open(_io.BytesIO(raw)).convert("RGB")
+                img.thumbnail((1024, 576))
+                quality = 85
+                while quality >= 40:
+                    buf = _io.BytesIO()
+                    img.save(buf, format="JPEG", quality=quality)
+                    if buf.tell() <= 190_000:
+                        break
+                    quality -= 10
+                raw = buf.getvalue()
+                frame_url = "data:image/jpeg;base64," + _base64.b64encode(raw).decode()
+                logger.info(f"SVD frame downscaled to {len(raw)} bytes (q={quality})")
+            except ImportError:
+                return {"video_b64": None, "frame_data_url": frame_url,
+                        "error": "Frame exceeds 200KB and Pillow isn't installed. "
+                                 "Run: pip install Pillow"}
+    except Exception as e:
+        return {"video_b64": None, "frame_data_url": frame_url,
+                "error": f"Frame preparation failed: {str(e)[:150]}"}
+
+    # Step 2: animate with SVD (NIM)
+    nim_url = "https://ai.api.nvidia.com/v1/genai/stabilityai/stable-video-diffusion"
+    body = {
+        "image": frame_url,
+        "seed": 0,
+        "cfg_scale": 1.8,          # spec default; <=9
+        "motion_bucket_id": 127,   # spec: only 127 supported
+    }
+    headers = {
+        "Authorization": f"Bearer {_api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    video_b64 = None
+    err_msg = None
+    try:
+        with _httpx.Client(timeout=300.0) as http:  # video takes a while
+            resp = http.post(nim_url, headers=headers, json=body)
+            if resp.status_code == 200:
+                data = resp.json()
+                # Response may use "video", "artifacts", or "b64_json"
+                video_b64 = data.get("video")
+                if not video_b64:
+                    artifacts = data.get("artifacts") or []
+                    if artifacts and isinstance(artifacts, list):
+                        video_b64 = artifacts[0].get("base64")
+                if not video_b64:
+                    for key in ("b64_json", "data", "mp4"):
+                        val = data.get(key)
+                        if isinstance(val, str) and len(val) > 1000:
+                            video_b64 = val
+                            break
+                if not video_b64:
+                    err_msg = f"SVD returned 200 but no video data: {str(data)[:150]}"
+            elif resp.status_code == 404:
+                err_msg = ("SVD endpoint not found (404). Your API key may not have "
+                           "Visual GenAI access — check build.nvidia.com/stabilityai/stable-video-diffusion")
+            elif resp.status_code in (401, 403):
+                err_msg = "NVIDIA_API_KEY rejected. Regenerate at build.nvidia.com."
+            elif resp.status_code == 429:
+                err_msg = "Rate limit hit. Wait a minute and retry."
+            elif resp.status_code == 422:
+                err_msg = f"Invalid request (422): {resp.text[:200]}"
+            else:
+                err_msg = f"NIM {resp.status_code}: {resp.text[:200]}"
+    except _httpx.TimeoutException:
+        err_msg = "Video generation timed out (5 min). SVD may be under heavy load."
+    except Exception as e:
+        err_msg = str(e)[:200]
+
+    ms = round((_time.time() - start) * 1000)
+    if err_msg:
+        logger.error(f"video gen failed: {err_msg}")
+
+    try:
+        from analytics import log_ai_request
+        log_ai_request(
+            model_name=MODEL_VIDEO,
+            latency_ms=ms,
+            status="success" if video_b64 else "error",
+            user_id=user_id,
+            request_type="VIDEO_GENERATION",
+            response_text=None,
+            error_message=err_msg,
+        )
+    except Exception:
+        pass
+
+    return {"video_b64": video_b64, "frame_data_url": frame_url, "error": err_msg}
 
 
 def fast_intent_classify(user_input: str) -> dict:
@@ -654,10 +844,10 @@ def benchmark_all_models() -> dict:
     else:
         results["vision"] = {"model": MODEL_VISION, "online": "disabled", "ms": 0, "error": None}
     results["image"] = {"model": MODEL_IMAGE,
-                        "online": "ready" if ENABLE_IMAGE_GEN else "disabled (toggle in baka_brain.py)",
+                        "online": "ready (always on)" if ENABLE_IMAGE_GEN else "disabled",
                         "ms": 0, "error": None}
     results["video"] = {"model": MODEL_VIDEO,
-                        "online": "ready" if ENABLE_VIDEO_GEN else "disabled (toggle in baka_brain.py)",
+                        "online": "ready (always on)" if ENABLE_VIDEO_GEN else "disabled",
                         "ms": 0, "error": None}
     return results
 

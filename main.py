@@ -45,7 +45,7 @@ from baka_brain import (
     generate_study_plan, extract_memory_key,
     generate_daily_plan, generate_weekly_plan, benchmark_ai, think_freely,
     call_main, call_fast, call_think, call_vision,
-    generate_image, benchmark_all_models,
+    generate_image, generate_video, benchmark_all_models,
     MODEL_MAIN, MODEL_FAST, MODEL_VISION, MODEL_IMAGE,
     ENABLE_VISION, ENABLE_IMAGE_GEN,
     generate_task_breakdown, suggest_reschedule_time,
@@ -64,7 +64,7 @@ from date_parser import parse_all, validate_datetime
 from scheduler import get_due_tasks, get_tasks_needing_followup, auto_carry_forward, is_quiet_hours
 import debug_system as dbg
 from datetime import datetime, timedelta
-import pytz
+from zoneinfo import ZoneInfo
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -73,7 +73,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-load_dotenv()
+# Bulletproof .env loading (matches baka_brain.py pattern)
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(_env_path)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 # v6.1: Admin lock — the first user to run /claimadmin becomes the sole admin.
 # Stored in a tiny file so it survives restarts. Only the admin can use admin tools.
@@ -96,7 +98,7 @@ def is_admin(uid):
 
 # In-memory flag: is the admin currently in debug/admin mode?
 _admin_mode = {}
-IST = pytz.timezone("Asia/Kolkata")
+IST = ZoneInfo("Asia/Kolkata")
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -291,7 +293,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 {b('AI MODELS (v11.0)')}\n"
         f"{DIVIDER}\n"
         f"{code('models')}             All 6 model statuses + real usage\n"
-        f"{code('image <prompt>')}     Generate an image (toggle in baka_brain.py)\n"
+        f"{code('image <prompt>')}     Generate an image (FLUX · NIM)\n"
+        f"{code('video <prompt>')}     Generate a video (FLUX+SVD · NIM, 1-3 min)\n"
         f"📷 Send any photo → BAKA describes it or extracts todos\n\n"
         f"{DIVIDER}\n"
         f"📊 {b('AI ANALYTICS (v11.1)')}\n"
@@ -634,8 +637,8 @@ async def execute_task_action(user_id: int, data: dict, update: Update):
         if is_deadline:
             # Compute time-to-deadline for a friendly preview
             try:
-                deadline_dt = IST.localize(datetime.strptime(
-                    f"{date} {data.get('time')}", "%Y-%m-%d %H:%M"))
+                deadline_dt = datetime.strptime(
+                    f"{date} {data.get('time')}", "%Y-%m-%d %H:%M").replace(tzinfo=IST)
                 hours_left = (deadline_dt - datetime.now(IST)).total_seconds() / 3600
                 if hours_left > 24:
                     countdown = f"{int(hours_left/24)} days"
@@ -1035,6 +1038,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (["think ", "ask ", "what should i ", "should i ",
           "help me decide", "what do you think", "your opinion"], think_cmd, None),
         (["image ", "generate image", "create image", "draw "], image_cmd, None),
+        (["video ", "generate video", "create video", "make a video"], video_cmd, None),
         (["savetemplate ", "save template "], savetemplate_cmd, None),
         (["template ", "use template "], template_cmd, None),
         (["streak "], streak_cmd, None),
@@ -1698,10 +1702,10 @@ async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("I", "📋 Multiple Tasks",           [37,38]),
         ("J", "🤖 AI Reasoning (v10.2)",     [39,41]),
         ("K", "🔍 Search & Tools (v10.0)",   [42,44]),
-        ("L", "📊 AI Analytics (v11.1)",     [45,50]),
-        ("M", "🏠 Dashboard (v9.0)",         [51,51]),
-        ("N", "⚙️ Settings & Wellness",      [52,55]),
-        ("O", "🔀 Edge Cases",               [56,60]),
+        ("L", "📊 AI Models & Analytics",    [45,52]),
+        ("M", "🏠 Dashboard (v9.0)",         [53,53]),
+        ("N", "⚙️ Settings & Wellness",      [54,57]),
+        ("O", "🔀 Edge Cases",               [58,62]),
     ]
     all_tests = dbg.SELFTEST_MESSAGES
 
@@ -3691,7 +3695,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── v11.0: Image Generation Command ───────────────────
 async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an image with FLUX.1-dev (must be enabled in baka_brain.py)."""
+    """Generate an image with FLUX.1-schnell via NVIDIA NIM (must be enabled in baka_brain.py)."""
     user_id = update.message.from_user.id
     if not ENABLE_IMAGE_GEN:
         await update.message.reply_text(
@@ -3705,28 +3709,97 @@ async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not context.args:
         await update.message.reply_text(
-            f"Usage: {code('image <prompt>')}\n"
-            f"Example: {code('image a productivity dashboard with charts')}",
+            f"🎨 {b('Image Generation')}\n\n"
+            f"Usage: {code('image <prompt>')}\n\n"
+            f"Examples:\n"
+            f"  {code('image a serene mountain lake at sunset')}\n"
+            f"  {code('image futuristic study room with glowing screens')}\n"
+            f"  {code('image anime style productivity dashboard')}\n\n"
+            f"<i>Model: FLUX.1-schnell via NVIDIA NIM</i>",
             parse_mode=HTML, reply_markup=main_menu())
         return
     prompt = " ".join(context.args)
     thinking = await update.message.reply_text(
-        f"🎨 <i>Generating image...</i>", parse_mode=HTML)
+        f"🎨 <i>Generating image...</i>\n"
+        f"<i>Prompt: {esc(prompt[:100])}</i>",
+        parse_mode=HTML)
     try:
-        result = generate_image(prompt)
+        result = generate_image(prompt, user_id=user_id)
         await thinking.delete()
-        if result.get("url"):
+
+        # NIM returns base64 data URL — decode and send as bytes to Telegram
+        data_url = result.get("data_url")
+        if data_url:
+            import base64, io
+            b64_data = data_url.split(",", 1)[1] if "," in data_url else data_url
+            img_bytes = base64.b64decode(b64_data)
+            img_file = io.BytesIO(img_bytes)
+            img_file.name = "generated.jpg"
             await update.message.reply_photo(
-                photo=result["url"],
-                caption=f"🎨 {b('Generated')}: {esc(prompt[:200])}",
+                photo=img_file,
+                caption=f"🎨 {b(prompt[:200])}\n<i>FLUX.1-schnell · NVIDIA NIM</i>",
                 parse_mode=HTML)
         else:
             await update.message.reply_text(
-                f"❌ Couldn't generate: {esc(result.get('error', 'unknown error'))}",
+                f"❌ {b('Image generation failed')}\n\n"
+                f"{esc(result.get('error', 'unknown error'))}",
                 parse_mode=HTML, reply_markup=main_menu())
     except Exception as e:
         logger.error(f"image_cmd failed: {e}")
         await thinking.delete()
+        await update.message.reply_text(
+            f"❌ Error: {esc(str(e)[:150])}",
+            parse_mode=HTML, reply_markup=main_menu())
+
+
+
+# ── v11.2: Video Generation (Stable Video Diffusion via NIM) ──
+async def video_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Generate a short video: FLUX creates the frame, SVD animates it.
+    100% NVIDIA NIM pipeline — no third-party services.
+    """
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            f"🎬 {b('Video Generation')}\n\n"
+            f"Usage: {code('video <prompt>')}\n\n"
+            f"Examples:\n"
+            f"  {code('video waves crashing on a beach at sunset')}\n"
+            f"  {code('video steam rising from a coffee cup')}\n\n"
+            f"<i>Pipeline: FLUX.1-schnell frame → Stable Video Diffusion\n"
+            f"Both via NVIDIA NIM. Takes 1-3 minutes.</i>",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    prompt = " ".join(context.args)
+    thinking = await update.message.reply_text(
+        f"🎬 <i>Generating video (1-3 min)...</i>\n"
+        f"<i>Step 1/2: Creating frame with FLUX...</i>",
+        parse_mode=HTML)
+    try:
+        result = generate_video(prompt=prompt, user_id=user_id)
+        await thinking.delete()
+        video_b64 = result.get("video_b64")
+        if video_b64:
+            import base64, io
+            vid_bytes = base64.b64decode(video_b64)
+            vid_file = io.BytesIO(vid_bytes)
+            vid_file.name = "generated.mp4"
+            await update.message.reply_video(
+                video=vid_file,
+                caption=f"🎬 {b(prompt[:200])}\n<i>FLUX + Stable Video Diffusion · NVIDIA NIM</i>",
+                parse_mode=HTML)
+        else:
+            await update.message.reply_text(
+                f"❌ {b('Video generation failed')}\n\n"
+                f"{esc(result.get('error', 'unknown error'))}",
+                parse_mode=HTML, reply_markup=main_menu())
+    except Exception as e:
+        logger.error(f"video_cmd failed: {e}")
+        try:
+            await thinking.delete()
+        except Exception:
+            pass
         await update.message.reply_text(
             f"❌ Error: {esc(str(e)[:150])}",
             parse_mode=HTML, reply_markup=main_menu())
@@ -3776,7 +3849,7 @@ async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"  Avg: {s['avg_latency_ms']}ms · Success: {s['success_rate']}%")
         lines.append("")
 
-    lines.append(f"<i>Toggles in baka_brain.py: ENABLE_VISION, ENABLE_IMAGE_GEN, ENABLE_VIDEO_GEN</i>")
+    lines.append(f"<i>All visual models always on · 100% NVIDIA NIM</i>")
     await thinking.delete()
     await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
 
@@ -4070,7 +4143,27 @@ async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-def main():
+def main() -> None:
+    """v11.1: Main entry point with startup validation for Python 3.14."""
+    import sys
+
+    # ── Startup validation ─────────────────────────────
+    if sys.version_info < (3, 12):
+        raise RuntimeError(
+            f"BAKA requires Python 3.12+. You are running {sys.version}. "
+            "Please upgrade: https://www.python.org/downloads/"
+        )
+
+    if not BOT_TOKEN:
+        raise RuntimeError(
+            "BOT_TOKEN is missing. Create a .env file with:\n"
+            "  BOT_TOKEN=your_telegram_bot_token\n"
+            "  NVIDIA_API_KEY=your_nvidia_api_key"
+        )
+
+    logger.info(f"🚀 Starting BAKA v11.1 on Python {sys.version.split()[0]}")
+    logger.info(f"📡 AI provider: NVIDIA NIM → {MODEL_MAIN}")
+
     init_db()
     dbg.init_bugs_db()
     app = Application.builder().token(BOT_TOKEN).build()
@@ -4150,6 +4243,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(CommandHandler("image", image_cmd))
     app.add_handler(CommandHandler("generate", image_cmd))
+    app.add_handler(CommandHandler("video", video_cmd))
     app.add_handler(CommandHandler("models", models_cmd))
     app.add_handler(CommandHandler("usage", usage_cmd))
     app.add_handler(CommandHandler("performance", performance_cmd))
@@ -4372,7 +4466,7 @@ def main():
                 # Respect the interval since last wellness message
                 if w["last"]:
                     try:
-                        last = IST.localize(datetime.strptime(w["last"], "%Y-%m-%d %H:%M"))
+                        last = datetime.strptime(w["last"], "%Y-%m-%d %H:%M").replace(tzinfo=IST)
                         mins_since = (datetime.now(IST) - last).total_seconds() / 60
                         if mins_since < w["interval"]:
                             continue
@@ -4548,8 +4642,8 @@ def main():
                     continue
                 already_sent = parse_buffer_sent(sent_str)
                 try:
-                    deadline_dt = IST.localize(datetime.strptime(
-                        f"{ddate} {dtime}", "%Y-%m-%d %H:%M"))
+                    deadline_dt = datetime.strptime(
+                        f"{ddate} {dtime}", "%Y-%m-%d %H:%M").replace(tzinfo=IST)
                 except Exception:
                     continue
                 seconds_left = (deadline_dt - now).total_seconds()
@@ -4758,4 +4852,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    # Python 3.14: asyncio.run() is the canonical entry point.
+    # PTB's run_polling() manages its own event loop internally,
+    # so we call main() directly — it calls app.run_polling() which handles async.
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n⛔ BAKA stopped by user.")
+        sys.exit(0)
+    except Exception as exc:
+        print(f"\n❌ Fatal error: {exc}")
+        logging.getLogger(__name__).critical("Fatal startup error", exc_info=True)
+        sys.exit(1)

@@ -1,6 +1,47 @@
 # BAKA Bot — Version History
 
-## v11.1 — AI Usage Analytics & Model Monitoring (current)
+## v11.2 — NIM-Only Visual Generation + Full Debug Pass (current)
+Image and video generation rebuilt against the OFFICIAL NVIDIA API specs
+(docs.api.nvidia.com), verified line-by-line. No third-party fallbacks.
+
+IMAGE — FLUX.1-schnell (fixed per official "Infer" spec):
+- Endpoint: https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell
+- ROOT CAUSE of the 404/422 chain: body must use a PLAIN "prompt" STRING
+  (previous fix wrongly used the Stable-Diffusion-style text_prompts array),
+  cfg_scale must be exactly 0, and only 1024x1024 is supported
+- Response parsed from artifacts[0].base64 → sent to Telegram as bytes
+- Pollinations fallback REMOVED — FLUX via NIM is the only image source
+- Clear error messages per status: 404 (no Visual GenAI access on key),
+  401/403 (bad key), 422 (invalid body), 429 (rate limit), timeout
+
+VIDEO — NEW /video command (Stable Video Diffusion):
+- Cosmos has NO hosted endpoint on NIM — SVD is the only hosted video model
+- Endpoint: https://ai.api.nvidia.com/v1/genai/stabilityai/stable-video-diffusion
+- SVD is image-to-video, so "/video <prompt>" runs a 100% NIM pipeline:
+  FLUX generates the frame → SVD animates it (cfg_scale 1.8, motion_bucket 127)
+- Auto-downscales frames >200KB (spec limit) via Pillow
+- MODEL_VIDEO changed: nvidia/cosmos-1.0-7b-text2world → stabilityai/stable-video-diffusion
+- Natural language: "video waves on a beach", "make a video of..."
+
+ALWAYS-ON: ENABLE_IMAGE_GEN=True, ENABLE_VIDEO_GEN=True, ENABLE_VISION=True
+
+FULL SELF-TEST DEBUG PASS (65 automated checks):
+- Parser: all date/time/Hindi/deadline/recurrence/priority tests PASS
+- Database: all 13-table CRUD, dedup, case-insensitivity, context PASS
+- Analytics: log→query round trip, SVD pricing PASS
+- 65/65 commands registered
+- 2 "failures" root-caused as doc/test-data errors, NOT code bugs:
+  1. Selftest doc said dopahar→14:00; parser has correctly mapped
+     lunch/dopahar→13:00 since v3.0. Doc corrected.
+  2. Deadline-fetch test used a same-day 20:00 task at 21:28 IST — the
+     query CORRECTLY excludes past-due deadlines. Test data corrected.
+- Selftest expanded: image + video tests added to Section L (63 tests total)
+
+Modified: baka_brain.py, main.py, debug_system.py, analytics/token_counter.py
+
+---
+
+## v11.1 — AI Usage Analytics & Model Monitoring
 Per-call AI telemetry, multi-model dashboards, error tracking.
 Every AI request that flows through the system is now logged automatically
 without manual instrumentation and without slowing down any AI response.
