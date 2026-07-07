@@ -29,16 +29,28 @@ logger = logging.getLogger(__name__)
 # v11.0: Multi-model AI infrastructure
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
+# ─────────────────────────────────────────────────────────────
+# NVIDIA NIM MODELS — verified working as of July 2026
+# ─────────────────────────────────────────────────────────────
+# TEXT / VISION: use https://integrate.api.nvidia.com/v1/chat/completions
+# IMAGE / VIDEO: use https://ai.api.nvidia.com/v1/genai/{model}
+#
+# History of MODEL_MAIN choices:
+#   z-ai/glm-5.1  — EOL'd by NVIDIA on 2026-07-02 (HTTP 410 Gone)
+#   z-ai/glm-5.2  — released same day, currently DEGRADED (HTTP 400)
+#   meta/llama-3.3-70b-instruct  — 22M uses, most popular, PROVEN STABLE ← in use
+# ─────────────────────────────────────────────────────────────
+
 # Primary models
-MODEL_MAIN   = "z-ai/glm-5.2"                        # Main brain (GLM 5.1 was EOL 2026-07-02; 5.2 released same day)
+MODEL_MAIN   = "meta/llama-3.3-70b-instruct"         # Main brain — 22M uses, most stable
 MODEL_FAST   = "meta/llama-3.1-8b-instruct"          # Fast/cheap intent + classification
-MODEL_THINK  = "z-ai/glm-5.2"                        # Deep reasoning (same as MAIN)
-MODEL_VISION = "meta/llama-3.2-90b-vision-instruct"  # Image understanding
-MODEL_IMAGE  = "black-forest-labs/flux.1-schnell"   # Image generation via NIM chat completions
-MODEL_VIDEO  = "stabilityai/stable-video-diffusion"  # Video gen (only video model on hosted NIM; Cosmos has no hosted endpoint)
+MODEL_THINK  = "meta/llama-3.3-70b-instruct"         # Deep reasoning (same architecture family)
+MODEL_VISION = "meta/llama-3.2-90b-vision-instruct"  # Image understanding (chat/completions endpoint)
+MODEL_IMAGE  = "black-forest-labs/flux.1-schnell"    # Image generation (genai endpoint, NOT chat)
+MODEL_VIDEO  = "stabilityai/stable-video-diffusion"  # Video generation (genai endpoint, NOT chat)
 
 # Feature toggles — v11.2: image/video/vision ALWAYS ON per user request
-ENABLE_FAST_ROUTING = False  # Use Llama 8B for simple intent classification
+ENABLE_FAST_ROUTING = True  # Use Llama 8B for simple intent classification
 ENABLE_VISION       = True   # Photo understanding (Llama 3.2 Vision)
 ENABLE_IMAGE_GEN    = True   # FLUX.1-schnell via NVIDIA NIM (always on)
 ENABLE_VIDEO_GEN    = True   # Stable Video Diffusion via NVIDIA NIM (always on)
@@ -98,10 +110,14 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
         except Exception as e:
             last_err = str(e)
             logger.error(f"API attempt {attempt+1} failed: {e}")
-            # v11.2: if MAIN model is deprecated (410 Gone), fall back to FAST once
-            # so the bot degrades gracefully instead of dying when NVIDIA rotates models.
-            if "410" in last_err and MODEL_MAIN != MODEL_FAST:
-                logger.warning(f"MAIN model {MODEL_MAIN} is EOL. Falling back to {MODEL_FAST}.")
+            # v11.2: If MAIN model is deprecated (410 Gone) or NVIDIA marks it DEGRADED (400),
+            # fall back to FAST once so the bot keeps working while NVIDIA's endpoint recovers
+            # instead of dying. The next time you swap MODEL_MAIN, the fallback is removed
+            # naturally on the next call.
+            model_dead = ("410" in last_err) or ("DEGRADED" in last_err.upper())
+            if model_dead and MODEL_MAIN != MODEL_FAST:
+                logger.warning(f"MAIN model {MODEL_MAIN} is unavailable ({last_err[:80]}). "
+                               f"Falling back to {MODEL_FAST}.")
                 try:
                     fb = client.chat.completions.create(
                         model=MODEL_FAST,
