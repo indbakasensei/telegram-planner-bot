@@ -36,6 +36,10 @@ from database import (
     log_missed_capability, get_missed_capabilities, mark_missed_reviewed,
     get_user_context_for_ai,
     add_observation, get_pending_observations, respond_to_observation, get_observation,
+    add_materials, get_materials, mark_material_acquired, delete_material,
+    find_material_by_name, add_worklog, get_worklog, get_last_worklog_days,
+    compute_project_progress, get_project_overview, get_active_projects,
+    get_all_pending_materials,
     get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
@@ -289,6 +293,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{code('template <name>')}    Create task from template\n"
         f"{code('savetemplate <n> <id>')} Save task as reusable template\n"
         f"{code('export')}             Full data backup as plain text\n\n"
+        f"{DIVIDER}\n"
+        f"📊 {b('PROJECT MANAGEMENT (v12.0)')}\n"
+        f"{DIVIDER}\n"
+        f"{code('projects')}          Active projects with progress bars\n"
+        f"{code('project <id>')}      Full project card\n"
+        f"{code('need <id> <items>')} Add materials (comma-separated)\n"
+        f"{code('got <name>')}        Mark material acquired (fuzzy)\n"
+        f"{code('started <id>')}      Log work started\n"
+        f"{code('worklog <id> <text>')} Log progress entry\n"
+        f"{code('finished <id>')}     Mark project done\n"
+        f"{code('shopping')}          Auto-shopping list across all projects\n\n"
+        f"  💡 Turn any goal into a project by attaching materials.\n"
+        f"  BAKA nudges you if a project stagnates or a deadline nears.\n\n"
         f"{DIVIDER}\n"
         f"🤖 {b('AI MODELS (v11.0)')}\n"
         f"{DIVIDER}\n"
@@ -1038,6 +1055,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (["think ", "ask ", "what should i ", "should i ",
           "help me decide", "what do you think", "your opinion"], think_cmd, None),
         (["image ", "generate image", "create image", "draw "], image_cmd, None),
+        (["need ", "materials ", "add materials", "components ",
+          "add components", "i need "], need_cmd, None),
+        (["got ", "have ", "acquired ", "purchased ",
+          "bought "], got_cmd, None),
+        (["worklog ", "log ", "note ", "progress on ",
+          "update on "], worklog_cmd, None),
+        (["started ", "starting ", "begin work on ",
+          "starting work on "], started_cmd, None),
+        (["finished ", "completed ", "done with ",
+          "finished the ", "khatam "], finished_cmd, None),
+        (["project ", "how is my ", "status of ",
+          "how is the "], project_cmd, None),
         (["video ", "generate video", "create video", "make a video"], video_cmd, None),
         (["savetemplate ", "save template "], savetemplate_cmd, None),
         (["template ", "use template "], template_cmd, None),
@@ -1104,6 +1133,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Diagnostics
         ("checktasks", "check tasks", "diagnose tasks", "task diagnostics"): checktasks_cmd,
         ("templates", "my templates", "show templates", "list templates"): template_cmd,
+        ("projects", "my projects", "show projects",
+         "list projects", "active projects"): project_cmd,
+        ("shopping", "shopping list", "my shopping list",
+         "what do i need to buy", "buy list"): shopping_cmd,
         ("export", "export data", "backup", "export my data"): export_cmd,
         ("deadline mode", "what is deadline mode",
          "deadline help", "deadlines"): deadline_cmd,
@@ -1706,6 +1739,7 @@ async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("M", "🏠 Dashboard (v9.0)",         [53,53]),
         ("N", "⚙️ Settings & Wellness",      [54,57]),
         ("O", "🔀 Edge Cases",               [58,62]),
+        ("P", "📊 Project Management (v12.0)", [63,71]),
     ]
     all_tests = dbg.SELFTEST_MESSAGES
 
@@ -1912,6 +1946,47 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("\n".join(lines), parse_mode=HTML)
         else:
             await query.edit_message_text("All those tasks already exist!")
+
+    elif action == "proj":
+        # v12.0 project callbacks: proj:started:{gid}, proj:finished:{gid},
+        # proj:got:{mid}, proj:view:{gid}, proj:shopping
+        subcmd = parts[1] if len(parts) > 1 else ""
+        arg = parts[2] if len(parts) > 2 else None
+        if subcmd == "started" and arg:
+            try:
+                add_worklog(user_id, int(arg), "Work started", kind="started")
+                await query.edit_message_text(f"🚀 Marked as started (goal #{arg}).")
+            except Exception as e:
+                await query.edit_message_text(f"Error: {str(e)[:100]}")
+        elif subcmd == "finished" and arg:
+            try:
+                add_worklog(user_id, int(arg), "Project finished", kind="finished")
+                await query.edit_message_text("🎉 Project marked as finished!")
+            except Exception as e:
+                await query.edit_message_text(f"Error: {str(e)[:100]}")
+        elif subcmd == "got" and arg:
+            try:
+                mark_material_acquired(user_id, int(arg), True)
+                await query.edit_message_text("✅ Marked as acquired.")
+            except Exception as e:
+                await query.edit_message_text(f"Error: {str(e)[:100]}")
+        elif subcmd == "view" and arg:
+            proj = get_project_overview(user_id, int(arg))
+            if proj:
+                await query.edit_message_text(
+                    f"📊 {b(esc(proj['title']))} — {proj['progress']}%\n"
+                    f"Materials: {proj['materials_acquired']}/{proj['materials_total']}\n"
+                    f"Send {code(f'project {arg}')} for the full card.",
+                    parse_mode=HTML)
+        elif subcmd == "shopping":
+            items = get_all_pending_materials(user_id)
+            if items:
+                names = ", ".join(m[0] for m in items[:20])
+                await query.edit_message_text(
+                    f"🛒 Still need: {esc(names)}",
+                    parse_mode=HTML)
+            else:
+                await query.edit_message_text("🛒 Shopping list is empty! 🎉")
 
     elif action == "vision_ask_again":
         await query.edit_message_text(
@@ -4118,6 +4193,278 @@ async def dismiss_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"❌ Dismissed suggestion #{oid}.",
                                     reply_markup=main_menu())
 
+
+# ══════════════════════════════════════════════════════════════
+# v12.0 — Project Management commands
+# ══════════════════════════════════════════════════════════════
+def _progress_bar(pct: int, width: int = 10) -> str:
+    filled = int(pct * width / 100)
+    return "█" * filled + "░" * (width - filled)
+
+
+async def need_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """need <goal_id> <items>  — add materials to a project."""
+    user_id = update.message.from_user.id
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            f"📦 {b('Add Materials')}\n\n"
+            f"Usage: {code('need <goal_id> <items>')}\n\n"
+            f"Example:\n"
+            f"  {code('need 3 motor, propeller, battery, frame, controller')}\n\n"
+            f"Comma-separated. Use {code('goals')} to see your goal IDs.",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        gid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("First argument must be a goal ID.", reply_markup=main_menu())
+        return
+    items_str = " ".join(context.args[1:])
+    added = add_materials(user_id, gid, items_str)
+    if not added:
+        await update.message.reply_text(
+            f"No new materials added (all were already there, or none provided).",
+            reply_markup=main_menu())
+        return
+    lines = [f"📦 {b(f'Added {len(added)} material(s):')}", ""]
+    for mid, name in added:
+        lines.append(f"  {code(f'#{mid}')} {esc(name)}")
+    lines.append(f"\nMark as acquired: {code('got <name>')}")
+    lines.append(f"View project: {code(f'project {gid}')}")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
+async def got_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """got <name>  — fuzzy-mark a pending material as acquired."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(
+            f"✅ {b('Mark material acquired')}\n\n"
+            f"Usage: {code('got <name>')}\n"
+            f"Example: {code('got motor')}\n\n"
+            f"Fuzzy-matches across all your active projects.",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    keyword = " ".join(context.args)
+    matches = find_material_by_name(user_id, keyword)
+    if not matches:
+        await update.message.reply_text(
+            f"❌ No pending material matches '{esc(keyword)}'. "
+            f"Try {code('projects')} to see what's needed.",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    if len(matches) == 1:
+        mid, name, gid, gtitle = matches[0]
+        mark_material_acquired(user_id, mid, True)
+        proj = get_project_overview(user_id, gid)
+        bar = _progress_bar(proj["progress"]) if proj else ""
+        msg = (f"✅ Got {b(esc(name))} for {esc(gtitle)}\n\n"
+               f"Progress: {bar} {proj['progress']}%\n"
+               f"Materials: {proj['materials_acquired']}/{proj['materials_total']}")
+        if proj["materials_acquired"] == proj["materials_total"] and proj["materials_total"]:
+            msg += f"\n\n🎉 {b('All materials acquired!')} Time to build."
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📊 Project", callback_data=f"proj:view:{gid}"),
+        ]])
+        await update.message.reply_text(msg, parse_mode=HTML, reply_markup=kb)
+    else:
+        # Multiple matches — ask which one
+        lines = [f"🤔 Multiple materials match '{esc(keyword)}'. Which one?", ""]
+        buttons = []
+        for mid, name, gid, gtitle in matches[:5]:
+            lines.append(f"  {code(f'#{mid}')} {esc(name)} <i>({esc(gtitle)})</i>")
+            buttons.append([InlineKeyboardButton(
+                f"✅ {name[:25]} ({gtitle[:20]})",
+                callback_data=f"proj:got:{mid}")])
+        await update.message.reply_text("\n".join(lines), parse_mode=HTML,
+                                        reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def worklog_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """worklog <goal_id> <entry>  — log project progress."""
+    user_id = update.message.from_user.id
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            f"📝 {b('Log Project Progress')}\n\n"
+            f"Usage: {code('worklog <goal_id> <entry>')}\n"
+            f"Example: {code('worklog 3 finished the frame today')}\n\n"
+            f"Or use shortcuts:\n"
+            f"  {code('started <goal_id>')}\n"
+            f"  {code('finished <goal_id>')}",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        gid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("First arg must be goal ID.", reply_markup=main_menu())
+        return
+    entry = " ".join(context.args[1:])
+    # Auto-detect kind
+    low = entry.lower()
+    if any(w in low for w in ("finished", "done", "completed", "khatam")):
+        kind = "finished"
+    elif any(w in low for w in ("blocked", "stuck", "issue", "problem")):
+        kind = "blocker"
+    elif any(w in low for w in ("started", "began", "shuru")):
+        kind = "started"
+    else:
+        kind = "progress"
+    add_worklog(user_id, gid, entry, kind=kind)
+    proj = get_project_overview(user_id, gid)
+    icon = {"started": "🚀", "progress": "🔨", "finished": "✅",
+            "blocker": "🚧", "note": "📝"}.get(kind, "📝")
+    if proj:
+        bar = _progress_bar(proj["progress"])
+        await update.message.reply_text(
+            f"{icon} Logged for {b(esc(proj['title']))}: {esc(entry)}\n\n"
+            f"Progress: {bar} {proj['progress']}%",
+            parse_mode=HTML, reply_markup=main_menu())
+    else:
+        await update.message.reply_text(f"{icon} Logged: {esc(entry)}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+
+
+async def started_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(f"Usage: {code('started <goal_id>')}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        gid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: started <goal_id>", reply_markup=main_menu())
+        return
+    add_worklog(user_id, gid, "Work started", kind="started")
+    proj = get_project_overview(user_id, gid)
+    if proj:
+        await update.message.reply_text(
+            f"🚀 Work started on {b(esc(proj['title']))}. Deadline: {esc(proj['deadline'] or 'none')}",
+            parse_mode=HTML, reply_markup=main_menu())
+    else:
+        await update.message.reply_text("🚀 Started.", reply_markup=main_menu())
+
+
+async def finished_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not context.args:
+        await update.message.reply_text(f"Usage: {code('finished <goal_id>')}",
+                                        parse_mode=HTML, reply_markup=main_menu())
+        return
+    try:
+        gid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: finished <goal_id>", reply_markup=main_menu())
+        return
+    add_worklog(user_id, gid, "Project finished", kind="finished")
+    await update.message.reply_text(
+        f"🎉 {b('Congrats!')} Project marked as finished.",
+        parse_mode=HTML, reply_markup=main_menu())
+
+
+async def project_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """project <goal_id> — full dashboard card."""
+    user_id = update.message.from_user.id
+    if not context.args:
+        # No arg → show list of active projects
+        projects = get_active_projects(user_id)
+        if not projects:
+            await update.message.reply_text(
+                f"📊 {b('No active projects yet')}\n\n"
+                f"A project is any goal you've attached materials or worklog entries to.\n\n"
+                f"Start one:\n"
+                f"  1. {code('goal build drone by 2026-08-15')}\n"
+                f"  2. {code('need <goal_id> motor, battery, frame')}\n"
+                f"  3. {code('started <goal_id>')}",
+                parse_mode=HTML, reply_markup=main_menu())
+            return
+        lines = [f"📊 {b('Your Active Projects')}", ""]
+        for gid, title, deadline in projects:
+            proj = get_project_overview(user_id, gid)
+            if not proj:
+                continue
+            bar = _progress_bar(proj["progress"])
+            lines.append(f"{code(f'#{gid}')} {b(esc(title))}")
+            lines.append(f"  {bar} {proj['progress']}% · "
+                         f"{proj['materials_acquired']}/{proj['materials_total']} materials · "
+                         f"{esc(proj['work_state'])}")
+            if deadline:
+                lines.append(f"  📅 due {esc(deadline)}")
+            lines.append("")
+        lines.append(f"View one: {code('project <id>')}")
+        await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+        return
+
+    try:
+        gid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Usage: project <goal_id>", reply_markup=main_menu())
+        return
+    proj = get_project_overview(user_id, gid)
+    if not proj:
+        await update.message.reply_text(f"❌ Goal #{gid} not found.", reply_markup=main_menu())
+        return
+    bar = _progress_bar(proj["progress"], width=15)
+    lines = [
+        f"📊 {b(esc(proj['title']))} — #{gid}",
+        "",
+        f"{bar} {b(str(proj['progress']) + '%')}",
+        f"📅 Deadline: {esc(proj['deadline'] or 'none')}",
+        f"🔨 Work: {b(esc(proj['work_state']))}",
+        "",
+        f"📦 {b('Materials')} ({proj['materials_acquired']}/{proj['materials_total']})",
+    ]
+    if not proj["materials"]:
+        lines.append(f"  <i>None added yet. Try {code(f'need {gid} <items>')}</i>")
+    else:
+        for m in proj["materials"]:
+            mid, name, qty, acq, cost, notes, created, acq_at = m
+            icon = "✅" if acq else "🔲"
+            qty_str = f" ×{qty}" if qty > 1 else ""
+            lines.append(f"  {icon} {esc(name)}{qty_str}")
+
+    if proj["worklog"]:
+        lines.append(f"\n📝 {b('Recent worklog')} (last {min(5, len(proj['worklog']))})")
+        for w in proj["worklog"][:5]:
+            wid, entry, kind, created = w
+            icon = {"started": "🚀", "progress": "🔨", "finished": "✅",
+                    "blocker": "🚧", "note": "📝"}.get(kind, "📝")
+            date_short = (created or "")[5:10]  # MM-DD
+            lines.append(f"  {icon} <i>{esc(date_short)}</i> {esc(entry[:80])}")
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Work started", callback_data=f"proj:started:{gid}"),
+         InlineKeyboardButton("✅ Finished", callback_data=f"proj:finished:{gid}")],
+        [InlineKeyboardButton("🛒 Shopping list", callback_data="proj:shopping")],
+    ])
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=kb)
+
+
+async def shopping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Auto-shopping list — everything still needed across all projects."""
+    user_id = update.message.from_user.id
+    items = get_all_pending_materials(user_id)
+    if not items:
+        await update.message.reply_text(
+            f"🛒 {b('Shopping list is empty!')} 🎉\n\n"
+            f"All acquired. Nothing pending across your active projects.",
+            parse_mode=HTML, reply_markup=main_menu())
+        return
+    # Group by project
+    by_proj = {}
+    for name, qty, gtitle, gid in items:
+        by_proj.setdefault((gid, gtitle), []).append((name, qty))
+    lines = [f"🛒 {b('Shopping List')} — {len(items)} item(s) across {len(by_proj)} project(s)", ""]
+    for (gid, gtitle), rows in by_proj.items():
+        lines.append(f"{b(esc(gtitle))} <i>(#{gid})</i>")
+        for name, qty in rows:
+            qty_str = f" ×{qty}" if qty > 1 else ""
+            lines.append(f"  🔲 {esc(name)}{qty_str}")
+        lines.append("")
+    lines.append(f"<i>Mark as acquired with {code('got <name>')}</i>")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+
+
 async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     try:
@@ -4251,6 +4598,18 @@ def main() -> None:
     app.add_handler(CommandHandler("suggestions", suggestions_cmd))
     app.add_handler(CommandHandler("approve", approve_cmd))
     app.add_handler(CommandHandler("dismiss", dismiss_cmd))
+    # v12.0 project management
+    app.add_handler(CommandHandler("need", need_cmd))
+    app.add_handler(CommandHandler("materials", need_cmd))
+    app.add_handler(CommandHandler("got", got_cmd))
+    app.add_handler(CommandHandler("have", got_cmd))
+    app.add_handler(CommandHandler("worklog", worklog_cmd))
+    app.add_handler(CommandHandler("log", worklog_cmd))
+    app.add_handler(CommandHandler("started", started_cmd))
+    app.add_handler(CommandHandler("finished", finished_cmd))
+    app.add_handler(CommandHandler("project", project_cmd))
+    app.add_handler(CommandHandler("projects", project_cmd))
+    app.add_handler(CommandHandler("shopping", shopping_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
@@ -4803,6 +5162,78 @@ def main() -> None:
     app.job_queue.run_daily(observation_engine,
         time=datetime.strptime("22:00", "%H:%M").time(),
         name="observation_engine")
+
+    # ── v12.0: Project Stagnation Reminder ──────────────
+    async def project_nudge(context):
+        """
+        Daily 20:00: for each active project:
+        - if no worklog entry in 7+ days AND deadline < 30 days away → gentle nudge
+        - if materials still pending AND deadline < 3 days away → urgent alert
+        """
+        try:
+            for uid in get_all_active_user_ids():
+                if is_quiet_hours(uid):
+                    continue
+                projects = get_active_projects(uid)
+                for gid, title, deadline in projects:
+                    if not deadline:
+                        continue
+                    try:
+                        dl = datetime.strptime(deadline[:10], "%Y-%m-%d").replace(tzinfo=IST)
+                        days_left = (dl.date() - datetime.now(IST).date()).days
+                    except Exception:
+                        continue
+                    if days_left < 0:
+                        continue  # already past — different job handles overdue
+
+                    proj = get_project_overview(uid, gid)
+                    if not proj:
+                        continue
+
+                    # Case A: deadline < 3 days, materials still missing → urgent
+                    missing = proj["materials_total"] - proj["materials_acquired"]
+                    if days_left <= 3 and missing > 0:
+                        pending = [m[1] for m in proj["materials"] if not m[3]][:5]
+                        pending_str = ", ".join(esc(p) for p in pending)
+                        msg = (f"⚠️ {b('Deadline approaching')} — {b(esc(title))}\n\n"
+                               f"📅 {b(str(days_left) + ' day(s) left')}\n"
+                               f"📦 Still need: {pending_str}\n\n"
+                               f"<i>You've got materials to gather before the deadline.</i>")
+                        kb = InlineKeyboardMarkup([[
+                            InlineKeyboardButton("📊 Project", callback_data=f"proj:view:{gid}"),
+                            InlineKeyboardButton("🛒 Shopping list", callback_data="proj:shopping"),
+                        ]])
+                        try:
+                            await context.bot.send_message(chat_id=uid, text=msg,
+                                                           parse_mode=HTML, reply_markup=kb)
+                        except Exception:
+                            pass
+                        continue
+
+                    # Case B: stagnation (no work in 7+ days, deadline < 30 days)
+                    days_idle = get_last_worklog_days(uid, gid)
+                    if (days_left <= 30 and days_idle is not None
+                            and days_idle >= 7 and proj["work_state"] != "finished"):
+                        msg = (f"💤 {b(esc(title))} hasn't moved in {days_idle} days\n\n"
+                               f"📅 Deadline: {esc(deadline)} ({days_left}d left)\n"
+                               f"🔨 Last state: {esc(proj['work_state'])}\n"
+                               f"📊 Progress: {proj['progress']}%\n\n"
+                               f"<i>Ping me with an update when you make progress.</i>")
+                        kb = InlineKeyboardMarkup([[
+                            InlineKeyboardButton("📊 View", callback_data=f"proj:view:{gid}"),
+                            InlineKeyboardButton("🚀 Log progress", callback_data=f"proj:started:{gid}"),
+                        ]])
+                        try:
+                            await context.bot.send_message(chat_id=uid, text=msg,
+                                                           parse_mode=HTML, reply_markup=kb)
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.error(f"project_nudge failed: {e}")
+
+    app.job_queue.run_daily(project_nudge,
+        time=datetime.strptime("20:00", "%H:%M").time(),
+        name="project_nudge")
 
     async def check_deadlines(context):
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""

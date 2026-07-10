@@ -1,5 +1,86 @@
 # BAKA Bot — Version History
 
+## v12.0 — Project Management (current)
+Turn any goal into a project with materials, worklog, progress tracking, and
+automatic stagnation reminders. Perfect for real-world things you build over
+weeks (drones, renovations, hobby builds, learning tracks).
+
+Example flow — the drone build:
+  1. "goal build drone by 2026-08-15"        → goal saved, id shown
+  2. "need <id> motor, propeller, battery,   → 5 materials attached
+        frame, controller"
+  3. "got motor"                              → fuzzy-matched, marked ✅
+  4. "started <id>"                           → worklog entry, state=started
+  5. "worklog <id> frame mounted"             → auto-detected as 'progress'
+  6. "project <id>"                           → full card w/ progress bar,
+                                                material checklist, worklog
+  7. "shopping"                               → auto-list of everything
+                                                still needed across ALL projects
+
+Added:
+- 2 new SQLite tables: project_materials, project_worklog (indexed on goal_id)
+- 11 new commands:
+    need <id> <items>       add comma-separated materials
+    materials <id> <items>  same as /need (alias)
+    got <name>              fuzzy-mark acquired across all projects
+    have <name>             same as /got (alias)
+    worklog <id> <text>     log project progress (kind auto-detected)
+    log <id> <text>         same as /worklog (alias)
+    started <id>            log 'work started' entry
+    finished <id>           log 'finished' entry + mark done
+    project <id>            full dashboard card (progress bar, materials
+                            checklist, recent worklog, action buttons)
+    projects                list all active projects with progress bars
+    shopping                auto-shopping list — everything unacquired
+                            across all projects, grouped by project
+
+- Natural language routing for every command:
+    "I need motor and battery for drone"    → need_cmd
+    "got the motor"                         → got_cmd (fuzzy match)
+    "started work on drone"                 → started_cmd
+    "how is my drone project"               → project_cmd
+    "shopping list"                         → shopping_cmd
+
+- Smart worklog kind detection:
+    "finished/done/khatam"    → kind=finished
+    "blocked/stuck/issue"     → kind=blocker
+    "started/began/shuru"     → kind=started
+    everything else           → kind=progress
+
+- Auto-progress formula:
+    materials 50% weight (acquired/total ratio)
+    work_state 50% weight (finished=100%, progress=50%, started=25%)
+    Progress % shown as inline bar: ██████░░░░ 60%
+
+- Stagnation nudges (daily 20:00):
+    Case A: deadline < 3 days AND materials still missing
+            → urgent alert with pending list + shopping button
+    Case B: no worklog in 7+ days AND deadline < 30 days away
+            → gentle nudge with 'log progress' button
+    Respects quiet hours.
+
+- Inline callback router: proj:started, proj:finished, proj:got, proj:view,
+  proj:shopping — every project card comes with tap-to-act buttons.
+
+Debug pass:
+- 9-step drone scenario end-to-end verified (P1-P9)
+- All 11 commands registered
+- Selftest expanded to 72 tests (added Section P with 9 project tests)
+- Zero regressions across parser, database, analytics, models
+
+Modified: main.py, database.py, debug_system.py
+
+Ideas for next (not yet built):
+- v12.1 — project photos via Vision: send a photo, Llama Vision describes
+  progress, auto-adds a worklog entry
+- v12.2 — cost/budget: sum material costs, show budget vs spent per project
+- v12.3 — milestones: split projects into named stages, each with its own
+  progress
+- v12.4 — template projects: save a project's material list as a template so
+  next similar build populates instantly ("build drone" → same 5 materials)
+
+---
+
 ## v11.2 — NIM-Only Visual Generation + Full Debug Pass (current)
 Image and video generation rebuilt against the OFFICIAL NVIDIA API specs
 (docs.api.nvidia.com), verified line-by-line. No third-party fallbacks.

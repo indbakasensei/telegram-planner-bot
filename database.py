@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime, timedelta
-import pytz
-IST = pytz.timezone("Asia/Kolkata")
+from zoneinfo import ZoneInfo
+IST = ZoneInfo("Asia/Kolkata")
 
 DB_NAME = "planner.db"
 
@@ -1679,3 +1679,284 @@ def get_observation(obs_id, user_id):
     row = c.fetchone()
     conn.close()
     return row
+
+# ══════════════════════════════════════════════════════════════
+# v12.0 — Project Management (materials + work log)
+# ══════════════════════════════════════════════════════════════
+# A "project" is just a goal with attached materials and worklog.
+# Both tables are linked to goals.id so deleting a goal cascades cleanly.
+
+def _init_project_tables(conn):
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS project_materials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        goal_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        acquired INTEGER DEFAULT 0,
+        cost REAL,
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        acquired_at TEXT
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_materials_goal ON project_materials(goal_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_materials_user ON project_materials(user_id)")
+    c.execute("""CREATE TABLE IF NOT EXISTS project_worklog (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        goal_id INTEGER NOT NULL,
+        entry TEXT NOT NULL,
+        kind TEXT DEFAULT 'note',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_worklog_goal ON project_worklog(goal_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_worklog_user ON project_worklog(user_id)")
+    conn.commit()
+
+
+# ── Materials ──────────────────────────────────────────
+def add_materials(user_id, goal_id, names, quantity=1):
+    """
+    Add one or more materials to a project. `names` can be a list or
+    a comma-separated string. Ignores duplicates (case-insensitive within a goal).
+    Returns list of (id, name) actually added.
+    """
+    if isinstance(names, str):
+        names = [n.strip() for n in names.split(",") if n.strip()]
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    added = []
+    c.execute("SELECT LOWER(name) FROM project_materials WHERE user_id=? AND goal_id=?",
+              (user_id, goal_id))
+    existing = {r[0] for r in c.fetchall()}
+    for name in names:
+        if len(name) > 100 or name.lower() in existing:
+            continue
+        c.execute("""INSERT INTO project_materials (user_id, goal_id, name, quantity)
+                     VALUES (?,?,?,?)""", (user_id, goal_id, name, quantity))
+        added.append((c.lastrowid, name))
+        existing.add(name.lower())
+    conn.commit()
+    conn.close()
+    return added
+
+
+def get_materials(user_id, goal_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    c.execute("""SELECT id, name, quantity, acquired, cost, notes, created_at, acquired_at
+                 FROM project_materials WHERE user_id=? AND goal_id=?
+                 ORDER BY acquired, id""", (user_id, goal_id))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def mark_material_acquired(user_id, material_id, acquired=True):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M")
+    c.execute("""UPDATE project_materials
+                 SET acquired=?, acquired_at=?
+                 WHERE id=? AND user_id=?""",
+              (1 if acquired else 0, now_str if acquired else None,
+               material_id, user_id))
+    updated = c.rowcount
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def delete_material(user_id, material_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM project_materials WHERE id=? AND user_id=?",
+              (material_id, user_id))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def find_material_by_name(user_id, keyword, goal_id=None):
+    """
+    Fuzzy-find a NOT-yet-acquired material by keyword.
+    If goal_id is None, searches across all active projects (goals with materials).
+    Returns list of (id, name, goal_id, goal_title). Empty if nothing found.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    kw = f"%{keyword.lower()}%"
+    if goal_id:
+        c.execute("""SELECT m.id, m.name, m.goal_id, g.title
+                     FROM project_materials m JOIN goals g ON m.goal_id=g.id
+                     WHERE m.user_id=? AND m.goal_id=? AND m.acquired=0
+                       AND LOWER(m.name) LIKE ?""",
+                  (user_id, goal_id, kw))
+    else:
+        c.execute("""SELECT m.id, m.name, m.goal_id, g.title
+                     FROM project_materials m JOIN goals g ON m.goal_id=g.id
+                     WHERE m.user_id=? AND m.acquired=0 AND LOWER(m.name) LIKE ?
+                     ORDER BY m.created_at DESC LIMIT 5""",
+                  (user_id, kw))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+# ── Work log ───────────────────────────────────────────
+def add_worklog(user_id, goal_id, entry, kind="note"):
+    """kind: started | progress | blocker | note | finished"""
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO project_worklog (user_id, goal_id, entry, kind)
+                 VALUES (?,?,?,?)""", (user_id, goal_id, entry, kind))
+    wid = c.lastrowid
+    conn.commit()
+    conn.close()
+    return wid
+
+
+def get_worklog(user_id, goal_id, limit=20):
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    c.execute("""SELECT id, entry, kind, created_at
+                 FROM project_worklog WHERE user_id=? AND goal_id=?
+                 ORDER BY id DESC LIMIT ?""",
+              (user_id, goal_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_last_worklog_days(user_id, goal_id):
+    """Days since the most recent worklog entry, or None if never logged."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    c.execute("""SELECT MAX(created_at) FROM project_worklog
+                 WHERE user_id=? AND goal_id=?""", (user_id, goal_id))
+    row = c.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return None
+    try:
+        last = datetime.strptime(row[0][:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=IST)
+        return (datetime.now(IST) - last).days
+    except Exception:
+        return None
+
+
+# ── Project overview ───────────────────────────────────
+def compute_project_progress(user_id, goal_id):
+    """
+    50% weight: materials acquired ratio
+    50% weight: work completion (finished=100%, progress=50%, started=25%, none=0%)
+    Returns (progress_int_0_100, materials_ratio, work_state).
+    """
+    mats = get_materials(user_id, goal_id)
+    if mats:
+        acquired = sum(1 for m in mats if m[3])
+        mat_pct = acquired / len(mats)
+    else:
+        mat_pct = 0
+
+    work = get_worklog(user_id, goal_id, limit=100)
+    kinds = {w[2] for w in work}
+    if "finished" in kinds:
+        work_pct, state = 1.0, "finished"
+    elif "progress" in kinds:
+        work_pct, state = 0.5, "in progress"
+    elif "started" in kinds:
+        work_pct, state = 0.25, "started"
+    else:
+        work_pct, state = 0.0, "not started"
+
+    # If no materials, weight is 100% work; if no work log yet, weight is 100% materials
+    if mats and work:
+        progress = round(50 * mat_pct + 50 * work_pct)
+    elif mats:
+        progress = round(100 * mat_pct)
+    elif work:
+        progress = round(100 * work_pct)
+    else:
+        progress = 0
+    return progress, mat_pct, state
+
+
+def get_project_overview(user_id, goal_id):
+    """Full project card data — used by /project command."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    try:
+        c.execute("PRAGMA table_info(goals)")
+        cols = [r[1] for r in c.fetchall()]
+        has_done = "done" in cols
+        done_col = ", done" if has_done else ""
+        c.execute(f"SELECT id, title, deadline{done_col} FROM goals WHERE id=? AND user_id=?",
+                  (goal_id, user_id))
+        row = c.fetchone()
+    except Exception:
+        row = None
+    conn.close()
+    if not row:
+        return None
+    goal_id_v = row[0]
+    title = row[1]
+    deadline = row[2]
+    done = row[3] if len(row) > 3 else 0
+    mats = get_materials(user_id, goal_id_v)
+    work = get_worklog(user_id, goal_id_v)
+    progress, mat_pct, state = compute_project_progress(user_id, goal_id_v)
+    return {
+        "id": goal_id_v,
+        "title": title,
+        "deadline": deadline,
+        "done": bool(done),
+        "materials": mats,
+        "worklog": work,
+        "progress": progress,
+        "materials_acquired": sum(1 for m in mats if m[3]),
+        "materials_total": len(mats),
+        "work_state": state,
+    }
+
+
+def get_active_projects(user_id):
+    """Goals that have materials OR worklog entries attached."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(goals)")
+    cols = [r[1] for r in c.fetchall()]
+    done_filter = " AND COALESCE(g.done,0)=0" if "done" in cols else ""
+    c.execute(f"""SELECT DISTINCT g.id, g.title, g.deadline
+                  FROM goals g
+                  WHERE g.user_id=?{done_filter}
+                    AND (g.id IN (SELECT goal_id FROM project_materials WHERE user_id=?)
+                      OR g.id IN (SELECT goal_id FROM project_worklog WHERE user_id=?))
+                  ORDER BY g.deadline""",
+              (user_id, user_id, user_id))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_all_pending_materials(user_id):
+    """Auto-shopping list across all projects."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_project_tables(conn)
+    c = conn.cursor()
+    c.execute("""SELECT m.name, m.quantity, g.title, g.id
+                 FROM project_materials m JOIN goals g ON m.goal_id=g.id
+                 WHERE m.user_id=? AND m.acquired=0
+                 ORDER BY g.deadline, m.name""", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows

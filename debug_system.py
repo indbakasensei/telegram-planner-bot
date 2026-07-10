@@ -283,4 +283,15 @@ SELFTEST_MESSAGES = [
     ("Show plan for today",                   "VIEW intent (NOT task creation)"),
     ("Meeting this evening",                  "time=18:00 (NOT 15:00 — vague-time parser wins)"),
     ("What time is it?",                      "CHAT → shows current IST time"),
+
+    # ── SECTION P: Project Management (v12.0) ──────────
+    ("goal build drone by 2026-08-15",          "GOAL created → note the goal_id"),
+    ("need <id> motor, propeller, battery",     "MATERIALS → 3 added, use your goal_id"),
+    ("got motor",                                "MARK ACQUIRED → fuzzy match, shows progress"),
+    ("started <id>",                             "WORKLOG → work started, project state=started"),
+    ("worklog <id> frame is done",               "WORKLOG progress entry, kind=progress"),
+    ("project <id>",                             "PROJECT CARD → materials list, worklog, progress bar"),
+    ("projects",                                 "ALL PROJECTS with progress bars"),
+    ("shopping",                                 "SHOPPING LIST → all pending materials grouped by project"),
+    ("finished <id>",                            "MARK DONE → 🎉, work_state=finished"),
 ]

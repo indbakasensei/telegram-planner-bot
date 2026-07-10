@@ -50,7 +50,7 @@ MODEL_IMAGE  = "black-forest-labs/flux.1-schnell"    # Image generation (genai e
 MODEL_VIDEO  = "stabilityai/stable-video-diffusion"  # Video generation (genai endpoint, NOT chat)
 
 # Feature toggles — v11.2: image/video/vision ALWAYS ON per user request
-ENABLE_FAST_ROUTING = True  # Use Llama 8B for simple intent classification
+ENABLE_FAST_ROUTING = False  # Use Llama 8B for simple intent classification
 ENABLE_VISION       = True   # Photo understanding (Llama 3.2 Vision)
 ENABLE_IMAGE_GEN    = True   # FLUX.1-schnell via NVIDIA NIM (always on)
 ENABLE_VIDEO_GEN    = True   # Stable Video Diffusion via NVIDIA NIM (always on)
