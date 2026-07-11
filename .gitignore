@@ -14,4 +14,4 @@ bugs.db
 
 # Logs
 bot.log
-*.log
+*.logbot.log
