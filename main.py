@@ -77,6 +77,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# v12.1: Install log sanitizer BEFORE anything else logs.
+# Redacts bot tokens, API keys, and user IDs (admin → "admin", others → "user_***XXX").
+try:
+    from log_sanitizer import install_log_sanitizer
+    install_log_sanitizer()  # reads admin_id.txt automatically
+except Exception as _e:
+    # Non-fatal — logs will be more verbose but the bot still runs
+    logger.warning(f"log sanitizer not installed: {_e}")
+
 # Bulletproof .env loading (matches baka_brain.py pattern)
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 load_dotenv(_env_path)

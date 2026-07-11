@@ -57,7 +57,13 @@ ENABLE_VIDEO_GEN    = True   # Stable Video Diffusion via NVIDIA NIM (always on)
 
 client = OpenAI(
     base_url=NIM_BASE_URL,
-    api_key=_api_key or "missing-key-check-env-file"
+    api_key=_api_key or "missing-key-check-env-file",
+    # v12.1: bug fix — was blocking the event loop for 9 minutes on NVIDIA 504.
+    # 30s timeout is generous for chat completions but stops the SDK from silently
+    # retrying with exponential backoff. Our own retry loop (3 attempts, 2s sleep)
+    # controls behavior instead.
+    timeout=30.0,
+    max_retries=0,
 )
 
 def clean_json(content: str) -> str:
@@ -114,7 +120,13 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
             # fall back to FAST once so the bot keeps working while NVIDIA's endpoint recovers
             # instead of dying. The next time you swap MODEL_MAIN, the fallback is removed
             # naturally on the next call.
-            model_dead = ("410" in last_err) or ("DEGRADED" in last_err.upper())
+            model_dead = (
+                ("410" in last_err)
+                or ("DEGRADED" in last_err.upper())
+                or ("504" in last_err)
+                or ("Gateway Timeout" in last_err)
+                or ("timeout" in last_err.lower() and "Read" in last_err)
+            )
             if model_dead and MODEL_MAIN != MODEL_FAST:
                 logger.warning(f"MAIN model {MODEL_MAIN} is unavailable ({last_err[:80]}). "
                                f"Falling back to {MODEL_FAST}.")
