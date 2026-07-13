@@ -1,7 +1,65 @@
 # Testing
 
-BAKA has no automated test suite (no `pytest`/`unittest` files found in the
-repo). Testing is manual, driven by two overlapping resources that grew
+BAKA has two layers of testing: an automated `pytest` regression suite
+(added in this project's first dedicated test-writing pass — see below)
+covering deterministic, offline-testable logic, and manual Telegram-driven
+testing via `/selftest` for everything that actually requires a live bot
+(covered in the rest of this document).
+
+## Automated test suite (`tests/`)
+
+**211 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+every database test runs against an isolated temporary SQLite file (never
+`planner.db`). Run with:
+
+```bash
+pip install -r requirements.txt   # includes pytest + pytest-asyncio
+pytest                             # ~7 seconds, all 211 tests
+```
+
+| File | Tests | Covers |
+|---|---|---|
+| `tests/test_date_parser.py` | 111 | Every `date_parser.py` function: relative days, weekdays (including "next X" edge cases), month/day/ISO dates, leap years, year-boundary rollover, vague time phrases, Hindi/Hinglish time words, AM/PM, 24h/military time, ambiguous "X baje", recurrence detection, multi-task detection, priority/deadline inference, and `parse_all()`'s integration of all of the above |
+| `tests/test_scheduler.py` | 40 | `is_quiet_hours()` (including the overnight-wraparound boundary logic), `should_remind_again()`, `get_escalated_interval()`, `get_due_tasks()`'s five internal cases (one-time/daily/weekly/monthly/snooze-expiry) including de-duplication and "must not re-fire after clearing snooze", `get_tasks_needing_followup()` (quiet-hours and max-reminders-cap respected), `auto_carry_forward()`, and deadline-buffer round-tripping |
+| `tests/test_database.py` | 32 | `init_db()` idempotency and completeness (all 13 tables, all 10 indexes, WAL mode, schema version), `verify_schema_integrity()` correctly detecting a missing table/index, `_safe_add_column()`, `backup_database()` (no-op on fresh, fires on existing, prunes old backups), CRUD across tasks/habits/goals/memories/project materials & worklog, and the Sprint 1C reset-command fix (`/resettasks` excludes habits; a goal reusing a deleted goal's ID inherits zero old project data) |
+| `tests/test_notification_service.py` | 16 | `TelegramSender`'s per-chat vs. overall rate-limit buckets (unrelated chats don't serialize against each other), pacing under a burst, `RetryAfter`/`TimedOut`/`NetworkError` retry behavior, retry exhaustion (raises, doesn't loop forever), unrelated exceptions passing through untouched, and `safe_edit_message_text()`/`safe_answer_callback_query()`'s failure-mode handling (not-modified, deleted message, already-answered callback) |
+| `tests/test_async_bridge.py` | 12 | `run_blocking()` actually executes off the calling thread, a slow wrapped call doesn't block concurrent fast tasks (with a control-group test proving the unwrapped case *does* block), exception propagation (type preserved, one failure doesn't affect concurrent siblings), and nested synchronous calls within a wrapped function (the exact shape of `generate_video()` calling `generate_image()` internally) all running in the same worker thread |
+
+**Found and fixed 3 real bugs in `date_parser.py` while writing tests**
+(not scope creep — permitted and expected: writing a test against actual
+behavior surfaces bugs a checklist-based manual pass had missed):
+- "day after tomorrow" was parsed as tomorrow (its regex is a substring of
+  the "tomorrow" pattern, checked first)
+- "beete kal" (Hindi "yesterday") was also parsed as tomorrow, same
+  root cause
+- **every mention of "afternoon" was parsed as 12:00 (noon) instead of
+  14:00** — "noon" is a literal substring of "afternoon" with no word
+  boundary protecting against it
+
+See `CHANGELOG.md`'s test-suite entry for the exact fixes.
+
+### Remaining uncovered components
+
+Deliberately not covered by the automated suite, and why:
+- `main.py` — Telegram handlers; requires a live Telegram connection,
+  explicitly out of scope for an offline suite. Covered by `/selftest`
+  (manual) instead.
+- `baka_brain.py` — requires the NVIDIA API; same reasoning.
+- `preferences.py`, `ui.py`, `fmt.py`, `debug_system.py`,
+  `log_sanitizer.py`, `instance_lock.py` — not covered yet. All are
+  reasonably testable offline (most are pure functions or take an
+  injectable DB path) and are good candidates for a future pass;
+  `instance_lock.py` in particular already has proven test logic from its
+  own Sprint 2B validation that was never ported into `tests/`.
+- Full end-to-end command flows (e.g. "user sends a message → intent
+  detected → task saved → confirmation sent") — this would need mocking
+  the entire Telegram + AI + DB chain together; the individual pieces are
+  covered, but integration-level testing was explicitly out of scope for
+  this pass.
+
+## Manual testing via `/selftest`
+
+Testing is also driven by two overlapping resources that grew
 independently — read the "two checklists" section below before using either.
 
 ## Quick start

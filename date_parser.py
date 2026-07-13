@@ -49,15 +49,22 @@ def parse_date(text: str, now: datetime = None) -> tuple:
     if re.search(r'\b(today|aaj|aj|tonight|abhi|is raat|is shaam|aaj raat)\b', t):
         return now.strftime("%Y-%m-%d"), None
 
-    if re.search(r'\b(tomorrow|kal(?!\s+tha)|agal din|kal subah|kal raat|kal shaam)\b', t):
-        return (now + timedelta(days=1)).strftime("%Y-%m-%d"), None
-
+    # NOTE: these three checks must run in this order, before the plain
+    # "tomorrow" check below. "day after tomorrow" contains the substring
+    # "tomorrow", and "beete kal"/"kal ki" contain bare "kal" with nothing
+    # following it that the tomorrow pattern's negative lookahead
+    # `kal(?!\s+tha)` excludes -- either one falling through to the
+    # tomorrow check first would silently misparse a 2-days-out or
+    # 1-day-in-the-past phrase as "tomorrow". Found by tests/test_date_parser.py.
     if re.search(r'\b(parso|parson|naso|day after tomorrow)\b', t):
         return (now + timedelta(days=2)).strftime("%Y-%m-%d"), None
 
     if re.search(r'\b(yesterday|kal tha|kal ki|beete kal)\b', t):
         d = (now - timedelta(days=1)).strftime("%Y-%m-%d")
         return d, "⚠️ That date (yesterday) is in the past!"
+
+    if re.search(r'\b(tomorrow|kal(?!\s+tha)|agal din|kal subah|kal raat|kal shaam)\b', t):
+        return (now + timedelta(days=1)).strftime("%Y-%m-%d"), None
 
     m = re.search(r'\bin\s+(\d+)\s+days?\b', t)
     if m:
@@ -148,7 +155,11 @@ def parse_time(text: str, now: datetime = None) -> tuple:
         ('night', '21:00'),
     ]
     for _pat, _fixed in _vague_fixed:
-        if re.search(_pat, t):
+        # Word-boundary-wrapped: without this, "noon" (checked earlier in
+        # the list) matches as a bare substring inside "afternoon",
+        # misparsing every "afternoon" mention as 12:00 instead of 14:00.
+        # Found by tests/test_date_parser.py.
+        if re.search(rf'\b(?:{_pat})\b', t):
             return _fixed, None, False
             # Note: date inference for vague times happens in parse_all() below
     if re.search(r'asap|immediately|right now|abhi karo|jaldi se', t):

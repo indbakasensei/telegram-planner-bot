@@ -9,7 +9,54 @@ session can find the relevant code quickly.
 
 ---
 
-## v13.2 — Infrastructure Hardening: WAL, Indexes, Backups, Integrity Checks (current)
+## v13.3 — First Automated Regression Test Suite (current)
+
+211 `pytest` tests across `tests/`, covering every deterministic,
+offline-testable module: `date_parser.py` (111), `scheduler.py` (40),
+`database.py` (32), `notification_service.py` (16), `async_bridge.py`
+(12). Fully offline — no Telegram, no NVIDIA API, no network, database
+tests run against isolated temp SQLite files, never `planner.db`. Runs in
+~7 seconds. Added `pytest`/`pytest-asyncio` to `requirements.txt` and a
+root `pytest.ini` (`asyncio_mode = auto`, `testpaths = tests`).
+
+**Found and fixed 3 real, previously-undiscovered bugs in `date_parser.py`
+while writing tests against actual behavior** (explicitly permitted —
+"never change bot behaviour unless a genuine bug is found" — and this is
+exactly what a regression suite is for):
+- **"day after tomorrow" was parsed as tomorrow.** Its check ran after the
+  plain "tomorrow" check, and `\btomorrow\b` matches the word "tomorrow"
+  as it appears inside "day after tomorrow". Fixed by moving the more
+  specific day-after-tomorrow/yesterday checks before the tomorrow check.
+- **"beete kal" (Hindi for "yesterday") was also parsed as tomorrow**,
+  same root cause — bare "kal" with nothing after it satisfies the
+  tomorrow pattern's `kal(?!\s+tha)` negative lookahead, so it matched
+  before ever reaching the yesterday pattern. Fixed by the same reordering.
+- **Every mention of "afternoon" was parsed as 12:00 (noon) instead of
+  14:00.** The vague-time pattern list checks `noon|dupehr|baarah baje`
+  before `afternoon`, and "noon" is a literal substring of "afternoon"
+  with no word-boundary protection in the original `re.search(_pat, t)`
+  call. Fixed by wrapping every vague-time pattern in `\b(?:...)\b`. This
+  bug affected every "afternoon" mention in any message, in any of the
+  contexts that reach `parse_time()` — the highest-impact of the three,
+  given "afternoon" is a common English word and this parser's output
+  deterministically overrides the AI's guess for exactly this kind of
+  vague-time phrase.
+
+Two other test failures during development were **test-expectation bugs,
+not production bugs** — corrected in the tests, production code left
+alone: "next wednesday" said on a Wednesday resolves to 7 days out (not
+14) per the actual, reasonable implementation; "0 AM" is accepted as
+00:00 rather than rejected (the code only validates the upper bound on
+AM/PM hours) — a rare, arguably-fine edge case with no clear "correct"
+alternative and no evidence of real-world impact, documented as current
+behavior rather than changed.
+
+Modified: `date_parser.py` (the 3 bug fixes only), `requirements.txt`.
+New: `tests/` (5 files + `conftest.py`), `pytest.ini`.
+
+---
+
+## v13.2 — Infrastructure Hardening: WAL, Indexes, Backups, Integrity Checks
 
 Sprint 3, addressing `ENGINEERING_AUDIT.md` findings E3 (missing indexes),
 E4 (no WAL mode / connection pooling), and E7 (migration exceptions too

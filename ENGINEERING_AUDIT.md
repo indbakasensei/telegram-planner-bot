@@ -111,10 +111,13 @@ than independently cause, the primary issue.
 Documentation is now thorough and accurate (produced earlier this session)
 — a real asset for maintainability that most projects at this stage lack.
 Pulled down by three god-functions and a god-file (`main.py`), near-total
-absence of type hints, zero automated tests, and a handful of duplicated
-patterns (hand-rolled "not found" messages, inconsistent import styles).
-None of these block a confident change today, but each one raises the cost
-of the *next* change, compounding over time.
+absence of type hints, and a handful of duplicated patterns (hand-rolled
+"not found" messages, inconsistent import styles). "Zero automated tests"
+no longer applies as stated — see §12 Technical Debt, now partially
+resolved with a 211-test suite — though `main.py`/`baka_brain.py` (the
+largest, riskiest files) remain untested, so this score isn't bumped for
+it. None of these block a confident change today, but each one raises the
+cost of the *next* change, compounding over time.
 
 ## 7. AI Readiness Score: 5/10
 
@@ -369,11 +372,24 @@ deliberate `main.py` refactor (J1-J3) once the above have proven out
 
 ## 12. Technical Debt
 
-- **Zero automated tests.** Every fix in this report has to be manually
-  validated via live Telegram interaction (`/selftest` + `TEST_CHECKLIST.md`
-  — see `TESTING.md`). This is the single biggest multiplier on the cost of
-  every other fix in this document, since nothing catches a regression
-  except a human running through a checklist.
+- ⚠️ **PARTIALLY RESOLVED 2026-07-13** — a 211-test `pytest` suite now
+  covers every deterministic, offline-testable module (`date_parser.py`,
+  `scheduler.py`, `database.py`, `notification_service.py`,
+  `async_bridge.py` — see `TESTING.md`). Found and fixed 3 real bugs in
+  `date_parser.py` in the process, including one (a substring collision
+  misparsing every "afternoon" mention as 12:00 noon) with real everyday
+  impact. **Still open**: `main.py` (Telegram handlers) and `baka_brain.py`
+  (AI calls) remain untested by design (would need Telegram/NVIDIA
+  connectivity, or heavy mocking not yet built), as do `preferences.py`,
+  `ui.py`, `fmt.py`, `debug_system.py`, `log_sanitizer.py`, and
+  `instance_lock.py`. No integration-level tests exist. Manual validation
+  via `/selftest` is still the only way to exercise the untested modules
+  and full end-to-end flows — this is smaller than before, not eliminated.
+  Original finding: **Zero automated tests.** Every fix in this report has
+  to be manually validated via live Telegram interaction (`/selftest` +
+  `TEST_CHECKLIST.md` — see `TESTING.md`). This is the single biggest
+  multiplier on the cost of every other fix in this document, since
+  nothing catches a regression except a human running through a checklist.
 - **Sync-in-async architecture** (I1/C1) — the longer this is deferred, the
   more call sites accumulate that need to be touched when it's eventually
   fixed. Currently ~15 call sites; will only grow.

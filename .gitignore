@@ -21,3 +21,6 @@ bot.pid
 
 # Automatic pre-migration backups (database.py's backup_database())
 backups/
+
+# pytest
+.pytest_cache/
