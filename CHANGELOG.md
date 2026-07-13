@@ -9,7 +9,38 @@ session can find the relevant code quickly.
 
 ---
 
-## v12.0 — Project Management (current)
+## v12.2 — Scheduler Timezone Hardening (current)
+
+Sprint 1A of the post-audit production-hardening effort (see
+`ENGINEERING_AUDIT.md`, finding D1, CRITICAL). Fixes a bug where every
+`run_daily()`-scheduled job (`daily_carry_forward`, `end_of_day_summary`,
+`morning_briefing`, `weekly_report`, `observation_engine`, `project_nudge`)
+fired 5.5 hours later than intended, because the bot's `Application` never
+told `python-telegram-bot`'s `JobQueue` it should run in IST — it silently
+defaulted to UTC, and every `run_daily()` call passes a naive (tzinfo-less)
+`time` object that inherits whatever timezone the scheduler defaults to.
+
+Fix: `main()` now builds the `Application` with
+`Defaults(tzinfo=pytz.timezone("Asia/Kolkata"))`. Must be a `pytz` timezone
+object specifically, not `zoneinfo.ZoneInfo` — `JobQueue` internally calls
+`.localize()` on the configured tzinfo, a pytz-only method. Verified against
+the installed `python-telegram-bot` 20.7 source directly (not assumed):
+`JobQueue.set_application()` reads `application.bot.defaults.tzinfo`,
+falling back to `pytz.utc` when unset, to configure the underlying
+APScheduler's timezone.
+
+No scheduling logic changed — every `run_daily()`/`run_repeating()` call
+site is untouched; only the timezone they resolve naive times against
+changed from UTC to IST. Verified via a standalone script (no network
+calls) confirming all 6 daily jobs now compute the correct IST next-run
+time; the 7 `run_repeating` (interval-based) jobs were already unaffected
+by this bug and remain unaffected by the fix.
+
+Modified: `main.py` (import block + `Application` construction only).
+
+---
+
+## v12.0 — Project Management
 
 Turn any goal into a project with materials, worklog, progress tracking, and
 automatic stagnation reminders. Perfect for real-world things you build over

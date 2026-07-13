@@ -184,7 +184,7 @@ accuracy-over-quantity rule, not asserted as confirmed).
 
 | # | Issue | Severity |
 |---|---|---|
-| D1 | **All six `run_daily()`-scheduled jobs fire in UTC, not IST** — the `Application` is built with no `Defaults(tzinfo=...)`, and every `run_daily` call passes a naive (tzinfo-less) `time` object, which `python-telegram-bot`'s job queue schedules against its default UTC timezone (verified directly against the installed PTB source). Every affected job fires 5.5 hours later than intended: `morning_briefing` (08:00→13:30 IST), `end_of_day_summary` (21:00→02:30 IST next day — likely **never actually sends**, since 02:30 falls inside the default 23:00–07:00 quiet-hours window checked *inside* the job), `weekly_report` (Sun 20:00→Mon 01:30), `observation_engine`, `project_nudge`, `daily_carry_forward` similarly shifted. Does **not** affect the seven `run_repeating` (interval-based) jobs. | **CRITICAL** |
+| D1 | ✅ **RESOLVED 2026-07-13 (Sprint 1A, v12.2 — see CHANGELOG.md)** — **All six `run_daily()`-scheduled jobs fire in UTC, not IST** — the `Application` is built with no `Defaults(tzinfo=...)`, and every `run_daily` call passes a naive (tzinfo-less) `time` object, which `python-telegram-bot`'s job queue schedules against its default UTC timezone (verified directly against the installed PTB source). Every affected job fires 5.5 hours later than intended: `morning_briefing` (08:00→13:30 IST), `end_of_day_summary` (21:00→02:30 IST next day — likely **never actually sends**, since 02:30 falls inside the default 23:00–07:00 quiet-hours window checked *inside* the job), `weekly_report` (Sun 20:00→Mon 01:30), `observation_engine`, `project_nudge`, `daily_carry_forward` similarly shifted. Does **not** affect the seven `run_repeating` (interval-based) jobs. | **CRITICAL** |
 | D2 | Two different timezone libraries (`pytz` in `scheduler.py`/`date_parser.py`, `zoneinfo` in `database.py`/`main.py`) used for the same fixed-offset zone — produces identical results in practice (no DST in India, and all `pytz` usage correctly avoids the classic `datetime(tzinfo=pytz_tz)` construction bug), purely a maintainability inconsistency | LOW |
 | D3 | Missed recurring-task/habit reminders have no catch-up path: if the bot is down more than ~5 minutes spanning a recurring task's fire time, that occurrence is silently skipped (unlike one-time tasks, `get_tasks_needing_followup()` explicitly excludes recurring tasks) — undermines habit-streak reliability specifically around deploys | MEDIUM |
 | D4 | No thundering-herd/misfire risk on restart — every `run_repeating` job has an explicit staggered `first=` delay; verified solid | Not a bug |
@@ -284,8 +284,9 @@ caught in that pass:
 
 ## 10. Recommended priority order
 
-1. **Fix D1** (daily jobs firing in UTC) — one-line `Defaults(tzinfo=...)`
-   fix, highest bug-per-effort ratio in the whole audit.
+1. ✅ ~~**Fix D1** (daily jobs firing in UTC) — one-line `Defaults(tzinfo=...)`
+   fix, highest bug-per-effort ratio in the whole audit.~~ **Done 2026-07-13,
+   Sprint 1A — see CHANGELOG.md v12.2.**
 2. **Fix I1/C1** (blocking event loop) — wrap `database.py`/`baka_brain.py`
    call sites in `asyncio.to_thread()`; start with the video/image paths
    (worst-case 5-minute freezes) before the rest.

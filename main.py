@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    filters, ContextTypes, CallbackQueryHandler
+    filters, ContextTypes, CallbackQueryHandler, Defaults
 )
+import pytz
 from database import (
     init_db, add_task, get_tasks, get_tasks_by_date, get_tasks_by_week,
     mark_done, delete_task, update_task, get_task_by_id,
@@ -4522,7 +4523,14 @@ def main() -> None:
 
     init_db()
     dbg.init_bugs_db()
-    app = Application.builder().token(BOT_TOKEN).build()
+    # v12.2: JobQueue schedules run_daily() jobs against Defaults.tzinfo
+    # (falls back to UTC otherwise). Must be a pytz timezone, not
+    # zoneinfo.ZoneInfo — JobQueue internally calls .localize() on it,
+    # which zoneinfo objects don't support. This does not change any
+    # existing run_daily()/run_repeating() call — naive `time` objects
+    # passed to run_daily() now resolve against IST instead of UTC.
+    defaults = Defaults(tzinfo=pytz.timezone("Asia/Kolkata"))
+    app = Application.builder().token(BOT_TOKEN).defaults(defaults).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
