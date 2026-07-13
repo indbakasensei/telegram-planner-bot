@@ -9,7 +9,69 @@ session can find the relevant code quickly.
 
 ---
 
-## v13.3 — First Automated Regression Test Suite (current)
+## v13.3.1 — Hotfix: NVIDIA Timeout Failover (current)
+
+Follows directly from `AI_DIAGNOSTIC_REPORT.md`'s investigation, which
+found `MODEL_MAIN` (`meta/llama-3.3-70b-instruct`) unresponsive on NVIDIA
+NIM (5/5 direct test requests timed out at 30s) while `MODEL_FAST`
+responded correctly in 676ms — and that the bot's existing MAIN→FAST
+fallback mechanism, built for exactly this scenario, didn't trigger for
+this specific failure. Root cause: the fallback condition in
+`call_nvidia()` matched error text for `"410"`, `"DEGRADED"`, `"504"`,
+`"Gateway Timeout"`, or (`"timeout"` **and** `"Read"`) — but a plain
+client-side timeout raises `openai.APITimeoutError` with the message
+`"Request timed out."`, which contains none of those (it's "timed out",
+not "timeout", and no "Read" at all). The fallback silently never fired;
+the bot just retried the same hung model three times before giving up,
+producing the reported "~1 minute" delay for a plain chat message.
+
+Fix: added `_is_model_dead()`, which checks `isinstance(exc,
+openai.APITimeoutError)` first — preferring exception-type matching over
+string matching, per the hotfix's own requirement — before falling back
+to the pre-existing string checks (410/DEGRADED/504/Gateway Timeout,
+unchanged, not implicated by the investigation). Also restructured
+`call_nvidia()`'s control flow: previously, a fallback attempt was made
+from *inside* each failed retry attempt, meaning `MODEL_FAST` could be
+tried more than once across the 3 attempts, and a failed fallback still
+fell through into retrying the already-confirmed-dead `MODEL_MAIN` again.
+Now the retry loop stops immediately the moment a failure is identified
+as "model dead" (no point retrying a model that just timed out), and
+`MODEL_FAST` is tried exactly once, immediately after — not interleaved
+with `MODEL_MAIN` retries. Any error that isn't recognized as "model
+dead" is retried and eventually raised exactly as before, unsuppressed.
+
+Validated three ways: (1) a real, live call through the actual (still
+down) `MODEL_MAIN` — `call_nvidia()` now returns a valid `MODEL_FAST`
+response in ~31 seconds, versus a prior worst case of ~94 seconds that
+usually didn't even succeed, since fallback never fired; (2) a mocked
+healthy-`MODEL_MAIN` scenario — exactly 1 API call, no retry, no
+fallback, confirming the normal path is byte-for-byte unaffected; (3) a
+mocked timeout scenario — exactly 1 `MODEL_MAIN` attempt then exactly 1
+`MODEL_FAST` attempt, confirming the new stop-early-then-fallback-once
+behavior.
+
+Scope was deliberately narrow, matching the hotfix's own brief: only
+`call_nvidia()` (the path `get_baka_response()` uses for ordinary chat
+messages, i.e. the reported symptom) was touched. `_call_model()` — the
+separate internal dispatcher behind `call_main()`/`call_think()`/
+`call_vision()`, used by `/think`, planning, and vision — has no
+fallback logic at all (never did) and was **not** given one here; that's
+a distinct, pre-existing gap outside this hotfix's explicit scope
+("implement ONLY the timeout failover hotfix," "do not introduce routing
+logic"). `/selftest`'s separate, already-diagnosed rate-limiter-pacing
+slowdown (see `AI_DIAGNOSTIC_REPORT.md` §9 finding 4) is also untouched —
+a different root cause, not addressed by this hotfix.
+
+Modified: `baka_brain.py` only (the `call_nvidia()` restructure + new
+`_is_model_dead()` helper + one import line). Full 211-test suite
+(`tests/`) re-run clean; `generate_image`/`generate_video`/`call_vision`/
+`call_think`/`call_main`/`call_fast`/`_call_model` all confirmed
+unchanged, both by `git diff` scope and by direct signature/config
+inspection.
+
+---
+
+## v13.3 — First Automated Regression Test Suite
 
 211 `pytest` tests across `tests/`, covering every deterministic,
 offline-testable module: `date_parser.py` (111), `scheduler.py` (40),

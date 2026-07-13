@@ -6,7 +6,7 @@ import json
 import os
 import logging
 import time
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
@@ -78,12 +78,54 @@ def clean_json(content: str) -> str:
         content = content[start:end]
     return content
 
+def _is_model_dead(exc: Exception, err_str: str) -> bool:
+    """True if this failure means MODEL_MAIN itself is unavailable (gone,
+    degraded, or hung) and further retries against it are pointless —
+    warrants an immediate fallback to MODEL_FAST rather than continuing
+    to retry the same broken model.
+
+    v13.3.1 hotfix: prefers matching the exception TYPE (robust) over
+    string content (fragile) wherever the SDK gives us a real type to
+    check. A plain client-side timeout raises openai.APITimeoutError with
+    the message "Request timed out." — that string contains neither
+    "timeout" as a contiguous substring (it's "timed out") nor "Read", so
+    the original string-only check never matched it, and a hung
+    MODEL_MAIN was retried 3 times against itself instead of falling back
+    to the already-healthy MODEL_FAST. See AI_DIAGNOSTIC_REPORT.md.
+    The 410/DEGRADED/504/Gateway-Timeout string checks are unchanged and
+    kept as-is — they were not implicated by the investigation.
+    """
+    if isinstance(exc, APITimeoutError):
+        return True
+    err_upper = err_str.upper()
+    return (
+        ("410" in err_str)
+        or ("DEGRADED" in err_upper)
+        or ("504" in err_str)
+        or ("GATEWAY TIMEOUT" in err_upper)
+    )
+
+
 def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
                 request_type="INTENT_DETECTION", user_id=None) -> str:
-    """Legacy call function — defaults to MODEL_MAIN. v11.1: now logs to analytics."""
+    """Legacy call function — defaults to MODEL_MAIN. v11.1: now logs to analytics.
+
+    v13.3.1: retries MODEL_MAIN per the configured policy (3 attempts,
+    2s between), stopping early the moment a failure is identified as
+    "model dead" (no point retrying a model that just timed out or
+    returned 410/DEGRADED/504 against itself). Falls back to MODEL_FAST
+    exactly once, immediately after that retry policy concludes —
+    whether it concluded by exhausting all 3 attempts or by stopping
+    early. Previously, fallback was attempted from inside every failed
+    attempt, meaning FAST could be tried multiple times, and a failed
+    fallback attempt would still fall through into retrying the
+    already-known-dead MAIN model again.
+    """
     import time as _time
     start = _time.time()
     last_err = None
+    last_exc = None
+    fallback_worthy = False
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
@@ -115,63 +157,65 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
             return text
         except Exception as e:
             last_err = str(e)
+            last_exc = e
             logger.error(f"API attempt {attempt+1} failed: {e}")
-            # v11.2: If MAIN model is deprecated (410 Gone) or NVIDIA marks it DEGRADED (400),
-            # fall back to FAST once so the bot keeps working while NVIDIA's endpoint recovers
-            # instead of dying. The next time you swap MODEL_MAIN, the fallback is removed
-            # naturally on the next call.
-            model_dead = (
-                ("410" in last_err)
-                or ("DEGRADED" in last_err.upper())
-                or ("504" in last_err)
-                or ("Gateway Timeout" in last_err)
-                or ("timeout" in last_err.lower() and "Read" in last_err)
-            )
-            if model_dead and MODEL_MAIN != MODEL_FAST:
-                logger.warning(f"MAIN model {MODEL_MAIN} is unavailable ({last_err[:80]}). "
-                               f"Falling back to {MODEL_FAST}.")
-                try:
-                    fb = client.chat.completions.create(
-                        model=MODEL_FAST,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=top_p
-                    )
-                    text = fb.choices[0].message.content.strip()
-                    try:
-                        from analytics import log_ai_request
-                        usage = getattr(fb, "usage", None)
-                        log_ai_request(
-                            model_name=MODEL_FAST, latency_ms=round((_time.time()-start)*1000),
-                            status="success", user_id=user_id, request_type=request_type,
-                            prompt_tokens=getattr(usage,"prompt_tokens",0) if usage else 0,
-                            completion_tokens=getattr(usage,"completion_tokens",0) if usage else 0,
-                            response_text=text, fallback_used=True,
-                            error_message=f"MAIN 410: fell back to {MODEL_FAST}",
-                        )
-                    except Exception:
-                        pass
-                    return text
-                except Exception as fb_err:
-                    logger.error(f"FAST fallback also failed: {fb_err}")
+            fallback_worthy = _is_model_dead(e, last_err)
+            if fallback_worthy:
+                break  # MAIN is confirmed dead/hung -- stop retrying it
             if attempt < 2:
                 time.sleep(2)
-            else:
-                # Log the failure before raising
-                try:
-                    from analytics import log_ai_request
-                    log_ai_request(
-                        model_name=MODEL_MAIN,
-                        latency_ms=round((_time.time() - start) * 1000),
-                        status="error",
-                        user_id=user_id,
-                        request_type=request_type,
-                        error_message=last_err[:300],
-                    )
-                except Exception:
-                    pass
-                raise e
+
+    # Retry policy above has concluded (exhausted, or stopped early on a
+    # fallback-worthy failure). Attempt MODEL_FAST exactly once,
+    # immediately, if warranted -- never for an error that isn't
+    # recognized as "model dead" (e.g. a bad-request/auth error would
+    # likely fail on FAST too, so falling back would be pointless).
+    if fallback_worthy and MODEL_MAIN != MODEL_FAST:
+        logger.warning(f"MAIN model {MODEL_MAIN} is unavailable ({last_err[:80]}). "
+                       f"Falling back to {MODEL_FAST}.")
+        try:
+            fb = client.chat.completions.create(
+                model=MODEL_FAST,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p
+            )
+            text = fb.choices[0].message.content.strip()
+            try:
+                from analytics import log_ai_request
+                usage = getattr(fb, "usage", None)
+                log_ai_request(
+                    model_name=MODEL_FAST, latency_ms=round((_time.time()-start)*1000),
+                    status="success", user_id=user_id, request_type=request_type,
+                    prompt_tokens=getattr(usage,"prompt_tokens",0) if usage else 0,
+                    completion_tokens=getattr(usage,"completion_tokens",0) if usage else 0,
+                    response_text=text, fallback_used=True,
+                    error_message=f"MAIN unavailable: fell back to {MODEL_FAST}",
+                )
+            except Exception:
+                pass
+            return text
+        except Exception as fb_err:
+            logger.error(f"FAST fallback also failed: {fb_err}")
+
+    # No successful result from MAIN or (if attempted) FAST. Log and
+    # raise the ORIGINAL MAIN failure — not suppressed, not replaced by
+    # the fallback's own error, matching the pre-existing contract that
+    # callers see the real underlying failure.
+    try:
+        from analytics import log_ai_request
+        log_ai_request(
+            model_name=MODEL_MAIN,
+            latency_ms=round((_time.time() - start) * 1000),
+            status="error",
+            user_id=user_id,
+            request_type=request_type,
+            error_message=last_err[:300] if last_err else "unknown",
+        )
+    except Exception:
+        pass
+    raise last_exc
 
 def get_baka_response(user_input: str, existing_tasks: list,
                         history: list = None, memories: list = None,
