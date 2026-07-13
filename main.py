@@ -60,7 +60,7 @@ from baka_brain import (
 from fmt import HTML, esc, b, i, code, task_line, confirm_box, header, DIVIDER
 import ui as UI
 from conversation_state import (
-    get_state, clear_state, update_context,
+    get_state, get_context, clear_state, update_context,
     add_history, get_history,
     set_pending_action, get_pending_action,
     set_gathering, get_gathering,
@@ -74,6 +74,7 @@ from zoneinfo import ZoneInfo
 from async_bridge import run_blocking
 from notification_service import TelegramSender, safe_edit_message_text, safe_answer_callback_query
 import instance_lock
+from core.intent import IntentEngine, ConversationContext
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -81,6 +82,10 @@ logging.basicConfig(
     handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
+
+# v14.0 Stage 1: Intent Engine, Shadow Mode only (see core/intent/__init__.py).
+# Stateless, so one process-wide instance is safe to share across requests.
+intent_engine = IntentEngine()
 
 # v12.1: Install log sanitizer BEFORE anything else logs.
 # Redacts bot tokens, API keys, and user IDs (admin → "admin", others → "user_***XXX").
@@ -805,6 +810,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_log_interaction(user_id, "message")
     except Exception:
         pass
+
+    # v14.0 Stage 1: Intent Engine, Shadow Mode (docs/adr/ADR-002-intent-engine.md).
+    # Observes every message; does not affect routing below in any way.
+    try:
+        intent = intent_engine.classify(
+            text=user_input,
+            context=ConversationContext(
+                state=state,
+                partial_data=get_context(user_id).get("partial_data", {}),
+                now=datetime.now(IST),
+            ),
+        )
+        logger.debug(intent)
+    except Exception:
+        logger.exception("Intent Engine classification failed (Shadow Mode, non-fatal)")
+    # Existing routing continues unchanged below.
 
     # ── Menu buttons ──
     menu_map = {
