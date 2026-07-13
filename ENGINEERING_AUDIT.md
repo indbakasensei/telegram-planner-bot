@@ -188,7 +188,7 @@ accuracy-over-quantity rule, not asserted as confirmed).
 | D2 | Two different timezone libraries (`pytz` in `scheduler.py`/`date_parser.py`, `zoneinfo` in `database.py`/`main.py`) used for the same fixed-offset zone — produces identical results in practice (no DST in India, and all `pytz` usage correctly avoids the classic `datetime(tzinfo=pytz_tz)` construction bug), purely a maintainability inconsistency | LOW |
 | D3 | Missed recurring-task/habit reminders have no catch-up path: if the bot is down more than ~5 minutes spanning a recurring task's fire time, that occurrence is silently skipped (unlike one-time tasks, `get_tasks_needing_followup()` explicitly excludes recurring tasks) — undermines habit-streak reliability specifically around deploys | MEDIUM |
 | D4 | No thundering-herd/misfire risk on restart — every `run_repeating` job has an explicit staggered `first=` delay; verified solid | Not a bug |
-| D5 | `run.sh` has no PID-file/lock/duplicate-instance guard — if ever started twice, both instances poll the same bot token and write to the same database; likely surfaces as a Telegram 409 Conflict crash-loop on one instance rather than silent duplicate handling, but this wasn't reproduced, only reasoned about from the code. See also ARCH-6 (§ Performance/Architecture), which rates the consequence (scheduler can't scale horizontally) as HIGH. | MEDIUM–HIGH (see ARCH-6) |
+| D5 | ✅ **RESOLVED 2026-07-13 (Sprint 2B, v13.1 — see CHANGELOG.md)**. Fixed via a new `instance_lock.py` (`fcntl.flock`-based advisory lock, acquired first thing in `main()`), not a change to `run.sh` itself — a redundant `run.sh` loop now just gets blocked and retries harmlessly. Validated with real subprocesses including an actual `SIGKILL` crash simulation. Original finding: `run.sh` has no PID-file/lock/duplicate-instance guard — if ever started twice, both instances poll the same bot token and write to the same database; likely surfaces as a Telegram 409 Conflict crash-loop on one instance rather than silent duplicate handling, but this wasn't reproduced, only reasoned about from the code. See also ARCH-6 (§ Performance/Architecture), which rates the consequence (scheduler can't scale horizontally) as HIGH. | MEDIUM–HIGH (see ARCH-6) |
 | D6 | Module-level per-user state dicts never evict entries for inactive users — unbounded growth in theory, negligible in practice at current/expected single-owner scale | LOW |
 
 ### E. Database
@@ -306,8 +306,10 @@ caught in that pass:
    **Done 2026-07-13, Sprint 2A — see CHANGELOG.md v13.0** (fixed bot-wide
    via a rate-limiter seam, not just `check_reminders` specifically — also
    resolved F2 as a side effect).
-6. **Fix D5/ARCH-6** (no instance lock) — add a PID-file check to `run.sh`
-   or `main()`'s startup.
+6. ✅ ~~**Fix D5/ARCH-6** (no instance lock) — add a PID-file check to
+   `run.sh` or `main()`'s startup.~~ **Done 2026-07-13, Sprint 2B — see
+   CHANGELOG.md v13.1** (implemented in `main()`'s startup via
+   `instance_lock.py`, not in `run.sh`).
 7. **Fix F3** (Markdown-mode unescaped titles) — finish the v7.1 HTML
    migration in the ~14 callback branches that were missed. **Still open**
    — not touched by Sprint 2A (that sprint fixed delivery pacing/retry/edit
@@ -338,12 +340,16 @@ database for E1/E2 — never the live `planner.db`). Live-traffic
 confirmation (via `/selftest` against the running bot) is still
 outstanding — recommended before considering Sprint 1 fully closed.
 
-**Sprint 2 — Reliability & Telegram correctness:**
-F1 (reminder flood pacing), D5/ARCH-6 (instance lock), F3 (finish HTML
-migration), F2 (message-edit error guards), D3 (recurring-reminder
-catch-up — this one's a genuine design decision, may need a product call
-on whether it's worth the M-effort fix or acceptable as documented
-behavior).
+**Sprint 2 — Reliability & Telegram correctness:** partially complete as
+of 2026-07-13. ✅ F1 + F2 (notification layer + edit-safety guards,
+Sprint 2A/v13.0) and ✅ D5/ARCH-6 (instance lock, Sprint 2B/v13.1) are
+done. **Still open**: F3 (finish the v7.1 HTML migration in the handful of
+callback branches still using `parse_mode="Markdown"` with unescaped
+titles — deliberately not touched by either Sprint 2A or 2B, since both
+were scoped to delivery mechanics, not message-content formatting) and D3
+(recurring-reminder catch-up — a genuine design decision, may need a
+product call on whether it's worth the M-effort fix or acceptable as
+documented behavior).
 
 **Sprint 3 — Data layer hardening:**
 E3 (indexes), E4 (connection pooling / WAL mode), E7 (narrow migration
@@ -390,7 +396,7 @@ deliberate `main.py` refactor (J1-J3) once the above have proven out
 | **SQLite as the data store** | Single-writer by design; comfortable estimate into the low hundreds of concurrent active users before write-lock contention becomes noticeable, worse if I1 isn't fixed first (blocking calls hold locks longer than necessary) |
 | **Single AI provider (NVIDIA NIM)** | A NIM-wide outage takes down every AI feature; the existing MAIN→FAST fallback doesn't help since both are NIM-hosted |
 | **In-memory per-user state ceiling** | Generous — comfortably into the tens of thousands of users at current per-user payload size; not a near-term concern |
-| **Scheduler cannot horizontally scale** | `job_queue` is in-process; running two instances would double-fire every reminder and race on writes — directly connected to the missing instance-lock finding (D5/ARCH-6) |
+| **Scheduler cannot horizontally scale** | `job_queue` is in-process; running two instances would double-fire every reminder and race on writes. The *accidental*-duplicate-instance case is now prevented (D5/ARCH-6 fixed, v13.1) — this row now describes only the inherent, by-design ceiling that deliberate horizontal scaling would require a different scheduler architecture, not a bug to fix |
 
 ## 14. Long-term Recommendations
 

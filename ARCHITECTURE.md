@@ -81,7 +81,8 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 | `init.py` | Leftover `__init__.py`-style module for the never-assembled `analytics` package | Misleadingly named; not a project setup script |
 | `ai_helper.py` | Legacy AI helper | **Dead code** — not imported anywhere; also has a hardcoded-looking API key, see [DEBUGGING.md](DEBUGGING.md#known-issues) |
 | `bot_state.py` | Legacy state module, predecessor to `conversation_state.py` | **Dead code** — not imported anywhere |
-| `run.sh` | Crash-loop restarter (`while true; python3 main.py; sleep 5`) | Assumes `~/telegram-planner-bot` and a pre-existing `venv/` |
+| `run.sh` | Crash-loop restarter (`while true; python3 main.py; sleep 5`) | Assumes `~/telegram-planner-bot` and a pre-existing `venv/`. Safe to run redundantly since v13.1 — a second copy just gets blocked by `instance_lock.py` and retries harmlessly, becoming an automatic standby |
+| `instance_lock.py` | Single-instance protection: acquired as the first action in `main()`, before the database or Telegram are touched (added v13.1, Sprint 2B) | `fcntl.flock`-based advisory lock on `bot.pid` — survives crashes automatically (the OS releases the lock when the process dies, for any reason) with no separate staleness heuristic needed; see [CHANGELOG.md](CHANGELOG.md) |
 
 ## Scheduled jobs
 

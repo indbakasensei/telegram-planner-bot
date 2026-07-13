@@ -15,3 +15,6 @@ bugs.db
 # Logs
 bot.log
 *.logbot.log
+
+# Runtime state
+bot.pid

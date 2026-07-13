@@ -72,6 +72,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from async_bridge import run_blocking
 from notification_service import TelegramSender, safe_edit_message_text, safe_answer_callback_query
+import instance_lock
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -4503,6 +4504,12 @@ def main() -> None:
     """v11.1: Main entry point with startup validation for Python 3.14."""
     import sys
 
+    # v13.1: must be the very first thing main() does -- a blocked
+    # duplicate instance should exit before touching the database, the
+    # Telegram API, or anything else. Raises InstanceAlreadyRunningError,
+    # handled distinctly in the `if __name__ == "__main__":` block below.
+    instance_lock.acquire()
+
     # ── Startup validation ─────────────────────────────
     if sys.version_info < (3, 12):
         raise RuntimeError(
@@ -5313,6 +5320,11 @@ if __name__ == "__main__":
     # so we call main() directly — it calls app.run_polling() which handles async.
     try:
         main()
+    except instance_lock.InstanceAlreadyRunningError:
+        # Message already printed/logged inside instance_lock.acquire();
+        # distinct exit code (2) so this is distinguishable from a real
+        # crash (1) if anything scripted around run.sh ever cares to check.
+        sys.exit(2)
     except KeyboardInterrupt:
         print("\n⛔ BAKA stopped by user.")
         sys.exit(0)

@@ -9,7 +9,79 @@ session can find the relevant code quickly.
 
 ---
 
-## v13.0 — Telegram Delivery Reliability (current)
+## v13.1 — Single-Instance Protection & Safe Startup (current)
+
+Sprint 2B of the post-audit production-hardening effort (see
+`ENGINEERING_AUDIT.md`, finding D5/ARCH-6). Startup-safety-only sprint —
+no AI, database, Telegram-handler, business-logic, scheduler-timing, or
+notification-service changes.
+
+**Root cause:** `run.sh` is a bare crash-loop restarter
+(`while true; python3 main.py; sleep 5; done`) with no check for an
+already-running instance. Two live processes polling the same bot token
+would double-fire every reminder and scheduled job, race on SQLite writes,
+and duplicate AI processing.
+
+**Investigated before implementing:** reviewed `run.sh`, `main()`'s
+startup sequence, and — critically — verified directly against the
+installed `python-telegram-bot` 20.7 source how `Application.run_polling()`
+already handles SIGINT/SIGTERM/SIGABRT: it installs its own handlers that
+raise `SystemExit`, caught internally to shut down gracefully before
+`run_polling()` returns normally. This ruled out installing a second,
+competing signal handler for the same signals (would risk breaking PTB's
+own graceful shutdown) and pointed at `atexit` instead, which correctly
+fires after that graceful return, and after both `sys.exit()` paths
+already in `main.py`'s `if __name__ == "__main__":` block.
+
+**Locking strategy:** added `instance_lock.py` — an advisory file lock via
+`fcntl.flock(fd, LOCK_EX | LOCK_NB)` on a new `bot.pid` file, held for the
+process's entire lifetime and acquired as the very first action in
+`main()`, before touching the database or Telegram. Chosen specifically
+because it survives crashes correctly with no extra staleness-detection
+logic needed: the kernel releases a `flock` the instant the holding
+process's file descriptor closes, for *any* reason — clean exit, uncaught
+exception, or `kill -9`. A plain "does the PID file exist" check can't
+tell a live instance apart from one a crash left behind; `flock` doesn't
+have that ambiguity because the OS is the source of truth, not the file's
+contents. The file still stores the holding PID as plain text, purely for
+the diagnostic messages below — the lock/block decision itself never
+depends on that text.
+
+Diagnostics reported clearly at startup: lock acquired (with PID); another
+instance already running, blocked (with the holder's PID where known,
+exit code 2 — distinct from a real crash's exit code 1); a stale lock
+found and reclaimed (meaning the previous run crashed or was killed
+without cleaning up — this is necessarily reported retroactively on the
+*next* startup, since a truly unexpected termination like `kill -9` can't
+run any reporting code at the moment it happens); and clean shutdown
+(lock released).
+
+Validated with real subprocesses (not just in-process simulation, to
+genuinely exercise cross-process `flock` semantics): normal
+acquire/release; a second process correctly blocked while a first holds
+the lock; a held lock surviving a real `SIGKILL` to the holding process,
+correctly detected and reclaimed by the next `acquire()` call with no
+manual intervention; normal operation resuming fully afterward.
+
+Same relative-path convention as the project's other runtime state files
+(`planner.db`, `bugs.db`, `admin_id.txt`, `bot.log`) — `bot.pid` is
+resolved relative to the working directory, matching (not introducing) the
+already-documented cross-process-path limitation in
+`ENGINEERING_AUDIT.md` finding A3. Added to `.gitignore`.
+
+`run.sh` itself needed no changes: when a second `run.sh` loop's
+`python3 main.py` invocation gets blocked, it fails fast, sleeps 5s, and
+retries — which means a redundant `run.sh` loop left running (or started
+by mistake) automatically and harmlessly becomes a standby that takes over
+if the primary instance ever stops, with no code change required for that
+property to hold.
+
+Modified: `main.py` (1 import, 1 call at the top of `main()`, 1 new
+`except` clause), `.gitignore`. New: `instance_lock.py`.
+
+---
+
+## v13.0 — Telegram Delivery Reliability
 
 Sprint 2A of the post-audit production-hardening effort (see
 `ENGINEERING_AUDIT.md`, finding F1, HIGH). Telegram-delivery-only sprint —
