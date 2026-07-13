@@ -55,13 +55,35 @@ ENABLE_VISION       = True   # Photo understanding (Llama 3.2 Vision)
 ENABLE_IMAGE_GEN    = True   # FLUX.1-schnell via NVIDIA NIM (always on)
 ENABLE_VIDEO_GEN    = True   # Stable Video Diffusion via NVIDIA NIM (always on)
 
+# v13.3.2: per-workload timeout profiles (hotfix following v13.3.1's
+# fallback-detection fix). AI_DIAGNOSTIC_REPORT.md found a single flat 30s
+# timeout applied to every chat-completion call regardless of workload,
+# meaning ordinary "Hey"-style chat waited exactly as long as a deep
+# reasoning call before failing over. These are passed as a PER-CALL
+# `timeout=` override to individual .create() calls; the client's own
+# timeout=30.0 below is unchanged and still applies to anything that
+# doesn't pass an explicit override (kept as the safety ceiling).
+# Image/video generation are untouched by this: they use their own,
+# separate httpx.Client instances (120s / 300s respectively, see
+# generate_image()/generate_video()), never the shared `client` object
+# below, so they were never affected by the chat timeout to begin with.
+TIMEOUT_FAST_CHAT       = 8.0   # ordinary chat / intent detection (get_baka_response) —
+                                 # the dominant, most latency-sensitive, highest-frequency path
+TIMEOUT_NORMAL_REASONING = 15.0  # plan/breakdown/suggestion generation — longer structured
+                                 # output, called less often and more tolerant of extra time
+TIMEOUT_LONG_REASONING  = 25.0  # /think — deliberately the most tolerant of the chat-completion
+                                 # tiers; still under the original 30s ceiling
+TIMEOUT_VISION          = 30.0  # unchanged from the original client default — no evidence
+                                 # vision has the same problem, so left exactly as it was
+
 client = OpenAI(
     base_url=NIM_BASE_URL,
     api_key=_api_key or "missing-key-check-env-file",
     # v12.1: bug fix — was blocking the event loop for 9 minutes on NVIDIA 504.
     # 30s timeout is generous for chat completions but stops the SDK from silently
     # retrying with exponential backoff. Our own retry loop (3 attempts, 2s sleep)
-    # controls behavior instead.
+    # controls behavior instead. v13.3.2: this remains the default/ceiling for any
+    # call that doesn't pass its own `timeout=` override — see TIMEOUT_* above.
     timeout=30.0,
     max_retries=0,
 )
@@ -107,7 +129,8 @@ def _is_model_dead(exc: Exception, err_str: str) -> bool:
 
 
 def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
-                request_type="INTENT_DETECTION", user_id=None) -> str:
+                request_type="INTENT_DETECTION", user_id=None,
+                timeout: float = TIMEOUT_FAST_CHAT) -> str:
     """Legacy call function — defaults to MODEL_MAIN. v11.1: now logs to analytics.
 
     v13.3.1: retries MODEL_MAIN per the configured policy (3 attempts,
@@ -120,6 +143,12 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
     attempt, meaning FAST could be tried multiple times, and a failed
     fallback attempt would still fall through into retrying the
     already-known-dead MAIN model again.
+
+    v13.3.2: `timeout` defaults to TIMEOUT_FAST_CHAT since this function's
+    dominant caller is get_baka_response() — intent detection on every
+    plain chat message, the most latency-sensitive path in the bot.
+    Callers generating longer structured output (plans, breakdowns,
+    analysis) pass a longer explicit override; see call sites.
     """
     import time as _time
     start = _time.time()
@@ -133,7 +162,8 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                top_p=top_p
+                top_p=top_p,
+                timeout=timeout,
             )
             ms = round((_time.time() - start) * 1000)
             text = response.choices[0].message.content.strip()
@@ -179,7 +209,8 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                top_p=top_p
+                top_p=top_p,
+                timeout=timeout,
             )
             text = fb.choices[0].message.content.strip()
             try:
@@ -389,12 +420,15 @@ For MULTIPLE intent, populate tasks array:
 
 
 def check_api_status() -> dict:
+    # v13.3.2: a status/liveness probe (/status) should give a quick,
+    # decisive answer rather than waiting the full chat-completion budget.
     start = time.time()
     try:
         response = client.chat.completions.create(
             model=MODEL_MAIN,
             messages=[{"role": "user", "content": "Reply with only: ONLINE"}],
-            max_tokens=10, temperature=0
+            max_tokens=10, temperature=0,
+            timeout=TIMEOUT_FAST_CHAT,
         )
         elapsed = round((time.time() - start) * 1000)
         usage = response.usage
@@ -539,13 +573,19 @@ def benchmark_ai(quick=True) -> dict:
 
 # ── v11.0: Per-Model Call Functions ───────────────────
 def _call_model(model_id: str, messages: list, temperature=0.1, max_tokens=1024,
-                top_p=1, model_label="?", request_type="UNKNOWN", user_id=None) -> tuple:
+                top_p=1, model_label="?", request_type="UNKNOWN", user_id=None,
+                timeout: float = TIMEOUT_NORMAL_REASONING) -> tuple:
     """
     Internal multi-model dispatcher. Returns (response_text, latency_ms, error).
     On failure, returns (None, latency_ms, error_str).
 
     v11.1: Automatically logs every call to the ai_usage analytics table.
     Logging never raises — analytics failures are invisible to callers.
+
+    v13.3.2: `timeout` defaults to TIMEOUT_NORMAL_REASONING, matching this
+    dispatcher's general-purpose callers (call_main, call_fast). Callers
+    with a different latency profile (call_think, call_vision) pass their
+    own explicit override.
     """
     import time as _time
     start = _time.time()
@@ -559,6 +599,7 @@ def _call_model(model_id: str, messages: list, temperature=0.1, max_tokens=1024,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=top_p,
+                timeout=timeout,
             )
             ms = round((_time.time() - start) * 1000)
             text = response.choices[0].message.content.strip()
@@ -618,7 +659,8 @@ def call_fast(messages: list, temperature=0.1, max_tokens=256,
     Falls back to MAIN if FAST fails or returns nothing.
     """
     text, _, err = _call_model(MODEL_FAST, messages, temperature, max_tokens, 1,
-                                "FAST", request_type=request_type, user_id=user_id)
+                                "FAST", request_type=request_type, user_id=user_id,
+                                timeout=TIMEOUT_FAST_CHAT)
     if text:
         return text
     logger.warning(f"FAST failed ({err[:80] if err else 'empty'}), falling back to MAIN")
@@ -630,9 +672,15 @@ def call_think(messages: list, temperature=0.6, max_tokens=800,
     """
     Deep reasoning — for /think, advice, multi-step problem solving.
     Higher temperature for more natural reasoning.
+
+    v13.3.2: uses TIMEOUT_LONG_REASONING — /think is explicitly a "take
+    your time" feature; users invoking it are more tolerant of a longer
+    wait than an ordinary chat message, and a short timeout here risks
+    truncating a genuinely long but healthy response.
     """
     text, _, _ = _call_model(MODEL_THINK, messages, temperature, max_tokens, 0.95,
-                              "THINK", request_type=request_type, user_id=user_id)
+                              "THINK", request_type=request_type, user_id=user_id,
+                              timeout=TIMEOUT_LONG_REASONING)
     return text or "I had trouble thinking through that."
 
 
@@ -640,6 +688,12 @@ def call_vision(image_data_or_url: str, prompt: str, max_tokens=600,
                 request_type="VISION", user_id=None) -> str:
     """
     Image understanding via Llama 3.2 Vision.
+
+    v13.3.2: explicitly passes TIMEOUT_VISION (30.0 — identical to the
+    original client-level default) rather than inheriting _call_model()'s
+    new, shorter TIMEOUT_NORMAL_REASONING default. No evidence vision has
+    the same hang problem as MODEL_MAIN, so its effective timeout is
+    deliberately left exactly as it was before this hotfix.
     """
     if not ENABLE_VISION:
         return "Image understanding is currently disabled."
@@ -651,7 +705,8 @@ def call_vision(image_data_or_url: str, prompt: str, max_tokens=600,
         ]
     }]
     text, _, err = _call_model(MODEL_VISION, messages, 0.2, max_tokens, 1,
-                                "VISION", request_type=request_type, user_id=user_id)
+                                "VISION", request_type=request_type, user_id=user_id,
+                                timeout=TIMEOUT_VISION)
     if not text:
         return f"Couldn't process the image: {(err or '?')[:100]}"
     return text
@@ -928,14 +983,16 @@ def benchmark_all_models() -> dict:
     """
     import time as _time
     results = {}
-    # MAIN
+    # MAIN — a liveness probe wants a quick, decisive answer, not a long wait
     text, ms, err = _call_model(MODEL_MAIN,
-        [{"role":"user","content":"Say ONLINE in one word"}], 0, 20, 1, "MAIN_check")
+        [{"role":"user","content":"Say ONLINE in one word"}], 0, 20, 1, "MAIN_check",
+        timeout=TIMEOUT_FAST_CHAT)
     results["main"] = {"model": MODEL_MAIN, "online": text is not None,
                        "ms": ms, "error": err}
     # FAST
     text, ms, err = _call_model(MODEL_FAST,
-        [{"role":"user","content":"Say ONLINE in one word"}], 0, 20, 1, "FAST_check")
+        [{"role":"user","content":"Say ONLINE in one word"}], 0, 20, 1, "FAST_check",
+        timeout=TIMEOUT_FAST_CHAT)
     results["fast"] = {"model": MODEL_FAST, "online": text is not None,
                        "ms": ms, "error": err}
     # VISION (skip if no test image — just check model is accepted)
@@ -1026,7 +1083,7 @@ def suggest_tasks(goal: str) -> str:
             f"You are a productivity coach. User's goal: '{goal}'\n"
             f"Suggest 5 specific actionable tasks.\n"
             f"Format: 1. [Task name] — [Why it helps]\nBe concise."
-        }], temperature=0.7, max_tokens=512)
+        }], temperature=0.7, max_tokens=512, timeout=TIMEOUT_NORMAL_REASONING)
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
@@ -1043,7 +1100,7 @@ def analyze_productivity(tasks: list) -> str:
             f"Analyze these tasks for productivity insights:\n{task_list}\n"
             f"Today: {datetime.now().strftime('%Y-%m-%d')}\n"
             f"Provide:\n1) Pattern\n2) Urgent/overdue items\n3) 3 improvement tips\n4) Today's focus\nBe concise."
-        }], temperature=0.5, max_tokens=512)
+        }], temperature=0.5, max_tokens=512, timeout=TIMEOUT_NORMAL_REASONING)
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
@@ -1096,7 +1153,7 @@ def generate_structured_plan(tasks_today: list, user_prefs: dict = None,
             f"Every task in the input must appear in the schedule. No extra text."
         )
         raw = call_nvidia([{"role": "user", "content": prompt}],
-                          temperature=0.4, max_tokens=800)
+                          temperature=0.4, max_tokens=800, timeout=TIMEOUT_NORMAL_REASONING)
         cleaned = clean_json(raw)
         data = json.loads(cleaned)
         return data
@@ -1132,7 +1189,7 @@ def generate_daily_plan(tasks_today: list, user_prefs: dict = None) -> str:
             f"Format as a clean schedule with time slots. Be concise. End with one motivational line."
         )
         return call_nvidia([{"role": "user", "content": prompt}],
-                           temperature=0.6, max_tokens=600)
+                           temperature=0.6, max_tokens=600, timeout=TIMEOUT_NORMAL_REASONING)
     except Exception as e:
         return f"❌ Error generating plan: {e}"
 
@@ -1162,7 +1219,7 @@ def generate_weekly_plan(tasks_week: list, user_prefs: dict = None) -> str:
             "Be concise. Use ✅ for balanced days, ⚠️ for overloaded ones."
         )
         return call_nvidia([{"role": "user", "content": prompt}],
-                           temperature=0.6, max_tokens=700)
+                           temperature=0.6, max_tokens=700, timeout=TIMEOUT_NORMAL_REASONING)
     except Exception as e:
         return f"❌ Error: {e}"
 
@@ -1183,7 +1240,7 @@ def generate_task_breakdown(task_title: str, deadline: str = None,
             f"Subtasks should be specific and actionable. No extra text."
         )
         raw = call_nvidia([{"role": "user", "content": prompt}],
-                          temperature=0.4, max_tokens=400)
+                          temperature=0.4, max_tokens=400, timeout=TIMEOUT_NORMAL_REASONING)
         cleaned = clean_json(raw)
         data = json.loads(cleaned)
         return data.get("subtasks", [])
@@ -1224,7 +1281,7 @@ def generate_study_plan(goal: str, deadline: str, existing_tasks: list) -> str:
             f"Existing tasks: {task_list or 'None'}\n\n"
             f"Generate a day-by-day study schedule breaking the goal into sessions.\n"
             f"Format: Day 1 (Date): [What to study] [Duration]\nBe specific and realistic."
-        }], temperature=0.6, max_tokens=800)
+        }], temperature=0.6, max_tokens=800, timeout=TIMEOUT_NORMAL_REASONING)
     except Exception as e:
         return f"❌ Error: {str(e)}"
 

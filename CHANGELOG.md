@@ -9,7 +9,74 @@ session can find the relevant code quickly.
 
 ---
 
-## v13.3.1 — Hotfix: NVIDIA Timeout Failover (current)
+## v13.3.2 — Hotfix: Adaptive AI Timeout Profiles (current)
+
+Follow-up to v13.3.1. That hotfix fixed *whether* the bot fails over to
+`MODEL_FAST` on a timeout; this one fixes *how long it waits before
+trying*. All AI chat-completion calls — from a one-word "Hey" to a full
+`/think` reasoning session — shared a single flat 30-second timeout, so
+ordinary chat waited exactly as long as deep reasoning before even
+attempting fallback.
+
+**Current configuration reviewed** (`baka_brain.py`, `ai_helper.py` per
+instruction — the latter confirmed dead code, not part of any live path,
+left untouched): a single `OpenAI` client with `timeout=30.0` applied
+uniformly to every `chat.completions.create()` call across
+`call_nvidia()` (12 call sites) and `_call_model()` (backing
+`call_main`/`call_fast`/`call_think`/`call_vision`, 5 call sites) — no
+distinction between a quick intent-detection call and a long structured
+plan. Retry policy (3 attempts, 2s/1s between) was left exactly as
+v13.3.1 set it; only the per-call timeout changed. Image/video generation
+were already separate — `generate_image()`/`generate_video()` use their
+own `httpx.Client(timeout=120.0)`/`httpx.Client(timeout=300.0)` directly,
+never the shared chat client — so they needed no change and weren't
+touched.
+
+**New profiles**, passed as a per-call `timeout=` override to individual
+`.create()` calls rather than changing the client's own default (kept as
+the safety ceiling for anything that doesn't override it):
+
+| Profile | Value | Applied to |
+|---|---|---|
+| `TIMEOUT_FAST_CHAT` | 8s | `call_nvidia()`'s default (covers `get_baka_response()` — the dominant path, every plain chat message), `call_fast()`, `check_api_status()`, `benchmark_all_models()`'s liveness probes |
+| `TIMEOUT_NORMAL_REASONING` | 15s | `_call_model()`'s default (covers `call_main()`), and explicit overrides on `call_nvidia()`'s longer-output callers: `suggest_tasks`, `analyze_productivity`, `generate_structured_plan`, `generate_daily_plan`, `generate_weekly_plan`, `generate_task_breakdown`, `generate_study_plan` |
+| `TIMEOUT_LONG_REASONING` | 25s | `call_think()` (`/think`) — deliberately the most tolerant tier, since users invoking a "think it through" feature accept more latency, and a short timeout risks truncating a genuinely long but healthy response |
+| `TIMEOUT_VISION` | 30s (unchanged) | `call_vision()` — no evidence vision shares `MODEL_MAIN`'s problem, so its effective timeout is deliberately identical to before this hotfix, not shortened |
+
+Values were chosen relative to the only two real latency data points
+available: `MODEL_FAST` responding in 676ms when healthy
+(`AI_DIAGNOSTIC_REPORT.md` §8), and the original 30s ceiling. 8s gives
+roughly 10x headroom over a healthy fast response while cutting worst-case
+failover time dramatically; 15s and 25s scale up for workloads that
+legitimately produce longer output, while staying under the original
+30s. These are estimates informed by the available evidence, not directly
+measured against a healthy `MODEL_MAIN` (which was unavailable for
+measurement during this investigation, same as v13.3.1) — flagged as a
+remaining unknown, not asserted as precisely tuned.
+
+v13.3.1's fallback behavior is fully preserved: `_is_model_dead()`'s
+`isinstance(exc, APITimeoutError)` check doesn't care about the specific
+timeout duration, so shortening it only makes a hung `MODEL_MAIN` get
+detected — and failed over from — faster.
+
+**Benchmark — real, live measurement against the actually-down
+`MODEL_MAIN`** (not simulated): a plain `call_nvidia()` call that took
+~31s after v13.3.1 now returns a valid `MODEL_FAST` response in **9.0
+seconds**. Mocked scenarios additionally confirmed: a healthy-`MODEL_MAIN`
+call makes exactly 1 API call with `timeout=8.0`, unaffected in behavior;
+`generate_daily_plan()` (normal-reasoning tier) passes `timeout=15.0`;
+`call_think()` passes `timeout=25.0`; `call_vision()` passes `timeout=30.0`
+— each tier verified to actually reach the API call, not just declared.
+
+Modified: `baka_brain.py` only. Regression: full 211-test suite re-run
+clean; `git status` confirms `main.py`, `scheduler.py`, `database.py`,
+and `notification_service.py` are all untouched — scheduler, Telegram,
+database, and notification-service behavior are unaffected by
+construction, not only by testing.
+
+---
+
+## v13.3.1 — Hotfix: NVIDIA Timeout Failover
 
 Follows directly from `AI_DIAGNOSTIC_REPORT.md`'s investigation, which
 found `MODEL_MAIN` (`meta/llama-3.3-70b-instruct`) unresponsive on NVIDIA
