@@ -93,10 +93,26 @@ per-job detail (interval, what it does, quiet-hours behavior) lives in
 ## Data layer
 
 13 active SQLite tables in `planner.db`, created/migrated by
-`database.py`'s `init_db()` (idempotent `ALTER TABLE` calls wrapped in
-`try/except`). Full schema: [docs/database.md](docs/database.md). A
-separate `bugs.db` holds `debug_system.py`'s bug reports and interaction
-traces, intentionally isolated from user data.
+`database.py`'s `init_db()` (idempotent `ALTER TABLE`/`CREATE TABLE IF NOT
+EXISTS` calls; column-addition failures are now distinguished — "already
+exists" vs. a real problem — by `_safe_add_column()`, added v13.2). Full
+schema: [docs/database.md](docs/database.md). A separate `bugs.db` holds
+`debug_system.py`'s bug reports and interaction traces, intentionally
+isolated from user data.
+
+**Infrastructure added in v13.2 (Sprint 3):** WAL journal mode (set once
+in `init_db()`); 10 indexes on the query patterns actually used by
+`database.py`/`scheduler.py` (documented inline as `REQUIRED_INDEXES` —
+the scheduler's due-task scan, run every 60s, measured ~140x faster on a
+synthetic 20k-row benchmark); `verify_schema_integrity()`, run
+automatically at startup right after `init_db()`, confirming required
+tables/indexes exist and reporting schema version/foreign-key
+setting/journal mode; `backup_database()`, using SQLite's own online-backup
+API, run at the start of every `init_db()` call before any migration
+statement (no-op on a fresh database, keeps the 5 most recent backups per
+reason in `backups/`). None of this changes what any command does — it's
+purely about the database surviving longer and failing more visibly when
+something is actually wrong.
 
 ## AI layer
 

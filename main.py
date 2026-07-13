@@ -41,7 +41,8 @@ from database import (
     find_material_by_name, add_worklog, get_worklog, get_last_worklog_days,
     compute_project_progress, get_project_overview, get_active_projects,
     get_all_pending_materials,
-    get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon
+    get_wellness_enabled_users, count_tasks_at_time, get_high_priority_soon,
+    verify_schema_integrity
 )
 from preferences import analyze_user, suggest_time_for_task, suggest_interval_for_task
 from baka_brain import (
@@ -116,6 +117,12 @@ def is_admin(uid):
 # In-memory flag: is the admin currently in debug/admin mode?
 _admin_mode = {}
 IST = ZoneInfo("Asia/Kolkata")
+
+# v13.2: single source of truth for the startup log line (see main()).
+# Deliberately not threaded into user-facing text like /help -- that's
+# Telegram UX, out of scope for the infrastructure sprint that added
+# this; see CHANGELOG.md.
+BAKA_VERSION = "13.2"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -4524,11 +4531,37 @@ def main() -> None:
             "  NVIDIA_API_KEY=your_nvidia_api_key"
         )
 
-    logger.info(f"🚀 Starting BAKA v11.1 on Python {sys.version.split()[0]}")
+    # v13.2: this line had been stuck at "v11.1" since that version,
+    # silently drifting out of sync on every release since (a known,
+    # documented issue -- see DEBUGGING.md's Known Issues, now resolved by
+    # deriving the string instead of hardcoding it).
+    logger.info(f"🚀 Starting BAKA v{BAKA_VERSION} on Python {sys.version.split()[0]}")
     logger.info(f"📡 AI provider: NVIDIA NIM → {MODEL_MAIN}")
+    logger.info("🗄️ Initializing database...")
 
     init_db()
     dbg.init_bugs_db()
+
+    # v13.2: startup integrity verification (Sprint 3 task 5) -- confirms
+    # required tables/indexes exist and reports schema version, foreign-key
+    # enforcement, and journal mode. Logged clearly either way; a problem
+    # here is surfaced loudly but does not block startup (init_db() already
+    # ran and is additive/idempotent, so the bot is very likely still
+    # functional even if this reports something unexpected).
+    integrity = verify_schema_integrity()
+    if integrity["ok"]:
+        logger.info(
+            f"✅ Schema integrity OK — schema_version={integrity['schema_version']}, "
+            f"journal_mode={integrity['journal_mode']}, foreign_keys={integrity['foreign_keys']}."
+        )
+    else:
+        logger.warning(
+            f"⚠️ Schema integrity check found issues: "
+            f"missing_tables={integrity['missing_tables']}, "
+            f"missing_indexes={integrity['missing_indexes']}, "
+            f"error={integrity.get('error')}."
+        )
+
     # v12.2: JobQueue schedules run_daily() jobs against Defaults.tzinfo
     # (falls back to UTC otherwise). Must be a pytz timezone, not
     # zoneinfo.ZoneInfo — JobQueue internally calls .localize() on it,

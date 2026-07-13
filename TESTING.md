@@ -72,11 +72,41 @@ near the end for when you don't have time for the full pass.
 
 ## `/selftest` (debug_system.py `SELFTEST_MESSAGES`)
 
-Run `selftest` (or `/selftest`) to get the current 72-test checklist
-directly from the code. Its Section P covers the v12.0 project flow
-end-to-end (P1–P9): creating a project goal, adding materials, marking them
-acquired, logging worklog entries with auto-detected kind, viewing the
-project card, and the shopping-list aggregation.
+Run `selftest` (or `/selftest`) to get the current checklist directly from
+the code. Its Section P covers the v12.0 project flow end-to-end (P1–P9):
+creating a project goal, adding materials, marking them acquired, logging
+worklog entries with auto-detected kind, viewing the project card, and the
+shopping-list aggregation. Section Q (v13.2, Sprint 3) covers
+infrastructure — unlike every other section, these are verified by
+restarting the bot and checking `bot.log`/the filesystem rather than a
+Telegram reply, since that's what's actually being tested:
+- `bot.log` shows `✅ Schema integrity OK` with a schema version,
+  `journal_mode=wal`, and a foreign-keys value — not a warning
+- `bot.log` shows `Database journal mode: wal`
+- a `backups/` directory exists with a `planner.db.startup_migration.
+  <timestamp>.bak` file after a restart on an existing database
+- no `Migration failed` or `Unexpected database error` lines in `bot.log`
+
+## Database infrastructure validation (v13.2, Sprint 3)
+
+Not part of `/selftest` (nothing here is reachable via a Telegram
+message) — validated instead with standalone scripts run against isolated
+temporary databases, never the live `planner.db`, during development:
+- `init_db()` is fully idempotent: running it twice on the same database
+  (fresh, then again as if restarting) produces no errors and an unchanged
+  `verify_schema_integrity()` report
+- all 10 new indexes (see `ARCHITECTURE.md`) are actually created and
+  present in `sqlite_master`
+- `backup_database()` correctly no-ops on a fresh/empty database and
+  correctly produces a backup file on an existing one
+- ordinary CRUD across every major entity (tasks, habits, goals, memories,
+  project materials, preferences) behaves identically to before — no
+  command-visible regression
+- the Sprint 1C reset-command fix (`/resettasks` excludes habits) still
+  holds after Sprint 3's `init_db()` changes
+- indexes measured on a synthetic 20,000-row dataset (the real
+  `planner.db` is too small today for an index to show a measurable
+  difference) — see `CHANGELOG.md`'s v13.2 entry for the numbers
 
 ## Regression-testing a change
 

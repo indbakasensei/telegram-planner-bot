@@ -294,4 +294,23 @@ SELFTEST_MESSAGES = [
     ("projects",                                 "ALL PROJECTS with progress bars"),
     ("shopping",                                 "SHOPPING LIST → all pending materials grouped by project"),
     ("finished <id>",                            "MARK DONE → 🎉, work_state=finished"),
+
+    # ── SECTION Q: Infrastructure (v13.2, Sprint 3) ─────
+    # Unlike every other section, these aren't "send this message, check
+    # the reply" — they're startup/database infrastructure, so they're
+    # verified by restarting the bot and checking bot.log / the
+    # filesystem instead of a Telegram reply. Included here anyway so
+    # they're part of the same checklist rather than living only in
+    # TESTING.md, and so a full /selftest pass covers infrastructure too.
+    ("(restart the bot)",                        "bot.log shows '✅ Schema integrity OK' with "
+                                                   "schema_version, journal_mode=wal, and a "
+                                                   "foreign_keys value — not a warning"),
+    ("(restart the bot)",                        "bot.log shows 'Database journal mode: wal'"),
+    ("(restart the bot)",                        "a backups/ directory now contains a "
+                                                   "planner.db.startup_migration.<timestamp>.bak "
+                                                   "file"),
+    ("(check bot.log)",                          "no 'Migration failed' or 'Unexpected database "
+                                                   "error' lines — those would mean a column/index "
+                                                   "migration hit something other than the expected "
+                                                   "'already exists' case"),
 ]

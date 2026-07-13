@@ -18,3 +18,6 @@ bot.log
 
 # Runtime state
 bot.pid
+
+# Automatic pre-migration backups (database.py's backup_database())
+backups/

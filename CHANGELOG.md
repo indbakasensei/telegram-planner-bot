@@ -9,7 +9,115 @@ session can find the relevant code quickly.
 
 ---
 
-## v13.1 — Single-Instance Protection & Safe Startup (current)
+## v13.2 — Infrastructure Hardening: WAL, Indexes, Backups, Integrity Checks (current)
+
+Sprint 3, addressing `ENGINEERING_AUDIT.md` findings E3 (missing indexes),
+E4 (no WAL mode / connection pooling), and E7 (migration exceptions too
+broad), plus new infrastructure not previously tracked as findings.
+Database/startup-infrastructure only — no AI, reminder, scheduler-timing,
+Telegram-UX, or command-handler changes; nothing here is user-visible.
+
+**Task 2 — reviewed every `WHERE`/`ORDER BY`/`GROUP BY` in `database.py`
+and `scheduler.py`, added 10 indexes** (full list with the specific query
+each one serves is documented inline as `REQUIRED_INDEXES` in
+`database.py`): `tasks(user_id, done, paused)` — the single most common
+filter in the file; `tasks(due_date, due_time)` — the scheduler's
+highest-frequency (every 60s), non-user-scoped due-task scan;
+`tasks(recurrence_type, done, paused)` — the scheduler's recurring-task
+scans; plus `memories(user_id, key)`, `goals(user_id)`,
+`completions_log`/`snooze_log`/`interaction_log` each on `(user_id,
+<timestamp column>)`, `ai_observations(user_id, status)`,
+`missed_capabilities(user_id, created_at)`. Deliberately **not** indexed,
+with reasoning inline: `user_preferences.user_id` is already the table's
+`INTEGER PRIMARY KEY` (auto-indexed, a separate index would be pure
+duplication) — a real finding from actually checking the schema rather
+than assuming.
+
+Benchmarked on a synthetic 20,000-row dataset (50 users × 400 tasks —
+large enough for indexes to matter; the real `planner.db` is far smaller
+today, which is exactly why a synthetic dataset was needed to measure
+anything): the scheduler's due-date scan is **~140x faster** with its
+index (1.61ms → 0.01ms per query, run every 60 seconds against every
+user's tasks); per-user active-task queries are **~2.2x faster**.
+
+**Task 1 — WAL mode.** `init_db()` now sets `PRAGMA journal_mode=WAL`.
+Readers no longer block writers (or vice versa) — matters once the
+scheduler and multiple handlers hit the database concurrently. Persisted
+in the database file itself; re-asserting it on every `init_db()` call is
+harmless.
+
+**Task 3 — migration exceptions.** The `ALTER TABLE ... ADD COLUMN` loops
+in `init_db()`/`_init_preferences()` (25 columns total) used to catch bare
+`Exception: pass`, unable to tell "column already exists" (expected, what
+makes the migration idempotent) apart from a real problem (disk full,
+corruption). Added `_safe_add_column()`: catches `sqlite3.OperationalError`
+specifically, silently continues only when the message says "duplicate
+column name," and now logs anything else. The `analytics`-package
+availability check (a different, already-tracked issue — see
+`DEBUGGING.md`) was deliberately left as a broad `except`, since that's an
+optional-dependency guard, not schema migration.
+
+**Task 4 — connection helper.** Added `get_connection()` (applies WAL
+consistently) for *new* infrastructure code (backup, integrity checks) to
+use. Did **not** retrofit the ~100 existing `sqlite3.connect(DB_NAME)`
+call sites across `database.py` — that would be a much larger, riskier
+change than this sprint's "do not change behaviour" brief allows for a
+"nice to have" consistency improvement; flagged as a future
+`ROADMAP.md`-style item instead of attempted here.
+
+**Task 5 — startup integrity verification.** Added
+`verify_schema_integrity()`: confirms all 13 required tables and all 10
+new indexes exist, and reports schema version (`PRAGMA user_version`, a
+new `SCHEMA_VERSION` constant bumped whenever a migration is added — purely
+a diagnostic marker, nothing branches on it), foreign-key enforcement
+setting, and journal mode. Runs automatically right after `init_db()` in
+`main()`, logged clearly either way; a problem is surfaced loudly but does
+not block startup, since `init_db()`'s own migrations are already
+additive/idempotent and very likely to have succeeded regardless.
+
+One consequential, deliberate side effect: `init_db()` now eagerly creates
+`project_materials`, `project_worklog`, `task_templates`,
+`missed_capabilities`, and `ai_observations` at startup — previously these
+were created lazily, on first use of the relevant feature. Needed so the
+integrity check has a complete, meaningful set of tables to verify right
+after startup, and so a fresh install's schema is fully formed before
+first use. Still idempotent `CREATE TABLE IF NOT EXISTS`; zero user-visible
+effect (the tables would exist by the time any command needing them runs,
+either way) — noted explicitly here rather than left as a silent side
+effect, given this sprint's "do not change behaviour" brief.
+
+**Task 6 — automatic backup before migrations.** Added
+`backup_database()`, using SQLite's own online-backup API (`Connection.
+backup()` — safe against a concurrently-open WAL file, unlike a raw file
+copy). Called at the very start of `init_db()`, before any migration
+statement runs. No-op on a fresh/empty database (nothing to protect yet).
+Keeps the 5 most recent backups per reason, pruning older ones, in a new
+`backups/` directory. A failed backup is logged, never raised — it must
+not block startup. (There are currently no destructive migrations in this
+codebase — every existing migration is additive `ALTER TABLE ADD COLUMN`
+— so this is deliberately a general safety net for *whenever* one is
+introduced, not a response to an existing destructive one.)
+
+**Task 7 — `/selftest` infrastructure checks.** Added Section Q to
+`debug_system.py`'s `SELFTEST_MESSAGES` — unlike every other section,
+these are verified by restarting the bot and checking `bot.log`/the
+filesystem rather than a Telegram reply, since that's what's actually
+being tested. No new commands or handler changes.
+
+**Task 9 — logging.** `database.py` had no logging at all before this
+sprint; added a module logger, used throughout the changes above. Also
+fixed `main()`'s startup log line, which had said "v11.1" since that
+version (a known, documented issue — see `DEBUGGING.md`) — now derived
+from a new `BAKA_VERSION` constant instead of hardcoded. Deliberately
+backend-only: user-facing text like `/help` was not touched (Telegram UX,
+out of this sprint's scope).
+
+Modified: `database.py`, `main.py`, `debug_system.py`, `.gitignore`
+(`backups/`).
+
+---
+
+## v13.1 — Single-Instance Protection & Safe Startup
 
 Sprint 2B of the post-audit production-hardening effort (see
 `ENGINEERING_AUDIT.md`, finding D5/ARCH-6). Startup-safety-only sprint —

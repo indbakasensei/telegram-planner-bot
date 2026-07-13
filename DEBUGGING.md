@@ -113,9 +113,39 @@ analytics package fix above lands and someone updates the cost table
 alongside it — until then, don't trust any cost figures the analytics
 commands would show even after the import is fixed.
 
-### Version banner lag
+### Version banner lag — partially resolved (v13.2)
 
-The startup log line and some in-app help text said "v11.1" even after
-v12.0 (Project Management) shipped — the release note in `VERSION.md`
-wasn't mirrored into the runtime strings. Worth a quick grep for `"v11.1"`
-and `"v11.2"` literals in `main.py` when next touching that area.
+The startup **log line** now derives from a `BAKA_VERSION` constant near
+the top of `main.py` instead of a hardcoded string, fixed in Sprint 3 as
+part of that sprint's "improve logging around startup" task. **Still
+open**: user-facing text (e.g. `/help`) may still reference an older
+version — deliberately not touched, since that's Telegram UX, out of
+Sprint 3's infrastructure-only scope. Worth a grep for stale version
+literals in `main.py`'s user-facing strings next time that area is
+touched.
+
+### Migration exception handling — resolved (v13.2)
+
+`init_db()`'s `ALTER TABLE ... ADD COLUMN` loops used to catch bare
+`Exception: pass`, unable to distinguish "column already exists"
+(expected) from a real failure (disk full, corruption, permissions). Now
+uses `_safe_add_column()`, which catches `sqlite3.OperationalError`
+specifically and only silently continues for the "duplicate column name"
+case — anything else is logged. The separate `analytics`-package
+availability check above is intentionally still a broad `except` — that's
+a different problem (an optional dependency that doesn't exist as a
+package yet), not migration handling.
+
+### Database infrastructure (v13.2)
+
+As of Sprint 3, `database.py` also: runs in WAL journal mode (check via
+`PRAGMA journal_mode` — should report `wal`); creates a timestamped backup
+in `backups/` at the start of every `init_db()` call on an existing
+database (keeps the 5 most recent per reason); and runs
+`verify_schema_integrity()` right after `init_db()` at startup, logging
+either `✅ Schema integrity OK` or a `⚠️` line listing exactly what's
+missing. If the bot appears to start normally but something feels
+schema-related, checking that log line first is faster than querying
+`sqlite_master` by hand. A failed backup is logged and does not block
+startup — check `bot.log` for `Database backup failed` if `backups/`
+looks empty or stale.

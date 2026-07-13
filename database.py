@@ -1,3 +1,6 @@
+import logging
+import os
+import shutil
 import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -5,9 +8,224 @@ IST = ZoneInfo("Asia/Kolkata")
 
 DB_NAME = "planner.db"
 
+# v13.2: bumped whenever init_db() adds a new migration step. Purely a
+# diagnostic marker (read by verify_schema_integrity() at startup) --
+# nothing branches on its value, so an out-of-date number here cannot
+# change runtime behavior, only what the startup integrity report says.
+SCHEMA_VERSION = 1
+
+logger = logging.getLogger(__name__)
+
+# Every table that a fresh v13.2+ database should end up with, and the
+# indexes init_db() creates for it. Used by both init_db() (to create
+# them) and verify_schema_integrity() (to confirm they exist) so the two
+# can't silently drift apart.
+REQUIRED_TABLES = [
+    "tasks", "memories", "goals", "habit_log", "user_preferences",
+    "completions_log", "snooze_log", "interaction_log", "task_templates",
+    "missed_capabilities", "ai_observations", "project_materials",
+    "project_worklog",
+]
+
+# (index_name, table, columns, why) -- documented per Sprint 3 task 2.
+# Each entry lists the specific query pattern(s) that motivated it, found
+# by reviewing every WHERE/ORDER BY/GROUP BY in this file and scheduler.py.
+REQUIRED_INDEXES = [
+    ("idx_tasks_user_done_paused", "tasks", "(user_id, done, paused)",
+     "The single most common filter across this file: nearly every "
+     "per-user active-task read (get_tasks, get_overdue_tasks, "
+     "get_upcoming_deadlines, get_stale_tasks, count_tasks_at_time, "
+     "get_high_priority_soon, get_data_stats, weekly report, dashboard "
+     "groups, search_all) filters on user_id, then done, then often "
+     "paused."),
+    ("idx_tasks_due", "tasks", "(due_date, due_time)",
+     "scheduler.py's get_due_tasks() Case 1 -- the highest-FREQUENCY "
+     "query in the system (every 60s), and NOT scoped by user_id since "
+     "it checks every user's due tasks in one pass."),
+    ("idx_tasks_recurrence", "tasks", "(recurrence_type, done, paused)",
+     "scheduler.py's get_due_tasks() Cases 2-4 (daily/weekly/monthly "
+     "recurring tasks) -- also a global, non-user-scoped scan every 60s."),
+    ("idx_memories_user_key", "memories", "(user_id, key)",
+     "Every memory read/write path does an exact (user_id, key) lookup: "
+     "save_memory()'s existence check before insert/update, get_memory(), "
+     "delete_memory()."),
+    ("idx_goals_user", "goals", "(user_id)",
+     "Every goal listing/progress query (get_goals, get_goals_full, "
+     "get_project_overview, get_active_projects) filters by user_id."),
+    ("idx_completions_log_user_time", "completions_log", "(user_id, completed_at)",
+     "get_completion_patterns() and get_typical_time_for_category() "
+     "filter by user_id and a completed_at cutoff."),
+    ("idx_snooze_log_user_time", "snooze_log", "(user_id, snoozed_at)",
+     "get_snooze_patterns() filters by user_id and a snoozed_at cutoff."),
+    ("idx_interaction_log_user_time", "interaction_log", "(user_id, timestamp)",
+     "get_active_hours() filters by user_id and a timestamp cutoff."),
+    ("idx_ai_observations_user_status", "ai_observations", "(user_id, status)",
+     "get_pending_observations() filters by user_id and status='pending' "
+     "on every /suggestions call and the daily observation_engine job."),
+    ("idx_missed_capabilities_user", "missed_capabilities", "(user_id, created_at)",
+     "get_missed_capabilities() filters by user_id, ordered by created_at, "
+     "on every /misses call."),
+]
+# Deliberately NOT indexed, with reasoning (so a future pass doesn't
+# re-litigate this without context):
+#   - user_preferences.user_id: already the table's INTEGER PRIMARY KEY,
+#     which SQLite indexes automatically (it IS the rowid) -- a separate
+#     index would be pure duplication.
+#   - tasks.snooze_until, tasks.parent_task_id: real but low-frequency
+#     query patterns (snooze-expiry check, subtasks); adding an index
+#     helps reads but costs write overhead on every task insert/update,
+#     and both are already narrowed by the indexes above before SQLite
+#     would need to touch these columns. Revisit if profiling ever shows
+#     otherwise.
+#   - habit_log: already has UNIQUE(habit_id, log_date), which SQLite
+#     auto-indexes and which already covers every habit_log query's
+#     leading filter.
+#   - task_templates: already has UNIQUE(user_id, name), auto-indexed.
+#   - project_materials, project_worklog: already indexed (idx_materials_*,
+#     idx_worklog_*, added in v12.0) -- reviewed, still correct, untouched.
+
+
+def get_connection(db_name: str = None) -> sqlite3.Connection:
+    """Open a connection with this project's standard PRAGMAs applied.
+
+    New infrastructure code (backup, integrity checks) uses this. Existing
+    functions keep their own plain `sqlite3.connect(DB_NAME)` calls
+    unchanged -- retrofitting all ~100 of them was judged out of scope for
+    an infrastructure sprint whose brief is "do not change behaviour"; see
+    CHANGELOG.md's v13.2 entry for the reasoning.
+    """
+    conn = sqlite3.connect(db_name or DB_NAME)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def backup_database(reason: str = "migration", keep: int = 5, db_name: str = None) -> str | None:
+    """Back up the database file before a migration runs, using SQLite's
+    own online-backup API (safe against a concurrently-open WAL file,
+    unlike a raw file copy). Returns the backup path, or None if there
+    was nothing to back up yet (fresh/empty database) or backup failed
+    (logged, never raised -- a failed backup must not block startup).
+    Keeps only the `keep` most recent backups per reason to avoid
+    unbounded disk growth.
+    """
+    src_name = db_name or DB_NAME
+    if not os.path.exists(src_name) or os.path.getsize(src_name) == 0:
+        return None  # nothing to protect yet
+
+    backup_dir = os.path.join(os.path.dirname(os.path.abspath(src_name)) or ".", "backups")
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        stamp = datetime.now(IST).strftime("%Y%m%d_%H%M%S")
+        dest_path = os.path.join(backup_dir, f"{os.path.basename(src_name)}.{reason}.{stamp}.bak")
+
+        src_conn = sqlite3.connect(src_name)
+        dest_conn = sqlite3.connect(dest_path)
+        with dest_conn:
+            src_conn.backup(dest_conn)
+        dest_conn.close()
+        src_conn.close()
+
+        # Prune old backups for this reason, keep the `keep` most recent
+        prefix = f"{os.path.basename(src_name)}.{reason}."
+        existing = sorted(
+            f for f in os.listdir(backup_dir) if f.startswith(prefix)
+        )
+        for old in existing[:-keep] if keep > 0 else existing:
+            try:
+                os.remove(os.path.join(backup_dir, old))
+            except OSError:
+                pass
+
+        logger.info(f"Database backed up to {dest_path} (reason={reason}).")
+        return dest_path
+    except Exception as e:
+        logger.error(f"Database backup failed (reason={reason}): {e} — continuing without it.")
+        return None
+
+
+def verify_schema_integrity(db_name: str = None) -> dict:
+    """Startup integrity check: confirms required tables and indexes
+    exist, reports schema version, foreign-key enforcement setting, and
+    journal mode. Never raises -- returns a report dict for the caller to
+    log/act on; a missing piece is reported, not silently fixed here
+    (fixing schema issues is init_db()'s job, this function only verifies
+    and reports, per Sprint 3 task 5).
+    """
+    name = db_name or DB_NAME
+    report = {
+        "ok": True,
+        "missing_tables": [],
+        "missing_indexes": [],
+        "schema_version": None,
+        "foreign_keys": None,
+        "journal_mode": None,
+    }
+    try:
+        conn = get_connection(name)
+        c = conn.cursor()
+
+        c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = {row[0] for row in c.fetchall()}
+        report["missing_tables"] = [t for t in REQUIRED_TABLES if t not in existing_tables]
+
+        c.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        existing_indexes = {row[0] for row in c.fetchall()}
+        report["missing_indexes"] = [
+            idx for idx, _, _, _ in REQUIRED_INDEXES if idx not in existing_indexes
+        ]
+
+        c.execute("PRAGMA user_version")
+        report["schema_version"] = c.fetchone()[0]
+
+        c.execute("PRAGMA foreign_keys")
+        report["foreign_keys"] = bool(c.fetchone()[0])
+
+        c.execute("PRAGMA journal_mode")
+        report["journal_mode"] = c.fetchone()[0]
+
+        conn.close()
+        report["ok"] = not report["missing_tables"] and not report["missing_indexes"]
+    except Exception as e:
+        logger.error(f"verify_schema_integrity failed to run: {e}")
+        report["ok"] = False
+        report["error"] = str(e)
+    return report
+
+
+def _safe_add_column(c, table: str, col: str, definition: str) -> None:
+    """Run one ALTER TABLE ... ADD COLUMN, distinguishing the expected
+    "column already exists" case (silent -- this is what makes the
+    additive-migration pattern idempotent) from anything else (disk full,
+    corruption, permissions, a genuinely malformed DDL string), which is
+    now logged loudly instead of silently swallowed. Sprint 3 task 3 --
+    was previously a bare `except Exception: pass` that could not tell
+    these apart.
+    """
+    try:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower():
+            return  # expected: this column already exists, nothing to do
+        logger.error(f"Migration failed: ALTER TABLE {table} ADD COLUMN {col} — {e}")
+    except sqlite3.Error as e:
+        logger.error(f"Unexpected database error adding {table}.{col}: {e}")
+
+
 def init_db():
+    # v13.2: back up before any migration touches the file. No-op on a
+    # fresh/empty database (nothing to protect yet). A failed backup is
+    # logged and does not block startup -- see backup_database().
+    backup_database(reason="startup_migration")
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    # v13.2: WAL mode -- readers no longer block writers (or vice versa),
+    # which matters once the scheduler and multiple handlers are hitting
+    # the database concurrently. Persisted in the file itself, so this
+    # only needs to run once per database file, but re-asserting it on
+    # every init_db() call is harmless and cheap.
+    c.execute("PRAGMA journal_mode=WAL")
+    logger.info(f"Database journal mode: {c.execute('PRAGMA journal_mode').fetchone()[0]}")
 
     c.execute('''CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,10 +265,7 @@ def init_db():
         ("is_deadline", "INTEGER DEFAULT 0"),
         ("buffer_sent", "TEXT DEFAULT ''"),
     ]:
-        try:
-            c.execute(f'ALTER TABLE tasks ADD COLUMN {col} {definition}')
-        except Exception:
-            pass
+        _safe_add_column(c, "tasks", col, definition)
 
     # NOTE: no UNIQUE constraint relied upon here — save_memory() below
     # does a manual check-then-insert/update instead of INSERT...ON CONFLICT,
@@ -92,30 +307,60 @@ def init_db():
         ("created_at", "TEXT DEFAULT CURRENT_TIMESTAMP"),
         ("target", "INTEGER DEFAULT 100"),
     ]:
-        try:
-            c.execute(f"ALTER TABLE goals ADD COLUMN {col} {ddl}")
-        except Exception:
-            pass
+        _safe_add_column(c, "goals", col, ddl)
 
     conn.commit()
     # v8.0: ensure preference + learning table migrations run at startup
     try:
         _init_preferences(conn)
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.error(f"Preferences table migration failed: {e}")
     try:
         _init_learning_tables(conn)
-    except Exception:
-        pass
-    # v11.1: ai_usage analytics table
+    except sqlite3.Error as e:
+        logger.error(f"Learning tables migration failed: {e}")
+    try:
+        _init_project_tables(conn)
+    except sqlite3.Error as e:
+        logger.error(f"Project tables migration failed: {e}")
+    try:
+        _init_templates(conn)
+    except sqlite3.Error as e:
+        logger.error(f"Templates table migration failed: {e}")
+    try:
+        _init_missed_capabilities(conn)
+    except sqlite3.Error as e:
+        logger.error(f"Missed-capabilities table migration failed: {e}")
+    try:
+        _init_observations(conn)
+    except sqlite3.Error as e:
+        logger.error(f"Observations table migration failed: {e}")
+    # v11.1: ai_usage analytics table. Deliberately left as a broad
+    # try/except (not narrowed like the migration steps above) -- this is
+    # an optional-dependency-availability guard for the known-incomplete
+    # `analytics` package, not schema migration; see DEBUGGING.md's Known
+    # Issues and ENGINEERING_AUDIT.md for that already-tracked, separate
+    # fix. Out of scope for this infrastructure sprint.
     try:
         from analytics import init_usage_table
         init_usage_table(DB_NAME)
-    except Exception as e:
-        # Don't break startup if analytics module isn't available
+    except Exception:
         pass
+
+    # v13.2: create every index reviewed in Sprint 3 task 2 (see
+    # REQUIRED_INDEXES above for what each one serves). CREATE INDEX IF
+    # NOT EXISTS is idempotent, same additive pattern as the table/column
+    # migrations above.
+    for idx_name, table, columns, _why in REQUIRED_INDEXES:
+        try:
+            c.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}{columns}")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to create index {idx_name} on {table}: {e}")
+
+    c.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     conn.commit()
     conn.close()
+    logger.info(f"Database initialized (schema_version={SCHEMA_VERSION}).")
 
 
 # ── Tasks ──────────────────────────────────────────────
@@ -464,10 +709,7 @@ def _init_preferences(conn):
         ("wellness_types", "TEXT DEFAULT 'all'"),
         ("last_wellness", "TEXT DEFAULT NULL"),
     ]:
-        try:
-            c.execute(f"ALTER TABLE user_preferences ADD COLUMN {col} {ddl}")
-        except Exception:
-            pass
+        _safe_add_column(c, "user_preferences", col, ddl)
     conn.commit()
 
 def get_user_prefs(user_id):

@@ -197,11 +197,11 @@ accuracy-over-quantity rule, not asserted as confirmed).
 |---|---|---|
 | E1 | ✅ **RESOLVED 2026-07-13 (Sprint 1C, v12.4 — see CHANGELOG.md)**. Independent re-investigation during the fix found the actual bug was broader than first described: `reset_all_tasks()` was deleting habits too, contradicting `/resettasks`'s own promise that habits are kept; and `reset_everything()`'s missing cleanup of `project_materials`/`project_worklog` was the concrete ID-reuse/inheritance hazard, not `habit_log` (which is a non-issue once habits are correctly excluded from `/resettasks`). See CHANGELOG.md v12.4 for full detail and the validation performed. Original finding: `/resettasks` doesn't clean up matching `habit_log` rows (inconsistent with `/resethabits`, which does); `/resetall` ("nuclear wipe") only touches 7 of the 13 real tables — `project_materials`, `project_worklog`, `task_templates`, `missed_capabilities`, `ai_observations` all survive a supposedly-complete wipe. Combined with `reset_all_tasks()` resetting the ID autoincrement sequence, a **newly created task/habit can silently inherit a stale, unrelated history** from orphaned rows that reused its new ID. | **HIGH** |
 | E2 | ✅ **RESOLVED 2026-07-13 (Sprint 1C, v12.4 — see CHANGELOG.md)** — all 10 occurrences in `database.py` fixed. `ai_helper.py` (dead code) and `baka_brain.py` (excluded — AI system, no stored/compared data affected) deliberately left as-is; see CHANGELOG.md for reasoning. Original finding: Several `database.py` functions use naive `datetime.now()` instead of the IST-aware pattern used elsewhere in the same file (`add_habit` L629, `log_habit_completion` L653, `get_habit_log` L694, `get_missed_days` L736, and five behavioral-learning functions L832-887) — a regression of the exact bug class `CHANGELOG.md`'s v7.0 entry says was already fixed once. Between 00:00–05:29 IST, habit completions can be misdated to the previous day. | **HIGH** |
-| E3 | Only `project_materials`/`project_worklog` (the two newest tables) have explicit indexes; all other tables (including `tasks`, queried every 60 seconds by the scheduler) rely on full-table scans | MEDIUM |
-| E4 | No connection pooling — every one of 100+ `database.py` functions opens and closes its own `sqlite3.connect()`; WAL mode is never enabled for `planner.db` (only ever mentioned for the non-functional `ai_usage` table) | MEDIUM |
+| E3 | ✅ **RESOLVED 2026-07-13 (Sprint 3, v13.2 — see CHANGELOG.md)**. 10 indexes added, each documented against the specific query it serves; benchmarked ~140x faster on the scheduler's due-task scan (synthetic 20k-row dataset). One planned index turned out unnecessary on inspection: `user_preferences.user_id` is already the table's `INTEGER PRIMARY KEY`. Original finding: Only `project_materials`/`project_worklog` (the two newest tables) have explicit indexes; all other tables (including `tasks`, queried every 60 seconds by the scheduler) rely on full-table scans | MEDIUM |
+| E4 | ⚠️ **PARTIALLY RESOLVED 2026-07-13 (Sprint 3, v13.2)**. WAL mode is now enabled (`init_db()` sets `PRAGMA journal_mode=WAL`) — the part of this finding with real correctness/concurrency stakes. Connection pooling was deliberately **not** retrofitted onto the ~100 existing call sites — a `get_connection()` helper was added for new infrastructure code only; changing all existing functions was judged too large a change for a "do not change behaviour" sprint brief, for a benefit (avoiding repeated `sqlite3.connect()` overhead) that's real but secondary to WAL mode. Still open if ever revisited. Original finding: No connection pooling — every one of 100+ `database.py` functions opens and closes its own `sqlite3.connect()`; WAL mode is never enabled for `planner.db` (only ever mentioned for the non-functional `ai_usage` table) | MEDIUM |
 | E5 | No SQL injection found — all user-controlled values are parameterized with `?`; the handful of dynamic-column-name query-building patterns (`update_task`, `reset_learning_data`) use hardcoded internal lists, not caller input, but are a fragile *pattern* worth a code comment | Not a bug (informational) |
 | E6 | Transaction atomicity verified sound — no partial-commit risk found beyond the orphaned-row issue in E1, which is a data-scope problem, not an atomicity one | Not a bug |
-| E7 | Migration `try/except: pass` in `init_db()` catches *all* exceptions, not just "column already exists" — could silently swallow a real failure (disk full, corruption) and let the bot start up believing migration succeeded | LOW–MEDIUM |
+| E7 | ✅ **RESOLVED 2026-07-13 (Sprint 3, v13.2)**. New `_safe_add_column()` catches `sqlite3.OperationalError` specifically and only silently continues for "duplicate column name"; anything else is now logged. The separate `analytics`-package availability check was deliberately left broad — that's an optional-dependency guard, a different, already-tracked issue (see `DEBUGGING.md`), not migration handling. Original finding: Migration `try/except: pass` in `init_db()` catches *all* exceptions, not just "column already exists" — could silently swallow a real failure (disk full, corruption) and let the bot start up believing migration succeeded | LOW–MEDIUM |
 | E8 | No foreign keys enforced anywhere; a code comment claiming goal deletion "cascades cleanly" to `project_materials`/`project_worklog` is misleading — there is no cascade, it only appears to work because no `delete_goal()` function currently exists at all | MEDIUM |
 
 ### F. Telegram Integration
@@ -351,11 +351,14 @@ were scoped to delivery mechanics, not message-content formatting) and D3
 product call on whether it's worth the M-effort fix or acceptable as
 documented behavior).
 
-**Sprint 3 — Data layer hardening:**
-E3 (indexes), E4 (connection pooling / WAL mode), E7 (narrow migration
-exception handling), E8 (fix misleading comment + add cascade logic if/when
-single-goal deletion is ever built). Low risk, mechanical, good candidate
-for a quieter sprint.
+**Sprint 3 — Data layer hardening:** mostly complete as of 2026-07-13.
+✅ E3 (indexes) and ✅ E7 (narrow migration exception handling) done in
+full. ⚠️ E4 done partially — WAL mode enabled, connection pooling
+deliberately deferred (see E4's row above for reasoning). **Still open**:
+E8 (fix misleading comment + add cascade logic if/when single-goal
+deletion is ever built) — not touched by Sprint 3, which was scoped to
+WAL/indexes/migration-safety/backups/integrity-checks, not this specific
+comment/cascade item.
 
 **Sprint 4+ (backlog, not urgent):** the already-tracked `ROADMAP.md`
 fix-it list (analytics package, `ai_helper.py` cleanup), then the
