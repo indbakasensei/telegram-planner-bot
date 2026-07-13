@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/c/home/baka/**)",
+      "Read(///wsl.localhost/Ubuntu/home/baka/**)",
+      "Read(///wsl.localhost/Ubuntu/home/baka/telegram-planner-bot/**)",
+      "Bash(powershell.exe *)",
+      "Bash(python3 -c \"import analytics\")",
+      "Bash(python3 -c ' *)",
+      "Bash(sqlite3 planner.db \"SELECT name FROM sqlite_master WHERE type='table';\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import analytics\")",
+      "Bash(python3 -c \"import sys; sys.path.insert\\(0,'/home/baka/telegram-planner-bot'\\); import analytics\")",
+      "Bash(xargs grep -l \"run_daily\")",
+      "Bash(awk -F: '{print $1\"\\\\t\"$0}' defs_tmp.txt)",
+      "Bash(./venv/bin/python3 -c 'import ast,sys *)",
+      "Bash(where python3 *)",
+      "Bash(where python *)",
+      "Bash(awk -F: '{print $1, $0}')"
+    ]
+  }
+}

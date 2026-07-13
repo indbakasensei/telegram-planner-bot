@@ -1,5 +1,12 @@
 # BAKA Telegram Bot — Complete Feature List
 
+> ⚠️ **Superseded.** This file is a snapshot from an early version of the
+> project (predates habits, goals dashboard, AI analytics, and Projects)
+> and is kept only for historical reference — content below was not updated
+> during the 2026-07 documentation pass and should not be trusted for
+> current behavior. For current docs, see [PROJECT.md](PROJECT.md) (overview)
+> and [API.md](API.md) (full command + module reference).
+
 ## Project Overview
 A conversational AI-powered Telegram personal assistant bot built in Python.
 Named BAKA (like Iron Man's assistant). The bot understands natural language
