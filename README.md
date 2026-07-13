@@ -1,8 +1,14 @@
 # 🤖 BAKA — AI Personal Assistant (Telegram)
 
-**Behavioral Adaptive Knowledge Assistant** — A multi-model AI Telegram bot that manages your tasks, deadlines, habits, goals, and productivity through natural conversation in **English, Hindi, and Hinglish**.
+**Behavioral Adaptive Knowledge Assistant** — A multi-model AI Telegram bot that manages your tasks, deadlines, habits, goals, and hobby/build projects through natural conversation in **English, Hindi, and Hinglish**.
 
 > BAKA doesn't just remind you — it **owns your tasks until they're done**, learns your patterns, monitors its own AI performance, and gets smarter every day.
+
+> 📚 This README is the quick-start guide. For full documentation —
+> architecture, command reference, database schema, known issues, and
+> more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
+> Current version: **v12.0** (Project Management) — see
+> [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -95,6 +101,11 @@ Slash is optional for every command:
 
 ## 📋 Commands Reference
 
+> This section covers the commands most people use day to day. For the
+> complete, verified-against-code command list — including `overload`,
+> `tag`/`tagged`, `review`, `carryforward`, `proactive`, and the full
+> admin list — see [API.md](API.md#command-reference).
+
 ### Tasks
 | Command | What it does |
 |---------|-------------|
@@ -141,6 +152,20 @@ Each warning has: ✅ Done now · 🔨 Break down · 📅 Plan today · 🔕 Mut
 | Say "I want to X" | Auto-detected as goal |
 | ➕/➖ buttons | Adjust progress inline |
 
+### Projects 🛠️ (v12.0)
+Turn any goal into a tracked project with a materials checklist and worklog —
+built for multi-week real-world builds. Full walkthrough:
+[CHANGELOG.md](CHANGELOG.md#v120--project-management-current).
+
+| Command | What it does |
+|---------|-------------|
+| `need`/`materials <id> <items>` | Add comma-separated materials to a project |
+| `got`/`have <name>` | Fuzzy-mark a material acquired |
+| `worklog`/`log <id> <text>` | Log progress (kind auto-detected) |
+| `started <id>` / `finished <id>` | Log work-started / mark done |
+| `project <id>` / `projects` | Full project card / list all active projects |
+| `shopping` | Everything still unacquired, across all projects |
+
 ### AI & Planning 🧠
 | Command | What it does |
 |---------|-------------|
@@ -163,21 +188,22 @@ Each warning has: ✅ Done now · 🔨 Break down · 📅 Plan today · 🔕 Mut
 | `savetemplate <name> <id>` | Save task as template |
 | `export` | Full data backup as plain text |
 
-### AI Models (v11.0) 🤖
+### AI Models 🤖
 | Command | What it does |
 |---------|-------------|
-| `models` | All 6 model statuses with real usage |
-| `image <prompt>` | Generate an image (opt-in) |
+| `models` | Live status per model (real usage stats currently broken — see below) |
+| `image <prompt>` | Generate an image |
+| `video <prompt>` | Generate a short video |
 | Send a photo | Llama Vision describes it or extracts todos |
 
-### AI Analytics (v11.1) 📊
+### AI Analytics 📊 — ⚠️ usage/performance/errors currently return empty data
 | Command | What it does |
 |---------|-------------|
-| `usage` | Today + lifetime AI call stats |
-| `performance` | p50/p95/p99 latency + trends |
-| `errors` | Error timeline + breakdown |
-| `status` | Quick 3-test AI benchmark |
-| `status full` | Deep 6-test benchmark (graded A+-F) |
+| `usage` | Today + lifetime AI call stats *(broken — see [DEBUGGING.md](DEBUGGING.md#known-issues))* |
+| `performance` | p50/p95/p99 latency + trends *(broken — same reason)* |
+| `errors` | Error timeline + breakdown *(broken — same reason)* |
+| `status` | Quick 3-test AI benchmark *(works — live probe, not stored analytics)* |
+| `status full` | Deep 6-test benchmark (graded A+-F) *(works)* |
 
 ### Settings ⚙️
 | Command | What it does |
@@ -195,7 +221,7 @@ Each warning has: ✅ Done now · 🔨 Break down · 📅 Plan today · 🔕 Mut
 | `report <issue>` | File a bug (auto-captures context) |
 | `bugs` | View open bug reports |
 | `trace` | Last AI interaction details |
-| `selftest` | Step-by-step test checklist (50 tests) |
+| `selftest` | Step-by-step test checklist (72 tests — see [TESTING.md](TESTING.md) for how this relates to `TEST_CHECKLIST.md`) |
 
 ### Admin (owner only) 👑
 These commands are invisible to non-admins. Only the account that ran `/claimadmin` can use them.
@@ -205,44 +231,52 @@ These commands are invisible to non-admins. Only the account that ran `/claimadm
 | `admin` | Control panel with data stats |
 | `adminmode` | Toggle verbose debug |
 | `resettasks` | Delete all tasks + reset IDs to 1 |
+| `resetmemory` / `resethabits` / `resetlearning` | Wipe one data category |
 | `resetall` | Nuclear wipe (requires `YES NUKE EVERYTHING`) |
 | `sql <query>` | Read-only SQL for debugging |
-| `misses` | View what AI couldn't handle |
+| `misses` / `reviewed` | View / review what AI couldn't handle *(not admin-gated — scoped to your own data)* |
 | `myid` | Your Telegram ID |
 
 ---
 
-## 🤖 AI Architecture (v11.0)
+## 🤖 AI Architecture
 
-BAKA uses 6 specialized models via NVIDIA NIM:
+BAKA uses NVIDIA NIM for all AI calls. Current model IDs (these have
+changed since NVIDIA retired the originally-chosen model — see
+[docs/ai_system.md](docs/ai_system.md) for the full explanation and the
+`baka_brain.py` constants to check if this list ever goes stale again):
 
 | Role | Model | Purpose |
 |------|-------|---------|
-| 🧠 Main Brain | `z-ai/glm-5.1` | Intent detection, planning, save logic |
-| ⚡ Fast | `meta/llama-3.1-8b-instruct` | Quick classification, daily observations |
-| 💭 Think | `z-ai/glm-5.1` | `/think` free-form reasoning |
+| 🧠 Main Brain | `meta/llama-3.3-70b-instruct` | Intent detection, planning, save logic |
+| ⚡ Fast | `meta/llama-3.1-8b-instruct` | Quick classification (currently unused — see below) |
+| 💭 Think | `meta/llama-3.3-70b-instruct` | `/think` free-form reasoning |
 | 👀 Vision | `meta/llama-3.2-90b-vision-instruct` | Image understanding |
-| 🎨 Image | `black-forest-labs/flux.1-dev` | Image generation |
-| 🎬 Video | `nvidia/cosmos-1.0-7b-text2world` | Video generation |
+| 🎨 Image | `black-forest-labs/flux.1-schnell` | Image generation |
+| 🎬 Video | `stabilityai/stable-video-diffusion` | Video generation (FLUX frame → SVD animation) |
 
 Feature toggles in `baka_brain.py`:
 ```python
-ENABLE_FAST_ROUTING = False  # Llama 8B pre-filter (saves credits)
+ENABLE_FAST_ROUTING = False  # Llama 8B pre-filter — off, so MODEL_FAST above is currently unused
 ENABLE_VISION       = True   # Image understanding
-ENABLE_IMAGE_GEN    = False  # Opt-in (costs more credits)
-ENABLE_VIDEO_GEN    = False  # Opt-in (expensive)
+ENABLE_IMAGE_GEN    = True   # Image generation — on
+ENABLE_VIDEO_GEN    = True   # Video generation — on
 ```
 
 ---
 
-## 📊 AI Analytics (v11.1)
+## 📊 AI Analytics — ⚠️ currently broken
 
-Every AI call is automatically logged to a `ai_usage` SQLite table with:
-- Provider, model, latency, token counts, estimated cost
-- Success/failure status, error messages, fallback activations
-- Session tracking
+Every AI call is *intended* to be automatically logged to an `ai_usage`
+SQLite table (provider, model, latency, tokens, cost, success/failure,
+fallback activations), queryable via `/usage`, `/performance`, `/errors`,
+and `/models`.
 
-Zero overhead — uses an async background-thread writer (0.017ms per call).
+**As of the current codebase, this pipeline does not run**: the `analytics`
+package it depends on isn't wired up (the source files exist at the repo
+root but aren't assembled into an importable package), so the `ai_usage`
+table is never created and those four commands return empty data instead
+of real stats. Full detail: [DEBUGGING.md](DEBUGGING.md#known-issues).
 
 ---
 
@@ -260,30 +294,33 @@ telegram-planner-bot/
 ├── preferences.py       — Behavioral analysis (v6.0 learning)
 ├── fmt.py               — HTML formatting helpers
 ├── ui.py                — Dashboard card components
-├── analytics/           — AI usage monitoring package (v11.1)
-│   ├── __init__.py
-│   ├── usage_logger.py  — Async logger (background thread)
-│   ├── usage_service.py — Dashboard query functions
-│   ├── model_metrics.py — Per-model rollups + health detection
-│   ├── token_counter.py — Cost estimation (15 models)
-│   └── performance_tracker.py — Latency percentiles + trends
+├── usage_logger.py, usage_service.py, model_metrics.py,
+│   token_counter.py, performance_tracker.py, init.py
+│                       — AI usage monitoring code, written for an
+│                         `analytics/` package that doesn't currently
+│                         exist — these sit flat at repo root and are
+│                         not wired up. See DEBUGGING.md known issues.
+├── ai_helper.py, bot_state.py — dead code, not imported anywhere
 ├── .env                 — Secrets (gitignored)
 ├── admin_id.txt         — Admin lock (gitignored)
 ├── planner.db           — Main database (gitignored)
 └── bugs.db              — Bug tracker (gitignored)
 ```
 
+Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
+
 ---
 
 ## 🗃️ Database Schema
 
-13 active tables in `planner.db`:
+13 active tables in `planner.db` (full column-level detail:
+[docs/database.md](docs/database.md)):
 
 | Table | Purpose |
 |-------|---------|
-| `tasks` | Tasks + habits (24 columns inc. streak, snooze, deadline) |
+| `tasks` | Tasks + habits (streak, snooze, deadline columns added incrementally) |
 | `memories` | Key-value personal facts |
-| `goals` | Goals with progress + target columns |
+| `goals` | Goals + projects (progress/target columns; projects extend a goal with materials/worklog) |
 | `habit_log` | Daily habit completion log |
 | `user_preferences` | Quiet hours, interval, wellness settings |
 | `completions_log` | v6.0 — when tasks were completed |
@@ -292,7 +329,12 @@ telegram-planner-bot/
 | `task_templates` | Reusable task patterns |
 | `missed_capabilities` | What AI couldn't handle (feature mining) |
 | `ai_observations` | AI-generated daily suggestions |
-| `ai_usage` | Every AI call: model, tokens, latency, cost |
+| `project_materials` | v12.0 — materials checklist per project |
+| `project_worklog` | v12.0 — progress log per project |
+
+Note: `ai_usage` (AI call telemetry) is documented in the v11.1 changelog
+entry but is **not currently created** — see
+[DEBUGGING.md](DEBUGGING.md#known-issues).
 
 ---
 
@@ -319,7 +361,12 @@ telegram-planner-bot/
 | v10.1 | Pre-deadline buffer reminders (7d/3d/1d/6h/1h) |
 | v10.2 | AI autonomy foundation — context, /think, miss log |
 | v11.0 | Multi-model AI — 6 models, vision, image gen, observation engine |
-| v11.1 | AI analytics — every call logged, /usage /performance /errors |
+| v11.1 | AI analytics — every call logged, /usage /performance /errors (packaging incomplete — see known issues) |
+| v11.2 | NIM-only visual generation rebuild, model ID changes |
+| v12.0 | Project Management — materials, worklog, progress tracking, stagnation nudges |
+
+Full detail per version: [CHANGELOG.md](CHANGELOG.md). Planned work:
+[ROADMAP.md](ROADMAP.md).
 
 ---
 
