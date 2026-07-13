@@ -9,7 +9,74 @@ session can find the relevant code quickly.
 
 ---
 
-## v12.3 — Async Offload for AI/Media Calls (current)
+## v12.4 — Data Integrity: Reset Cleanup & IST Habit Dates (current)
+
+Sprint 1C of the post-audit production-hardening effort (see
+`ENGINEERING_AUDIT.md`, findings E1 and E2, both HIGH). Data-integrity-only
+sprint — no performance, AI, scheduler, or Telegram-handler changes.
+
+**E1 — admin reset commands left orphaned data / allowed ID-reuse
+inheritance.** Investigated independently (not assumed from the audit) by
+tracing all 5 reset commands end to end:
+- `reset_all_tasks()` (`/resettasks`) was deleting **all** of a user's
+  tasks including habits (`is_habit=1`) — directly contradicting the
+  command's own confirmation text, which promises "habits... are kept."
+  Fixed by scoping the delete to non-habit tasks only. This also closes
+  the habit_log-orphan risk for this command, since habits (and their
+  logs) are now simply untouched by it.
+- `reset_everything()` (`/resetall`, the "nuclear" wipe) deleted `goals`
+  and reset its ID sequence, but never touched `project_materials` /
+  `project_worklog` — both of which reference `goal_id`. A newly created
+  goal after a nuke could silently reuse an old goal's ID and inherit its
+  entire materials checklist and worklog history. Fixed by adding both
+  tables to the cleanup (and sequence-reset) pass. Also added
+  `task_templates`, `missed_capabilities`, and `ai_observations` to the
+  cleanup — these don't have an ID-reuse hazard (nothing references them
+  by a reused id), but were silently surviving a command that explicitly
+  promises to delete "EVERYTHING."
+- **AUTOINCREMENT reset behavior was deliberately left unchanged.**
+  Resetting IDs back to 1 is advertised, user-facing behavior (both
+  `/resettasks` and `/resetall`'s confirmation text say so explicitly).
+  The actual bug wasn't that IDs get reused — it's that dependent tables
+  weren't fully cleaned before that reuse could happen. Fixing cleanup
+  completeness closes the hazard without the larger, unnecessary,
+  user-visible behavior change that abandoning ID resets would be.
+
+**E2 — naive `datetime.now()` in `database.py` could misdate habit
+completions.** Repo-wide search for `datetime.now()`, `.today()`,
+`.utcnow()`, and other naive datetime construction found 10 occurrences in
+`database.py` (all now fixed, replaced with the project's established
+`datetime.now(IST)` pattern — already used correctly 14 times elsewhere in
+the same file) plus incidental occurrences in `ai_helper.py` (dead code,
+excluded — see below), `baka_brain.py` (excluded, see below), and
+`debug_system.py` (cosmetic debug/bug-report timestamps only, not
+data-integrity-relevant — left as-is to keep this sprint's diff scoped to
+actual data correctness, not a repo-wide style pass).
+Deliberately **not** touched, with reasoning:
+- `ai_helper.py` — confirmed dead code (not imported anywhere); fixing
+  unreachable code has no behavioral effect and falls inside this
+  sprint's "do not modify AI system" boundary.
+- `baka_brain.py` — explicitly excluded by this sprint's rules ("do NOT
+  modify: AI system"); its naive-datetime calls build transient prompt
+  context strings for the AI, never stored or compared against
+  IST-stamped data, so they carry no data-integrity risk of the kind E2
+  describes.
+
+Validated against an isolated temporary SQLite database (never the real
+`planner.db`): seeded a regular task, a habit, a goal with materials and
+worklog, a template, a missed-capability row, and an observation; ran
+`/resettasks`-equivalent then `/resetall`-equivalent; confirmed zero
+orphaned rows in all 12 user-scoped tables after the nuclear reset, and
+confirmed a brand-new goal created immediately afterward (which reused
+`goal_id=1`, proving the ID-reuse scenario actually occurred) found zero
+inherited materials or worklog entries. Habit completion dates confirmed
+to stamp using IST, not naive local time.
+
+Modified: `database.py` only.
+
+---
+
+## v12.3 — Async Offload for AI/Media Calls
 
 Sprint 1B of the post-audit production-hardening effort (see
 `ENGINEERING_AUDIT.md`, finding C1/I1, CRITICAL). Fixes the bot's biggest

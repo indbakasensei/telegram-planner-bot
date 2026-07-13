@@ -195,8 +195,8 @@ accuracy-over-quantity rule, not asserted as confirmed).
 
 | # | Issue | Severity |
 |---|---|---|
-| E1 | `/resettasks` doesn't clean up matching `habit_log` rows (inconsistent with `/resethabits`, which does); `/resetall` ("nuclear wipe") only touches 7 of the 13 real tables — `project_materials`, `project_worklog`, `task_templates`, `missed_capabilities`, `ai_observations` all survive a supposedly-complete wipe. Combined with `reset_all_tasks()` resetting the ID autoincrement sequence, a **newly created task/habit can silently inherit a stale, unrelated history** from orphaned rows that reused its new ID. | **HIGH** |
-| E2 | Several `database.py` functions use naive `datetime.now()` instead of the IST-aware pattern used elsewhere in the same file (`add_habit` L629, `log_habit_completion` L653, `get_habit_log` L694, `get_missed_days` L736, and five behavioral-learning functions L832-887) — a regression of the exact bug class `CHANGELOG.md`'s v7.0 entry says was already fixed once. Between 00:00–05:29 IST, habit completions can be misdated to the previous day. | **HIGH** |
+| E1 | ✅ **RESOLVED 2026-07-13 (Sprint 1C, v12.4 — see CHANGELOG.md)**. Independent re-investigation during the fix found the actual bug was broader than first described: `reset_all_tasks()` was deleting habits too, contradicting `/resettasks`'s own promise that habits are kept; and `reset_everything()`'s missing cleanup of `project_materials`/`project_worklog` was the concrete ID-reuse/inheritance hazard, not `habit_log` (which is a non-issue once habits are correctly excluded from `/resettasks`). See CHANGELOG.md v12.4 for full detail and the validation performed. Original finding: `/resettasks` doesn't clean up matching `habit_log` rows (inconsistent with `/resethabits`, which does); `/resetall` ("nuclear wipe") only touches 7 of the 13 real tables — `project_materials`, `project_worklog`, `task_templates`, `missed_capabilities`, `ai_observations` all survive a supposedly-complete wipe. Combined with `reset_all_tasks()` resetting the ID autoincrement sequence, a **newly created task/habit can silently inherit a stale, unrelated history** from orphaned rows that reused its new ID. | **HIGH** |
+| E2 | ✅ **RESOLVED 2026-07-13 (Sprint 1C, v12.4 — see CHANGELOG.md)** — all 10 occurrences in `database.py` fixed. `ai_helper.py` (dead code) and `baka_brain.py` (excluded — AI system, no stored/compared data affected) deliberately left as-is; see CHANGELOG.md for reasoning. Original finding: Several `database.py` functions use naive `datetime.now()` instead of the IST-aware pattern used elsewhere in the same file (`add_habit` L629, `log_habit_completion` L653, `get_habit_log` L694, `get_missed_days` L736, and five behavioral-learning functions L832-887) — a regression of the exact bug class `CHANGELOG.md`'s v7.0 entry says was already fixed once. Between 00:00–05:29 IST, habit completions can be misdated to the previous day. | **HIGH** |
 | E3 | Only `project_materials`/`project_worklog` (the two newest tables) have explicit indexes; all other tables (including `tasks`, queried every 60 seconds by the scheduler) rely on full-table scans | MEDIUM |
 | E4 | No connection pooling — every one of 100+ `database.py` functions opens and closes its own `sqlite3.connect()`; WAL mode is never enabled for `planner.db` (only ever mentioned for the non-functional `ai_usage` table) | MEDIUM |
 | E5 | No SQL injection found — all user-controlled values are parameterized with `?`; the handful of dynamic-column-name query-building patterns (`update_task`, `reset_learning_data`) use hardcoded internal lists, not caller input, but are a fragile *pattern* worth a code comment | Not a bug (informational) |
@@ -294,11 +294,13 @@ caught in that pass:
    (19 call sites via `async_bridge.py`); the database layer (252 call
    sites) was measured and deliberately left unwrapped — see the
    changelog entry for the benchmark data.
-3. **Fix E1** (admin reset data corruption) — extend `reset_all_tasks`
-   to clean `habit_log`; extend `reset_everything` to cover all 13 tables.
-4. **Fix E2** (naive `datetime.now()` in database.py) — mechanical
+3. ✅ ~~**Fix E1** (admin reset data corruption) — extend `reset_all_tasks`
+   to clean `habit_log`; extend `reset_everything` to cover all 13 tables.~~
+   **Done 2026-07-13, Sprint 1C — see CHANGELOG.md v12.4** (actual fix
+   differed from this original plan — see the changelog entry).
+4. ✅ ~~**Fix E2** (naive `datetime.now()` in database.py) — mechanical
    find-and-replace with the `IST`-aware pattern already used elsewhere in
-   the same file.
+   the same file.~~ **Done 2026-07-13, Sprint 1C — see CHANGELOG.md v12.4.**
 5. **Fix F1** (reminder-burst flood risk) — add pacing/batching to
    `check_reminders`, matching the pattern `check_followups` already uses.
 6. **Fix D5/ARCH-6** (no instance lock) — add a PID-file check to `run.sh`
@@ -322,13 +324,14 @@ caught in that pass:
 
 ## 11. Suggested Sprint Plan
 
-**Sprint 1 — Stop the bleeding (both CRITICALs + data corruption):**
-D1 (timezone fix), I1/C1 (async offload, at minimum for AI/video/image
-calls), E1 (admin reset cleanup), E2 (naive datetime fix). All four are
-individually small (S-M effort) and independent of each other — can be
-split across parallel work if more than one person is available. Validate
-each against the relevant `/selftest` sections plus `TEST_CHECKLIST.md`
-Section R (regression tests) before calling the sprint done.
+**Sprint 1 — Stop the bleeding (both CRITICALs + data corruption):** ✅
+**complete as of 2026-07-13.** D1 (timezone fix, Sprint 1A/v12.2), I1/C1
+(async offload, Sprint 1B/v12.3), E1+E2 (reset cleanup + IST datetime fix,
+Sprint 1C/v12.4). All four were fixed individually, each validated against
+an isolated environment (standalone scripts for D1/I1/C1, an isolated temp
+database for E1/E2 — never the live `planner.db`). Live-traffic
+confirmation (via `/selftest` against the running bot) is still
+outstanding — recommended before considering Sprint 1 fully closed.
 
 **Sprint 2 — Reliability & Telegram correctness:**
 F1 (reminder flood pacing), D5/ARCH-6 (instance lock), F3 (finish HTML

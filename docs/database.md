@@ -114,9 +114,18 @@ implicit via matching ID columns, all additionally scoped by `user_id`:
 - **Duplicate prevention** is manual (`task_exists()` checks title+date
   before insert; `save_memory()` checks key before insert/update) rather
   than relying on SQL constraints
-- **`resettasks` resets the autoincrement counter** back to 1
-  (`reset_all_tasks()` in `database.py`) — the only place IDs get
-  deliberately reset
+- **`resettasks`/`resetall` reset autoincrement counters** back to 1
+  (`reset_all_tasks()`/`reset_everything()` in `database.py`) — the only
+  places IDs get deliberately reset. As of v12.4 (Sprint 1C,
+  see `CHANGELOG.md`), both functions fully cascade-clean every table that
+  references the id being reset before resetting it, specifically to
+  prevent a newly created record from silently inheriting an old,
+  unrelated record's history via SQLite ID reuse (this was a real bug,
+  `ENGINEERING_AUDIT.md` finding E1 — see the changelog for detail).
+  `reset_all_tasks()` (`/resettasks`) only deletes non-habit tasks,
+  matching that command's own promise that habits are kept.
+  `reset_everything()` (`/resetall`) covers all 12 user-scoped tables
+  (previously only 7).
 - **Read-only admin SQL** (`/sql`) is restricted to `SELECT` statements at
   the `main.py` handler level, not enforced by the database itself
 

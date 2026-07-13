@@ -626,7 +626,7 @@ def add_habit(user_id, title, time=None, recurrence="daily",
     """Create a habit (a recurring task with is_habit=1)."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(IST).strftime("%Y-%m-%d")
     c.execute("""INSERT INTO tasks
         (user_id, title, due_time, category, priority,
          recurrence_type, recurrence_weekday,
@@ -650,7 +650,7 @@ def is_habit(task_id):
 def log_habit_completion(habit_id, user_id, log_date=None):
     """Log that habit was done on a given date (default today). Updates streak."""
     if log_date is None:
-        log_date = datetime.now().strftime("%Y-%m-%d")
+        log_date = datetime.now(IST).strftime("%Y-%m-%d")
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     # Insert log entry (UNIQUE constraint prevents double-log per day)
@@ -691,7 +691,7 @@ def get_habit_log(habit_id, user_id, days=30):
     """Return last N days of habit log entries."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(IST) - timedelta(days=days)).strftime("%Y-%m-%d")
     c.execute("""SELECT log_date, completed FROM habit_log
                  WHERE habit_id=? AND user_id=? AND log_date >= ?
                  ORDER BY log_date DESC""", (habit_id, user_id, cutoff))
@@ -729,11 +729,11 @@ def get_missed_days(habit_id, user_id, days=30):
         return []
 
     cutoff = max(start_date,
-                 (datetime.now() - timedelta(days=days)).date())
+                 (datetime.now(IST) - timedelta(days=days)).date())
 
     # Days when this habit "should" have happened
     expected = []
-    today = datetime.now().date()
+    today = datetime.now(IST).date()
     cur = cutoff
     while cur <= today:
         if recurrence_type == "daily":
@@ -829,7 +829,7 @@ def get_active_hours(user_id, days=30):
     conn = sqlite3.connect(DB_NAME)
     _init_learning_tables(conn)
     c = conn.cursor()
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (datetime.now(IST) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     c.execute("""SELECT substr(timestamp, 12, 2) AS hour, COUNT(*) as cnt
         FROM interaction_log WHERE user_id=? AND timestamp >= ?
         GROUP BY hour ORDER BY cnt DESC""", (user_id, cutoff))
@@ -843,7 +843,7 @@ def get_completion_patterns(user_id, days=30):
     conn = sqlite3.connect(DB_NAME)
     _init_learning_tables(conn)
     c = conn.cursor()
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (datetime.now(IST) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     c.execute("""SELECT category, AVG(delay_minutes), COUNT(*), substr(completed_at, 12, 2) AS hour
         FROM completions_log WHERE user_id=? AND completed_at >= ?
         GROUP BY category, hour""", (user_id, cutoff))
@@ -857,7 +857,7 @@ def get_snooze_patterns(user_id, days=30):
     conn = sqlite3.connect(DB_NAME)
     _init_learning_tables(conn)
     c = conn.cursor()
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (datetime.now(IST) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     c.execute("""SELECT category, COUNT(*) as snoozes, AVG(snooze_minutes) as avg_min
         FROM snooze_log WHERE user_id=? AND snoozed_at >= ?
         GROUP BY category ORDER BY snoozes DESC""", (user_id, cutoff))
@@ -870,7 +870,7 @@ def get_category_distribution(user_id, days=30):
     """Returns {category: task_count} over the last N days."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (datetime.now(IST) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     c.execute("""SELECT category, COUNT(*) FROM tasks
         WHERE user_id=? AND created_at >= ? GROUP BY category""",
         (user_id, cutoff))
@@ -884,7 +884,7 @@ def get_typical_time_for_category(user_id, category, days=30):
     conn = sqlite3.connect(DB_NAME)
     _init_learning_tables(conn)
     c = conn.cursor()
-    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (datetime.now(IST) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     c.execute("""SELECT substr(completed_at, 12, 5) AS hm, COUNT(*) as cnt
         FROM completions_log WHERE user_id=? AND category=? AND completed_at >= ?
         GROUP BY hm ORDER BY cnt DESC LIMIT 1""", (user_id, category, cutoff))
@@ -894,10 +894,12 @@ def get_typical_time_for_category(user_id, category, days=30):
 
 # ── v6.1: Admin / Reset functions ─────────────────────
 def reset_all_tasks(user_id):
-    """Delete all of a user's tasks and reset the autoincrement counter."""
+    """Delete all of a user's non-habit tasks and reset the autoincrement
+    counter. Habits are excluded — /resettasks's own confirmation message
+    promises "habits... are kept"; use reset_all_habits() for those."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("DELETE FROM tasks WHERE user_id=?", (user_id,))
+    c.execute("DELETE FROM tasks WHERE user_id=? AND COALESCE(is_habit,0)=0", (user_id,))
     deleted = c.rowcount
     # Reset the autoincrement counter ONLY if the table is now empty
     c.execute("SELECT COUNT(*) FROM tasks")
@@ -943,26 +945,55 @@ def reset_learning_data(user_id):
     return total
 
 def reset_everything(user_id):
-    """Nuclear reset — wipe ALL of a user's data and reset task IDs."""
+    """Nuclear reset — wipe ALL of a user's data and reset every ID.
+
+    Must cover every table that references tasks.id or goals.id, or a
+    freshly created task/habit/goal can silently inherit an old, unrelated
+    record's history once the autoincrement counter is reset and IDs are
+    reused (see ENGINEERING_AUDIT.md finding E1). project_materials and
+    project_worklog reference goal_id; since goals.id gets reset here too,
+    those two tables are exactly as much at risk as habit_log was for
+    tasks.id, and are cleaned for the same reason. task_templates,
+    missed_capabilities, and ai_observations don't reference task/goal ids
+    at all (no inheritance risk), but are included so "deletes EVERYTHING"
+    is actually true.
+    """
     conn = sqlite3.connect(DB_NAME)
     _init_learning_tables(conn)
+    _init_project_tables(conn)
+    _init_templates(conn)
+    _init_missed_capabilities(conn)
+    _init_observations(conn)
     c = conn.cursor()
     counts = {}
     for table in ["tasks", "memories", "goals", "habit_log",
-                  "completions_log", "snooze_log", "interaction_log"]:
+                  "completions_log", "snooze_log", "interaction_log",
+                  "project_materials", "project_worklog",
+                  "task_templates", "missed_capabilities", "ai_observations"]:
         try:
             c.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
             counts[table] = c.rowcount
         except Exception:
             counts[table] = 0
-    # Reset task ID counter if tasks table is globally empty
-    c.execute("SELECT COUNT(*) FROM tasks")
-    if c.fetchone()[0] == 0:
-        for seq_table in ["tasks", "memories", "goals", "habit_log"]:
-            try:
-                c.execute("DELETE FROM sqlite_sequence WHERE name=?", (seq_table,))
-            except Exception:
-                pass
+    # Reset ID counters for every table just wiped above, but only once
+    # each parent table is globally empty (matches the existing tasks-table
+    # guard) — avoids resetting a sequence that another user still has
+    # live rows depending on, in this single-DB multi-user-scoped schema.
+    for parent_table, seq_tables in (
+        ("tasks", ["tasks", "habit_log"]),
+        ("memories", ["memories"]),
+        ("goals", ["goals", "project_materials", "project_worklog"]),
+        ("task_templates", ["task_templates"]),
+        ("missed_capabilities", ["missed_capabilities"]),
+        ("ai_observations", ["ai_observations"]),
+    ):
+        c.execute(f"SELECT COUNT(*) FROM {parent_table}")
+        if c.fetchone()[0] == 0:
+            for seq_table in seq_tables:
+                try:
+                    c.execute("DELETE FROM sqlite_sequence WHERE name=?", (seq_table,))
+                except Exception:
+                    pass
     conn.commit()
     conn.close()
     return counts
