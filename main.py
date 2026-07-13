@@ -70,6 +70,7 @@ from scheduler import get_due_tasks, get_tasks_needing_followup, auto_carry_forw
 import debug_system as dbg
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from async_bridge import run_blocking
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -522,7 +523,7 @@ async def memory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def analyze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tasks = get_tasks(update.message.from_user.id)
     await update.message.reply_text("📊 Analyzing...")
-    result = analyze_productivity(tasks)
+    result = await run_blocking(analyze_productivity, tasks)
     await update.message.reply_text(f"📊 *Analysis:*\n\n{result}", parse_mode="Markdown", reply_markup=main_menu())
 
 async def suggest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -531,7 +532,7 @@ async def suggest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     goal = " ".join(context.args)
     await update.message.reply_text("🧠 Generating suggestions...")
-    result = suggest_tasks(goal)
+    result = await run_blocking(suggest_tasks, goal)
     await update.message.reply_text(f"🎯 *Tasks for: {goal}*\n\n{result}", parse_mode="Markdown", reply_markup=main_menu())
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -545,7 +546,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Basic connectivity check
-    result = check_api_status()
+    result = await run_blocking(check_api_status)
 
     if result["status"] != "online":
         await thinking.delete()
@@ -559,7 +560,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Run benchmark
-    bench = benchmark_ai(quick=not full)
+    bench = await run_blocking(benchmark_ai, quick=not full)
 
     rt = result.get("response_time_ms", 0)
     speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
@@ -911,7 +912,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id = get_editing_id(user_id)
         if task_id:
             parsed = parse_all(user_input)
-            result = get_baka_response(
+            result = await run_blocking(get_baka_response,
                 f"Modify task [{task_id}]. User: '{user_input}'",
                 [], get_history(user_id)
             )
@@ -946,7 +947,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "gathering":
         partial, missing = get_gathering(user_id)
         parsed = parse_all(user_input)
-        result = get_baka_response(
+        result = await run_blocking(get_baka_response,
             f"Context: {partial}. Need: {missing}. User: '{user_input}'",
             get_tasks(user_id), get_history(user_id)
         )
@@ -1221,7 +1222,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         _user_context = None
 
-    result = get_baka_response(user_input, existing_tasks, get_history(user_id),
+    result = await run_blocking(get_baka_response, user_input, existing_tasks, get_history(user_id),
                                 memories, user_context=_user_context, user_id=user_id)
     intent = result.get("intent", "CHAT").upper()
     entities = result.get("entities", {})
@@ -1534,7 +1535,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "❌ Couldn't find that task. Use /list then /edit <id>", reply_markup=main_menu())
 
     elif intent == "MEMORY_SAVE":
-        key, value = extract_memory_key(user_input)
+        key, value = await run_blocking(extract_memory_key, user_input)
         if key and value:
             save_memory(user_id, key, value)
             await update.message.reply_text(
@@ -2053,7 +2054,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if task:
             await query.edit_message_text(f"🔨 Breaking down *{task[1]}*...",
                                           parse_mode="Markdown")
-            subtasks = generate_task_breakdown(task[1], task[2])
+            subtasks = await run_blocking(generate_task_breakdown, task[1], task[2])
             if subtasks:
                 set_pending_action(user_id, "create_subtasks", {
                     "action": "create_subtasks",
@@ -2511,7 +2512,7 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await update.message.reply_text("📅 Generating your weekly plan...")
         prefs = get_user_prefs(user_id)
-        plan_data = generate_structured_plan(tasks, prefs, "this week")
+        plan_data = await run_blocking(generate_structured_plan, tasks, prefs, "this week")
         await _present_plan(update, user_id, plan_data, period_label="Week Ahead")
         return
 
@@ -2526,7 +2527,7 @@ async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("📋 Generating your daily plan...")
     prefs = get_user_prefs(user_id)
-    plan_data = generate_structured_plan(tasks, prefs, "today")
+    plan_data = await run_blocking(generate_structured_plan, tasks, prefs, "today")
     await _present_plan(update, user_id, plan_data, period_label=f"Today ({today_str})")
 
 
@@ -2590,7 +2591,7 @@ async def breakdown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(f"🧠 Breaking down *{task[1]}*...", parse_mode="Markdown")
-    subtasks = generate_task_breakdown(task[1], task[2])
+    subtasks = await run_blocking(generate_task_breakdown, task[1], task[2])
 
     if not subtasks:
         await update.message.reply_text(
@@ -2646,7 +2647,7 @@ async def reschedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"🤔 Finding a better time for *{task[1]}*...",
                                     parse_mode="Markdown")
-    new_time = suggest_reschedule_time(task[1], conflicts)
+    new_time = await run_blocking(suggest_reschedule_time, task[1], conflicts)
     if not new_time:
         await update.message.reply_text(
             "Couldn't suggest a time. Use /edit to set manually.",
@@ -3698,7 +3699,7 @@ async def think_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_ctx = get_user_context_for_ai(user_id)
         open_tasks = get_tasks(user_id)[:10]
         mems = get_all_memories(user_id)
-        answer = think_freely(question, user_context=user_ctx,
+        answer = await run_blocking(think_freely, question, user_context=user_ctx,
                               recent_tasks=open_tasks, memories=mems)
         await thinking.delete()
         await update.message.reply_text(
@@ -3752,7 +3753,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             prompt = caption
 
-        result = call_vision(data_url, prompt, max_tokens=500)
+        result = await run_blocking(call_vision, data_url, prompt, max_tokens=500)
         await thinking.delete()
 
         # Offer to act on the extracted info
@@ -3809,7 +3810,7 @@ async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<i>Prompt: {esc(prompt[:100])}</i>",
         parse_mode=HTML)
     try:
-        result = generate_image(prompt, user_id=user_id)
+        result = await run_blocking(generate_image, prompt, user_id=user_id)
         await thinking.delete()
 
         # NIM returns base64 data URL — decode and send as bytes to Telegram
@@ -3862,7 +3863,7 @@ async def video_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<i>Step 1/2: Creating frame with FLUX...</i>",
         parse_mode=HTML)
     try:
-        result = generate_video(prompt=prompt, user_id=user_id)
+        result = await run_blocking(generate_video, prompt=prompt, user_id=user_id)
         await thinking.delete()
         video_b64 = result.get("video_b64")
         if video_b64:
@@ -3904,7 +3905,7 @@ async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats = {}
 
     # Quick liveness probe
-    health = benchmark_all_models()
+    health = await run_blocking(benchmark_all_models)
 
     lines = [f"🤖 {b('Multi-Model AI Status')}", ""]
     for name, r in health.items():
@@ -5136,7 +5137,7 @@ def main() -> None:
 
                 # Use the FAST model — this is a quick periodic check, not deep reasoning
                 try:
-                    raw = call_fast([
+                    raw = await run_blocking(call_fast, [
                         {"role": "system", "content": "You return ONLY valid JSON. No prose, no markdown."},
                         {"role": "user", "content": prompt}
                     ], temperature=0.3, max_tokens=400)

@@ -9,7 +9,44 @@ session can find the relevant code quickly.
 
 ---
 
-## v12.2 — Scheduler Timezone Hardening (current)
+## v12.3 — Async Offload for AI/Media Calls (current)
+
+Sprint 1B of the post-audit production-hardening effort (see
+`ENGINEERING_AUDIT.md`, finding C1/I1, CRITICAL). Fixes the bot's biggest
+scalability bug: every AI call and every image/video generation call ran
+synchronously inside `async def` Telegram handlers, blocking the *entire*
+bot's event loop for every user for as long as that call took — up to
+~96s worst-case for a retried text call, up to 5 minutes for `/video`.
+
+**Analysis first:** inventoried every blocking operation in the request
+path. 19 call sites across 15 `baka_brain.py` functions are network-bound
+(AI inference, image gen, video gen) — these needed fixing. 252 call sites
+into `database.py` (plus 4 raw `sqlite3.connect` sites in `main.py`) are
+database-bound; benchmarked directly against the live `planner.db` at
+0.3-0.4ms per call (connect+query+close included) — negligible for
+event-loop purposes at this bot's scale, so deliberately left unwrapped
+this sprint rather than touching 250+ call sites for no measurable benefit.
+
+**Architecture:** added `async_bridge.py`, a single new module with one
+function, `run_blocking()`, that offloads a synchronous callable to a
+worker thread (`asyncio.to_thread`). Every one of the 19 AI/media call
+sites in `main.py` now goes through it (`await run_blocking(fn, ...)`
+instead of `fn(...)`). Rejected wrapping `baka_brain.py`'s functions in
+place — `generate_video()` calls `generate_image()` internally, by name,
+synchronously; independently wrapping both as async functions in place
+would have broken that internal call (an unawaited coroutine returned
+instead of the actual image). Routing through one boundary-level helper
+instead means `baka_brain.py` itself is completely untouched — zero risk
+to prompts, business logic, or its internal call graph — and leaves a
+single seam to swap in native async clients (`AsyncOpenAI`,
+`httpx.AsyncClient`) in a future version without touching call sites again.
+
+Modified: `main.py` (19 call sites + 1 import line). New: `async_bridge.py`.
+Untouched: `baka_brain.py` (as designed — see above).
+
+---
+
+## v12.2 — Scheduler Timezone Hardening (superseded by v12.3 above as current)
 
 Sprint 1A of the post-audit production-hardening effort (see
 `ENGINEERING_AUDIT.md`, finding D1, CRITICAL). Fixes a bug where every

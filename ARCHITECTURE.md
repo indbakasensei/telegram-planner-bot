@@ -66,7 +66,8 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 |---|---|---|
 | `main.py` | All ~90 command handlers, callback router, job registration, `main()` entrypoint | 5,300+ lines; see [API.md](API.md) for the full command table |
 | `database.py` | All SQLite schema + CRUD, in-place migrations via `ALTER TABLE ... except: pass` | See [docs/database.md](docs/database.md) |
-| `baka_brain.py` | NVIDIA NIM calls, intent detection, planning, vision/image/video | See [docs/ai_system.md](docs/ai_system.md) |
+| `baka_brain.py` | NVIDIA NIM calls, intent detection, planning, vision/image/video | Fully synchronous internally (by design — see `async_bridge.py`); see [docs/ai_system.md](docs/ai_system.md) |
+| `async_bridge.py` | The single seam offloading `baka_brain.py`'s synchronous AI/media calls onto worker threads so they don't block the bot's event loop (added v12.3, Sprint 1B) | One function, `run_blocking()`; used at all 19 `main.py` call sites into `baka_brain.py`'s public functions. `database.py` calls are deliberately not routed through it — see [docs/ai_system.md](docs/ai_system.md) |
 | `date_parser.py` | Deterministic regex date/time parser (EN/Hindi/Hinglish); wins over the AI for known-ambiguous phrasings | Pure functions, no I/O |
 | `scheduler.py` | Query helpers for due/overdue/followup tasks and quiet-hours checks | The actual timer is PTB's `job_queue`, registered in `main.py` |
 | `conversation_state.py` | In-memory (module-level dict) state machine: idle/gathering/confirming/editing | **Does not survive process restart**, despite its own docstring's "survives reliably" claim — see [DEBUGGING.md](DEBUGGING.md#known-issues) |
@@ -100,9 +101,14 @@ traces, intentionally isolated from user data.
 Single provider (NVIDIA NIM) accessed via an OpenAI-compatible client, with
 a hand-rolled retry loop (SDK retries disabled deliberately — see
 [docs/ai_system.md](docs/ai_system.md)) and automatic MAIN→FAST model
-fallback on hard failures. Full detail, including current model IDs (which
-have drifted from what earlier docs/comments say) and the broken analytics
-pipeline: [docs/ai_system.md](docs/ai_system.md).
+fallback on hard failures. `baka_brain.py` itself is entirely synchronous;
+every call from `main.py` is offloaded to a worker thread via
+`async_bridge.py`'s `run_blocking()` so a slow AI call or a multi-minute
+video-generation request can't freeze the bot for other users (added v12.3,
+Sprint 1B — previously this was the audit's top CRITICAL finding). Full
+detail, including current model IDs (which have drifted from what earlier
+docs/comments say) and the broken analytics pipeline:
+[docs/ai_system.md](docs/ai_system.md).
 
 ## Admin & security model
 

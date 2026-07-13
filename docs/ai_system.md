@@ -49,6 +49,45 @@ pass.**
 | `ENABLE_IMAGE_GEN` | `True` | `/image` is live (originally opt-in/off in v11.0; flipped on in a later revision) |
 | `ENABLE_VIDEO_GEN` | `True` | `/video` is live (same — originally opt-in) |
 
+## Async boundary (v12.3, Sprint 1B)
+
+`baka_brain.py` is entirely synchronous — the OpenAI-compatible client, the
+raw `httpx` calls for image/video generation, and the app-level retry loop's
+`time.sleep()` calls are all blocking. Nothing inside this file was changed
+to fix that (deliberately — see below); instead, every call site in
+`main.py` that invokes one of `baka_brain.py`'s public functions goes
+through `async_bridge.py`'s `run_blocking()`, which runs the call on a
+worker thread via `asyncio.to_thread()`:
+
+```python
+result = await run_blocking(generate_image, prompt, user_id=user_id)
+# instead of: result = generate_image(prompt, user_id=user_id)
+```
+
+**Why the wrapping lives outside `baka_brain.py`, not inside it:**
+`generate_video()` calls `generate_image()` internally, synchronously, by
+name (`baka_brain.py` — `generate_video`'s body). If `generate_image` were
+independently converted to an `async def` in place, that internal call
+would silently return an unawaited coroutine instead of the actual image.
+Routing through one external boundary function means `baka_brain.py`'s
+internal call graph — `generate_video`→`generate_image`,
+`call_fast`→`call_main`, every `call_*` wrapper→`_call_model`/`call_nvidia`
+— keeps working exactly as before, entirely within whichever single worker
+thread `run_blocking()` handed the outermost call to. No prompt, no
+business logic, and no line inside `baka_brain.py` changed for this fix.
+
+**Not in scope:** `database.py` calls. Benchmarked directly against the
+live `planner.db`: 0.3-0.4ms per call (connect+query+close included) —
+negligible for event-loop purposes given this bot's scale (252 call sites
+in `main.py`, vs. 19 for the AI/media layer where a single call can take
+seconds to minutes). See `ENGINEERING_AUDIT.md`/`CHANGELOG.md`'s v12.3
+entry for the full reasoning.
+
+**Migration path:** when/if `baka_brain.py` is migrated to a native async
+client (`AsyncOpenAI`, `httpx.AsyncClient`), `async_bridge.py` is the one
+place to update — call sites using `run_blocking()` would not need to
+change individually.
+
 ## Function inventory
 
 See [API.md](../API.md#bakabrainpy-grouped-by-purpose) for the grouped list

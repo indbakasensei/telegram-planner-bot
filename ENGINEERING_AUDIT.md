@@ -174,7 +174,7 @@ accuracy-over-quantity rule, not asserted as confirmed).
 
 | # | Issue | Severity |
 |---|---|---|
-| C1 | **Every AI call blocks the entire asyncio event loop** — `baka_brain.py` uses the synchronous `openai.OpenAI` client (not `AsyncOpenAI`), blocking `time.sleep()` in retry loops, and a synchronous `httpx.Client` (120s/300s timeouts) for image/video generation, all called directly from `async def` handlers with zero `asyncio.to_thread`/`run_in_executor`/await anywhere. Confirmed independently by two audit angles (also listed as PERF-1). A `/video` call alone can freeze the *entire bot, for every user*, for up to 5 minutes. | **CRITICAL** |
+| C1 | ✅ **RESOLVED 2026-07-13 (Sprint 1B, v12.3 — see CHANGELOG.md)** for the AI/media layer (19 call sites, via new `async_bridge.py`). Database calls (252 sites) deliberately left as-is — benchmarked at 0.3-0.4ms each, below the threshold where offloading matters; see CHANGELOG.md's v12.3 entry for the reasoning. Original finding: **Every AI call blocks the entire asyncio event loop** — `baka_brain.py` uses the synchronous `openai.OpenAI` client (not `AsyncOpenAI`), blocking `time.sleep()` in retry loops, and a synchronous `httpx.Client` (120s/300s timeouts) for image/video generation, all called directly from `async def` handlers with zero `asyncio.to_thread`/`run_in_executor`/await anywhere. Confirmed independently by two audit angles (also listed as PERF-1). A `/video` call alone can freeze the *entire bot, for every user*, for up to 5 minutes. | **CRITICAL** |
 | C2 | Self-directed prompt injection: `get_baka_response()`'s system prompt interpolates a user's own conversation history and saved memories unfiltered — a user could inject instruction-like text that affects only their own future sessions (no cross-user impact; no data-exfiltration path found, since the AI has no tool access to other users' data) | LOW |
 | C3 | Unconfirmed whether `main.py`'s save paths treat the AI's `needs_confirm` field as authoritative (trusting AI output) or independently enforce confirmation server-side — if the former, a manipulated/hallucinated response could bypass the "BAKA always confirms before saving" design principle | Needs Investigation |
 | C4 | `CHANGELOG.md`'s "provider-independent" claim (v11.1) is true only for cost-tracking metadata — the actual AI client is hardcoded to NVIDIA NIM throughout every call site; the `anthropic` SDK is a fully unused dependency (zero `import anthropic` anywhere), suggesting multi-provider support was planned but never built | LOW |
@@ -247,7 +247,7 @@ risk.
 
 | # | Issue | Severity |
 |---|---|---|
-| I1 | Same root cause as C1 — confirmed independently: **zero async offload anywhere**, meaning the bot serves at most one AI-driven or DB-driven interaction at a time, freezing for every other user during that window. Worst case: `/video` (up to 5 min). | **CRITICAL** |
+| I1 | ✅ **RESOLVED 2026-07-13 (Sprint 1B, v12.3)** — see C1. Same root cause as C1 — confirmed independently: **zero async offload anywhere**, meaning the bot serves at most one AI-driven or DB-driven interaction at a time, freezing for every other user during that window. Worst case: `/video` (up to 5 min). | **CRITICAL** |
 | I2 | `get_due_tasks()` runs 5 unconditional queries against `tasks` every 60 seconds regardless of load — fine into the tens of thousands of rows given current lack of indexing (E3), degrades past that | MEDIUM |
 | I3 | Some multi-read commands (e.g. `/think`) open 3+ separate DB connections for what could be one batched read — real but minor overhead, compounds with I1 rather than independently mattering | MEDIUM (Needs Investigation on real-world impact) |
 | I4 | No redundant/duplicate AI calls found — `fast_intent_classify()` pre-filter exists but is correctly gated off by `ENABLE_FAST_ROUTING=False`, not accidentally double-calling | Not a bug |
@@ -287,9 +287,13 @@ caught in that pass:
 1. ✅ ~~**Fix D1** (daily jobs firing in UTC) — one-line `Defaults(tzinfo=...)`
    fix, highest bug-per-effort ratio in the whole audit.~~ **Done 2026-07-13,
    Sprint 1A — see CHANGELOG.md v12.2.**
-2. **Fix I1/C1** (blocking event loop) — wrap `database.py`/`baka_brain.py`
+2. ✅ ~~**Fix I1/C1** (blocking event loop) — wrap `database.py`/`baka_brain.py`
    call sites in `asyncio.to_thread()`; start with the video/image paths
-   (worst-case 5-minute freezes) before the rest.
+   (worst-case 5-minute freezes) before the rest.~~ **Done 2026-07-13,
+   Sprint 1B — see CHANGELOG.md v12.3.** Scoped to the AI/media layer
+   (19 call sites via `async_bridge.py`); the database layer (252 call
+   sites) was measured and deliberately left unwrapped — see the
+   changelog entry for the benchmark data.
 3. **Fix E1** (admin reset data corruption) — extend `reset_all_tasks`
    to clean `habit_log`; extend `reset_everything` to cover all 13 tables.
 4. **Fix E2** (naive `datetime.now()` in database.py) — mechanical
