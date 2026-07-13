@@ -16,8 +16,16 @@ For setup instructions and the full user-facing command list, see
 
 ## Current status
 
-**v12.0** (Project Management) is the latest shipped version. See
-[CHANGELOG.md](CHANGELOG.md) for the full history back to v1.0.
+**v14.0** (Intent Engine, Shadow Mode) is the latest shipped version. See
+[CHANGELOG.md](CHANGELOG.md) for the full history back to v1.0. (This line
+previously said v12.0, several releases out of date — corrected during
+v14.0's documentation sync; if you're reading this and CHANGELOG.md's top
+entry has moved past v14.0 again, trust CHANGELOG.md, not this line.)
+
+v14.0 Stage 1 added a new internal classification layer
+(`core/intent/`, see [ARCHITECTURE.md](ARCHITECTURE.md)) that runs
+alongside every message but does not yet change any user-visible
+behavior — every feature below is unaffected.
 
 Deployment target: To Be Documented — historically run locally under WSL
 via `run.sh`'s crash-loop restarter; confirm current hosting before relying

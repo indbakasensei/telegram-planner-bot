@@ -9,7 +9,121 @@ session can find the relevant code quickly.
 
 ---
 
-## v13.3.2 — Hotfix: Adaptive AI Timeout Profiles (current)
+## v14.0 — Intent Engine (Shadow Mode) (current)
+
+Stage 1 of the v14 Autonomous Core architecture (`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md`,
+approved v13.4 Architecture Freeze — see the "v14 Architecture Freeze" entry
+below). Purely additive and internal: **no user-visible behavior changed.**
+Every incoming message is now also classified by a new, deterministic
+Intent Engine, but nothing in the bot acts on that classification yet — it
+only observes and logs.
+
+### Added
+
+- **Intent Engine subsystem** (`core/intent/`) — a pure, stateless,
+  offline classifier with zero Telegram/database/scheduler/AI/network
+  dependencies. Six-tier deterministic rule priority: exact/prefix
+  commands → anchored greeting/small-talk → date/time parsing → recurrence
+  keywords → unanchored help phrasing → weak keyword heuristics → unknown
+  fallback. Reuses `date_parser.py`'s `parse_all()`/`detect_recurrence()`
+  directly rather than reimplementing date/time logic; Tier 0's
+  command-recognition table is a documented, hand-maintained mirror of
+  `main.py`'s `_starts_with_handlers`/`_exact_handlers` (those are local
+  variables inside `handle_message()`, not importable — see
+  [DEBUGGING.md](DEBUGGING.md#known-issues) for why this is accepted debt,
+  not an oversight).
+- **`Intent` enum** (`core/intent/intent_types.py`) — 11 values
+  (`ADD_TASK`, `EDIT_TASK`, `DELETE_TASK`, `QUERY_TASK`, `CHAT`,
+  `GREETING`, `HELP`, `MEDIA`, `FILE`, `SETTINGS`, `UNKNOWN`).
+- **`IntentResult` dataclass** — `intent`, `confidence`, `entities`,
+  `ambiguity`, `reasoning`, plus `tier` and `latency_ms` (justified
+  additions beyond the original design sketch's `ClassificationResult` —
+  see `INTENT_ENGINE.md`'s implementation-status note).
+- **Shadow Mode classification** — `main.py`'s `handle_message()` now
+  calls `IntentEngine.classify()` as its very first step (before any
+  existing routing branch) and logs the result via `logger.debug()`.
+  Wrapped in `try/except` so a classifier exception can never affect
+  existing behavior — an explicit backward-compatibility addition beyond
+  the base design.
+- **Structured debug logging** — a multi-line `[Intent] Input/Intent/
+  Confidence/Entities/Ambiguity/Reason/Latency` block per classified
+  message, emitted with lazy `%`-formatting so it costs nothing unless
+  the debug log level is enabled.
+- **Intent Engine tests** (`tests/test_intent_engine.py`) — 40 new tests,
+  100% coverage of `core/intent/`. Full suite is now 251 tests (was 211,
+  see [TESTING.md](TESTING.md)).
+
+### Changed
+
+- Incoming message flow (`main.py`'s `handle_message()`) now performs
+  passive intent classification before legacy routing. The classification
+  result is logged only; it is not read by any subsequent branch.
+- `conversation_state`'s `get_context` is now also imported in `main.py`
+  (needed to build the Intent Engine's `ConversationContext.partial_data`
+  — no change to `conversation_state.py` itself).
+
+### Architecture
+
+The Intent Engine currently operates in **observation mode only**. It
+classifies every message with a real confidence/ambiguity score and logs
+it, but does not affect routing — `handle_message()`'s existing
+menu/confirming/editing/gathering/slashless-command/AI-fallback logic is
+byte-for-byte unchanged. This is Stage 1 of a 6-stage migration
+(`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md` §11); Stage 2 (Offline Engine for
+already-offline commands) is next, not yet started. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the updated message-lifecycle
+diagram and [docs/adr/ADR-002-intent-engine.md](docs/adr/ADR-002-intent-engine.md)
+(status updated to Accepted) for the design rationale.
+
+**Real bug found and fixed during implementation** (not a regression —
+found by the new test suite before this shipped): a bare `"good morning"`
+was initially misclassified as `ADD_TASK` (confidence 0.95), because
+`date_parser.py` resolves the vague-time word "morning" to a default
+clock time and then infers a date from it — correct behavior for "remind
+me in the morning," wrong for a plain greeting. Fixed entirely within
+`core/intent/`'s own tier ordering (anchored whole-message greeting/
+small-talk is now checked before the date parser); `date_parser.py`
+itself was not touched. Same root-cause class as the "noon"-inside-
+"afternoon" bug `tests/test_date_parser.py` found during the v13.3 test
+suite sprint (below) — see `docs/adr/ADR-002-intent-engine.md`.
+
+### Notes
+
+Routing decisions remain unchanged. No command, AI, scheduler, database,
+or Telegram-interaction behavior differs from v13.3.2. This release exists
+so the Intent Engine's real-world classification accuracy can be observed
+(via `bot.log`'s debug output) before any future stage lets it influence
+what the bot actually does.
+
+---
+
+## v13.4 — Architecture Freeze: v14 Autonomous Core Design (design only, no code changes)
+
+Documentation-only milestone (commit `cf3024e`), previously untracked in
+this file — added retroactively while synchronizing the v14.0 entry above,
+since several docs (the ADRs, `INTENT_ENGINE.md`, this task's own base
+commit references) already called it "v13.4 Architecture Freeze" without
+it ever having a CHANGELOG entry of its own.
+
+Produced the approved design for BAKA's next architectural layer —
+`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md` (master spec) plus five companion
+documents (`INTENT_ENGINE.md`, `OFFLINE_ENGINE.md`, `AI_ROUTER.md`,
+`PLUGIN_SYSTEM.md`, `COMMAND_PIPELINE.md`, `STATE_MACHINE.md`,
+`DATA_FLOW.md`) and five Architecture Decision Records
+(`docs/adr/ADR-001` through `ADR-005`). Zero application code changed —
+see `docs/adr/ADR-005-autonomous-core.md` for why "Autonomous Core" means
+infrastructure autonomy (deciding which code path to run), not expanded
+agentic behavior or reduced user confirmation.
+
+Defines a 6-stage migration (`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md` §11):
+Stage 0 (fix the `analytics` package, prerequisite) → **Stage 1 (Intent
+Engine, additive — implemented next, see v14.0 above)** → Stage 2 (Offline
+Engine) → Stage 3 (AI Router, NVIDIA-only) → Stage 4 (additional AI
+providers) → Stage 5 (Plugin System, proof of concept via Projects).
+
+---
+
+## v13.3.2 — Hotfix: Adaptive AI Timeout Profiles
 
 Follow-up to v13.3.1. That hotfix fixed *whether* the bot fails over to
 `MODEL_FAST` on a timeout; this one fixes *how long it waits before

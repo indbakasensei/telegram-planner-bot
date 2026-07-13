@@ -124,6 +124,46 @@ Sprint 3's infrastructure-only scope. Worth a grep for stale version
 literals in `main.py`'s user-facing strings next time that area is
 touched.
 
+### Intent Engine (v14.0 Stage 1) — known architectural debt, not bugs
+
+Found during Stage 1 implementation. All four are deliberate, documented
+tradeoffs (see `core/intent/rules.py`'s module docstring and
+`docs/adr/ADR-002-intent-engine.md`'s "Implementation Note"), not
+oversights — listed here per this project's convention of tracking real
+gaps even when they're accepted rather than fixed.
+
+- **Duplicated command tables.** `core/intent/rules.py`'s Tier 0
+  `_PREFIX_COMMANDS`/`_EXACT_COMMANDS` are a hand-maintained mirror of
+  `main.py`'s `_starts_with_handlers`/`_exact_handlers`. True reuse isn't
+  possible without a `main.py` refactor (those are local variables inside
+  `handle_message()`, and `core/intent` importing `main.py` would be
+  circular, since `main.py` imports `core.intent` for Shadow Mode). If
+  `main.py`'s command tables change, `rules.py`'s copy will silently drift
+  out of sync — there is no automated check for this yet.
+- **Representative, not exhaustive, command coverage.** Tier 0 covers the
+  most common command groups verified against `main.py` at implementation
+  time, not all ~90 commands. Uncovered commands still work exactly as
+  before (Shadow Mode doesn't affect routing) — they just fall through to
+  a weaker tier (or `UNKNOWN`) in the *classification log only*.
+- **Shadow-mode exception handling.** `main.py`'s integration point wraps
+  the `classify()` call in `try/except Exception: logger.exception(...)`
+  — broader than this project's usual `except sqlite3.OperationalError`-style
+  specificity (`CLAUDE.md`'s migration-exception convention). Deliberate:
+  the backward-compatibility requirement ("users should notice absolutely
+  no behavioural difference") means a bug in brand-new, unproven
+  classification code must never be able to break the message handler it's
+  observing, at the cost of a broad except swallowing a real Intent Engine
+  bug if one occurs. Check `bot.log` for `"Intent Engine classification
+  failed"` if you suspect this is masking something.
+- **Future routing integration.** The Intent Engine's output is logged but
+  never read by any routing decision yet (Stage 1 is intentionally
+  observation-only). There is currently no mechanism to compare its
+  classifications against what `handle_message()` actually did for the
+  same message — that comparison would need to be built (e.g. a second log
+  line from the existing router, correlated by message) before Stage 1's
+  real-world accuracy can be evaluated quantitatively rather than by
+  manual `bot.log` inspection.
+
 ### Migration exception handling — resolved (v13.2)
 
 `init_db()`'s `ALTER TABLE ... ADD COLUMN` loops used to catch bare

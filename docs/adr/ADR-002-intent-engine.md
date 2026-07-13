@@ -1,6 +1,7 @@
 # ADR-002: Intent Engine — Rule-Based, Not ML-Based
 
-**Status:** Proposed
+**Status:** Accepted — Stage 1 implemented and shipped, v14.0
+(`core/intent/`, commit `afcd7a4`)
 **Part of:** BAKA v14 Autonomous Core (`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md`)
 **Depends on:** ADR-001 (Offline-First Philosophy)
 
@@ -88,3 +89,41 @@ directly, triggers a clarifying re-prompt, or escalates to the AI Router.
   `date_parser.py`'s existing rule set, not inventing hundreds of new
   ones), noted here for future architects to reassess if the rule set
   grows substantially past that.
+
+## Implementation Note (added post-Stage-1, v14.0)
+
+Stage 1 shipped as `core/intent/` (`intent_types.py`, `entities.py`,
+`rules.py`, `intent_engine.py`) in Shadow Mode — `main.py`'s
+`handle_message()` classifies every message and logs the result, but
+nothing acts on it yet, exactly as this ADR's Decision describes.
+`tests/test_intent_engine.py` (40 tests, 100% coverage of `core/intent/`)
+follows the same offline, zero-mocking shape `tests/test_date_parser.py`
+already established, confirming the "Positive" consequence above held in
+practice.
+
+Two things worth recording that weren't fully settled at proposal time:
+
+1. **This ADR's own predicted failure mode reproduced itself, once, inside
+   the new code.** The "Alternatives considered" section above cites the
+   real `date_parser.py` "noon"-inside-"afternoon" bug as the reason for
+   tiered priority over a flat list. During Stage 1's own test-writing, a
+   bare `"good morning"` was initially misclassified as `ADD_TASK`
+   (confidence 0.95) — `date_parser.py` resolves the vague-time word
+   "morning" to a default clock time, which a naive "date parser tier
+   before regex tier" ordering trusted over an obviously-just-a-greeting
+   message. Fixed by making anchored, whole-message pattern matches
+   (greeting/small-talk) authoritative and checked before the date
+   parser, entirely within `core/intent/rules.py`'s own tiering — the
+   same lesson this ADR already drew from `date_parser.py`, needing to be
+   applied a second time at the component level it predicted might be
+   needed ("Rule authoring is manual work," Consequences, above).
+2. **Tier 0's command table is duplicated, not shared**, because
+   `main.py`'s `_starts_with_handlers`/`_exact_handlers` are local
+   variables inside `handle_message()`, not importable, and `main.py`
+   importing `core.intent` for Shadow Mode makes the reverse import
+   circular. This wasn't explicitly anticipated in this ADR's "Positive"
+   consequences ("every rule is independently unit-testable... extending
+   the precedent `tests/test_date_parser.py` already set") — that
+   precedent held for Tiers 1/2 (genuine `date_parser.py` reuse) but not
+   for Tier 0. Tracked as accepted architectural debt, not a defect — see
+   [DEBUGGING.md](../../DEBUGGING.md#known-issues).

@@ -32,30 +32,72 @@ stagnation nudges, daily/weekly digests.
 
 ## Message lifecycle
 
+**Before v14.0:**
+
+```
+Incoming Message
+      │
+      ▼
+Legacy Router (menu / state machine / slashless commands / AI fallback)
+```
+
+**Since v14.0 (Stage 1, Shadow Mode):**
+
+```
+Incoming Message
+      │
+      ▼
+Intent Engine (core/intent/) ── classifies, logs, does NOT route
+      │
+      ▼
+Legacy Router (menu / state machine / slashless commands / AI fallback)
+                          ── UNCHANGED ──
+```
+
 1. A Telegram update arrives; PTB dispatches to a `CommandHandler` (if it
    starts with `/`) or the catch-all `MessageHandler` for free text.
-2. Free text first checks the reply-keyboard menu, then
+2. **(v14.0, Shadow Mode)** Free text is first classified by
+   `core/intent/`'s `IntentEngine.classify()` — a deterministic, offline
+   classifier that reuses `date_parser.py` and mirrors `main.py`'s own
+   command tables (see [DEBUGGING.md](DEBUGGING.md#known-issues) for the
+   duplication tradeoff this involves) — and the result is logged via
+   `logger.debug()`. This step is purely observational: the classification
+   is not read by anything below. See
+   [docs/adr/ADR-002-intent-engine.md](docs/adr/ADR-002-intent-engine.md).
+3. Free text then checks the reply-keyboard menu, then
    `conversation_state.get_state(user_id)`:
    - `confirming` — handles yes/no replies, AM/PM disambiguation, or
      admin-reset confirmation phrases
    - `editing` — re-parses the message as an update to `get_editing_id()`
    - `gathering` — merges new entities into `partial_data`, either asks the
      next missing question or moves to `confirming`
-3. Otherwise, a ~40-entry slashless-command table
+4. Otherwise, a ~40-entry slashless-command table
    (`_starts_with_handlers`/`_exact_handlers`) lets every command work
    without a leading `/`, and a keyword shortcut handles plain view
    requests (today/week/month/...) without invoking the AI at all.
-4. Anything left falls to `baka_brain.get_baka_response()`, which classifies
+5. Anything left falls to `baka_brain.get_baka_response()`, which classifies
    the message into one of 11 intents (`TASK`, `HABIT`, `EDIT`, `DELETE`,
    `VIEW`, `MEMORY_SAVE`, `MEMORY_GET`, `GOAL`, `PLAN`, `ADVICE`, `CHAT`,
    `MULTIPLE`) and extracts entities. `date_parser.parse_all()` runs in
    parallel and **overrides** the AI's date/time for phrasings it's known to
    get wrong (see [docs/ai_system.md](docs/ai_system.md)).
-5. Low-confidence responses, or CHAT-intent replies to messages containing
+6. Low-confidence responses, or CHAT-intent replies to messages containing
    action verbs, get logged to `missed_capabilities` for later review via
    `/misses` (admin-only) — this is the bot's feature-gap-mining mechanism.
-6. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
+7. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
    HTML-escaped) and sent back.
+
+**Note on step 5's 11-intent taxonomy vs. the Intent Engine's 11-value
+`Intent` enum (step 2):** these are two different, currently-unrelated
+classification systems that happen to both have 11 values — the AI's
+taxonomy (`TASK`/`HABIT`/`EDIT`/`DELETE`/`VIEW`/`MEMORY_SAVE`/
+`MEMORY_GET`/`GOAL`/`PLAN`/`ADVICE`/`CHAT`/`MULTIPLE`, actually 12) drives
+real routing today; the Intent Engine's `Intent` enum
+(`ADD_TASK`/`EDIT_TASK`/`DELETE_TASK`/`QUERY_TASK`/`CHAT`/`GREETING`/
+`HELP`/`MEDIA`/`FILE`/`SETTINGS`/`UNKNOWN`) is deliberately coarser and
+does not drive anything yet (Stage 1, Shadow Mode). Reconciling the two
+taxonomies is future work, not done as part of Stage 1 — see
+`core/intent/intent_types.py`'s `Intent` docstring.
 
 Full command inventory: [API.md](API.md). Full state-machine detail:
 [docs/telegram_integration.md](docs/telegram_integration.md).
@@ -70,6 +112,7 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 | `async_bridge.py` | The single seam offloading `baka_brain.py`'s synchronous AI/media calls onto worker threads so they don't block the bot's event loop (added v12.3, Sprint 1B) | One function, `run_blocking()`; used at all 19 `main.py` call sites into `baka_brain.py`'s public functions. `database.py` calls are deliberately not routed through it — see [docs/ai_system.md](docs/ai_system.md) |
 | `notification_service.py` | The single seam every outbound Telegram Bot API call routes through: pacing, flood protection, retry, plus edit/answer failure safety (added v13.0, Sprint 2A) | `TelegramSender` (a `BaseRateLimiter` subclass registered via `Application.builder().rate_limiter(...)`) covers `send_message`/`reply_text`/`send_photo`/etc. with zero call-site changes; `safe_edit_message_text()`/`safe_answer_callback_query()` are separate helpers used explicitly at `main.py`'s edit/answer call sites — see [docs/telegram_integration.md](docs/telegram_integration.md) |
 | `date_parser.py` | Deterministic regex date/time parser (EN/Hindi/Hinglish); wins over the AI for known-ambiguous phrasings | Pure functions, no I/O |
+| `core/intent/` | v14.0 Stage 1: deterministic, tiered Intent Engine — classifies every message, but Shadow Mode only (observes, doesn't route yet; added v14.0) | Pure, stateless, zero Telegram/database/scheduler/AI/network dependencies; reuses `date_parser.py` directly. See [docs/adr/ADR-002-intent-engine.md](docs/adr/ADR-002-intent-engine.md) and `INTENT_ENGINE.md` |
 | `scheduler.py` | Query helpers for due/overdue/followup tasks and quiet-hours checks | The actual timer is PTB's `job_queue`, registered in `main.py` |
 | `conversation_state.py` | In-memory (module-level dict) state machine: idle/gathering/confirming/editing | **Does not survive process restart**, despite its own docstring's "survives reliably" claim — see [DEBUGGING.md](DEBUGGING.md#known-issues) |
 | `debug_system.py` | Bug tracking (`bugs.db`), `/trace`, `/selftest` message bank | Debug-mode/last-trace state is also in-memory only |

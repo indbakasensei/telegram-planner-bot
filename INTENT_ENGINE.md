@@ -8,6 +8,38 @@ the AI's date/time guesses (`ARCHITECTURE.md`'s message-lifecycle section).
 
 ---
 
+## Implementation status (added post-Stage-1, v14.0)
+
+**Stage 1 (this document's own scope — the tiered classifier, Shadow
+Mode) has shipped**, in `core/intent/`. See `docs/adr/ADR-002-intent-engine.md`'s
+"Implementation Note" for what was learned building it, and
+[CHANGELOG.md](CHANGELOG.md) for the release entry. This document remains
+the design record (not rewritten to match the implementation line-for-line)
+— three deltas worth knowing if you're reading this design doc and the
+real code side by side:
+
+- **`ClassificationResult` (design) → `IntentResult` (shipped)**, and the
+  field names differ: `tier_matched` → `tier`, `raw_matches` was dropped
+  (each rule already returns its own `reasoning` string, which covers the
+  same debugging need without a separate list), and `ambiguity` /
+  `latency_ms` were added (justified in `core/intent/intent_types.py`'s
+  docstring — `latency_ms` in particular because the Logging section
+  below explicitly asked for a "Latency" log line).
+- **Tier count**: this document describes Tiers 0-3; the shipped code has
+  finer-grained sub-tiers within what this document calls "Tier 3" (regex)
+  — an anchored whole-message greeting/small-talk check, evaluated
+  *before* the date parser, and a separate unanchored help-phrasing check,
+  evaluated after. See the ADR's Implementation Note for why (a real
+  misclassification this design's own Tier-based philosophy predicts and
+  was built to prevent, found once during Stage 1's test-writing).
+- **Routing decisions** (`OFFLINE`/`AI_ROUTER`/`CLARIFY`, the "Execution
+  pipeline" section below) are **not** implemented yet — Stage 1 is
+  observation-only by design (`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md` §11).
+  `IntentEngine.classify()` returns a classification; nothing currently
+  reads it to make a routing decision. That's Stage 2+.
+
+---
+
 ## Why this exists
 
 Today, classifying a message is split across three uncoordinated places in

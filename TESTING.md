@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**211 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**251 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~7 seconds, all 211 tests
+pytest                             # ~8 seconds, all 251 tests
 ```
 
 | File | Tests | Covers |
@@ -24,6 +24,7 @@ pytest                             # ~7 seconds, all 211 tests
 | `tests/test_database.py` | 32 | `init_db()` idempotency and completeness (all 13 tables, all 10 indexes, WAL mode, schema version), `verify_schema_integrity()` correctly detecting a missing table/index, `_safe_add_column()`, `backup_database()` (no-op on fresh, fires on existing, prunes old backups), CRUD across tasks/habits/goals/memories/project materials & worklog, and the Sprint 1C reset-command fix (`/resettasks` excludes habits; a goal reusing a deleted goal's ID inherits zero old project data) |
 | `tests/test_notification_service.py` | 16 | `TelegramSender`'s per-chat vs. overall rate-limit buckets (unrelated chats don't serialize against each other), pacing under a burst, `RetryAfter`/`TimedOut`/`NetworkError` retry behavior, retry exhaustion (raises, doesn't loop forever), unrelated exceptions passing through untouched, and `safe_edit_message_text()`/`safe_answer_callback_query()`'s failure-mode handling (not-modified, deleted message, already-answered callback) |
 | `tests/test_async_bridge.py` | 12 | `run_blocking()` actually executes off the calling thread, a slow wrapped call doesn't block concurrent fast tasks (with a control-group test proving the unwrapped case *does* block), exception propagation (type preserved, one failure doesn't affect concurrent siblings), and nested synchronous calls within a wrapped function (the exact shape of `generate_video()` calling `generate_image()` internally) all running in the same worker thread |
+| `tests/test_intent_engine.py` | 40 | `core/intent/`'s tiered classifier (v14.0 Stage 1): all 10 required categories (add/edit/delete reminder, greeting, help, small talk, random/unknown input, time query, schedule query), ambiguity scoring when tiers disagree, purity (same input → same output, never reads the system clock), entity extraction, and latency (100% coverage of `core/intent/`) |
 
 **Found and fixed 3 real bugs in `date_parser.py` while writing tests**
 (not scope creep — permitted and expected: writing a test against actual

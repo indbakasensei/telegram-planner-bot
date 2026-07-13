@@ -7,8 +7,11 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v12.0** (Project Management) — see
-> [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v14.0** (Intent Engine, Shadow Mode — an internal,
+> non-user-visible classification layer; every feature below is unchanged)
+> — see [CHANGELOG.md](CHANGELOG.md). This banner previously said v12.0,
+> several releases out of date; corrected during v14.0's documentation
+> sync.
 
 ---
 

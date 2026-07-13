@@ -14,6 +14,36 @@ everything else is unordered backlog, not a commitment.
 
 ---
 
+## v14.0 Autonomous Core migration status
+
+Tracking `DESIGN_SPEC_v14_AUTONOMOUS_CORE.md` §11's 6-stage migration.
+**Stage numbers, not version numbers, on purpose** — see the note above
+about the old `VERSION.md` roadmap's fixed version labels colliding with
+what actually shipped; the authoritative design doc itself uses Stage
+0–5 for the same reason.
+
+- ☐ **Stage 0** — fix the broken `analytics` package. Prerequisite for
+  Stage 3/4's AI Router health-scoring, *not* for Stage 1 — still open
+  (see Fix-it list below), did not block Stage 1 shipping.
+- ✅ **Stage 1 — Intent Engine (Shadow Mode).** Shipped v14.0
+  (`core/intent/`). Classifies every message deterministically via a
+  tiered rule set reusing `date_parser.py`; does not yet affect routing.
+  See [CHANGELOG.md](CHANGELOG.md).
+- ☐ **Stage 2 — Offline Engine** for already-offline commands (next up).
+- ☐ **Stage 3 — AI Router**, NVIDIA-only.
+- ☐ **Stage 4** — additional AI providers (OpenAI/Anthropic/Gemini adapters).
+- ☐ **Stage 5 — Plugin System** (proof of concept via Projects).
+
+**On version labeling:** an earlier task brief for this milestone
+suggested fixed version numbers per stage (`v14.1`/`v14.2`/`v14.3`/
+`v14.4`/`v15.0`). Deliberately not adopted — it would reintroduce the
+exact collision problem this file already moved away from once (see the
+note at the top of this file), and it doesn't match
+`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md` §11's own Stage-based language.
+Flagged here rather than silently diverging without explanation.
+
+---
+
 ## Fix-it list (found during the 2026-07 documentation pass)
 
 These aren't feature requests — they're real gaps between what the code
