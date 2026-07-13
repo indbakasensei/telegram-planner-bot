@@ -208,8 +208,8 @@ accuracy-over-quantity rule, not asserted as confirmed).
 
 | # | Issue | Severity |
 |---|---|---|
-| F1 | `check_reminders` (fires every 60s) sends one `send_message` per due task in a tight loop with no pacing or batching, unlike `check_followups` which batches — risks Telegram's ~30/sec global and ~1/sec per-chat rate limits on any tick with a burst of simultaneously-due tasks (e.g. many users sharing a common habit time); failures are caught per-task and logged, not retried | HIGH |
-| F2 | Only the dashboard's internal `_edit()` helper guards `edit_message_text` against `BadRequest` (deleted message, "not modified", etc.) — every other callback branch (Done/Snooze/Postpone/Pause/Resume/project actions/etc., ~14 branches) calls `edit_message_text` unprotected; the global error handler prevents a crash, but the user sees no feedback on that specific failed tap | MEDIUM |
+| F1 | ✅ **RESOLVED 2026-07-13 (Sprint 2A, v13.0 — see CHANGELOG.md)**. Fixed at the `Application`/`ExtBot` level via a new `notification_service.py` (`TelegramSender`, a `BaseRateLimiter` subclass) rather than adding pacing to `check_reminders` specifically — this covers every send/edit call bot-wide, not just reminders, with zero call-site changes. Full detail in CHANGELOG.md. Original finding: `check_reminders` (fires every 60s) sends one `send_message` per due task in a tight loop with no pacing or batching, unlike `check_followups` which batches — risks Telegram's ~30/sec global and ~1/sec per-chat rate limits on any tick with a burst of simultaneously-due tasks (e.g. many users sharing a common habit time); failures are caught per-task and logged, not retried | HIGH |
+| F2 | ✅ **RESOLVED 2026-07-13 (Sprint 2A, v13.0)** as a side effect of the F1 fix — all 34 `edit_message_text` call sites (not ~14 branches; the actual per-call-site count was higher, verified during Sprint 2A) now route through the same `safe_edit_message_text()` helper the dashboard's `_edit()` used to have exclusively. A related, previously undocumented bug was also found and fixed: one callback branch (goal-complete) answered the same callback query twice, which Telegram rejects — see CHANGELOG.md v13.0. Original finding: Only the dashboard's internal `_edit()` helper guards `edit_message_text` against `BadRequest` (deleted message, "not modified", etc.) — every other callback branch (Done/Snooze/Postpone/Pause/Resume/project actions/etc.) calls `edit_message_text` unprotected; the global error handler prevents a crash, but the user sees no feedback on that specific failed tap | MEDIUM |
 | F3 | Several older callback-reply paths still use `parse_mode="Markdown"` with raw, unescaped task titles interpolated directly (e.g. `main.py:1823-1849`) — a task title containing Markdown special characters (`_`, `*`, `` ` ``, `[`) can corrupt message rendering. This is the same bug class `CHANGELOG.md`'s v7.1 entry documents fixing project-wide by switching to HTML — these specific spots were missed in that migration. | MEDIUM |
 | F4 | No crash/hang path found for deleted-message or stale-keyboard taps in the branches checked (not exhaustively traced) | Needs Investigation (low-confidence-resolved) |
 
@@ -301,12 +301,17 @@ caught in that pass:
 4. ✅ ~~**Fix E2** (naive `datetime.now()` in database.py) — mechanical
    find-and-replace with the `IST`-aware pattern already used elsewhere in
    the same file.~~ **Done 2026-07-13, Sprint 1C — see CHANGELOG.md v12.4.**
-5. **Fix F1** (reminder-burst flood risk) — add pacing/batching to
-   `check_reminders`, matching the pattern `check_followups` already uses.
+5. ✅ ~~**Fix F1** (reminder-burst flood risk) — add pacing/batching to
+   `check_reminders`, matching the pattern `check_followups` already uses.~~
+   **Done 2026-07-13, Sprint 2A — see CHANGELOG.md v13.0** (fixed bot-wide
+   via a rate-limiter seam, not just `check_reminders` specifically — also
+   resolved F2 as a side effect).
 6. **Fix D5/ARCH-6** (no instance lock) — add a PID-file check to `run.sh`
    or `main()`'s startup.
 7. **Fix F3** (Markdown-mode unescaped titles) — finish the v7.1 HTML
-   migration in the ~14 callback branches that were missed.
+   migration in the ~14 callback branches that were missed. **Still open**
+   — not touched by Sprint 2A (that sprint fixed delivery pacing/retry/edit
+   safety, not message-content formatting).
 8. **Then** the already-known analytics-package fix (documented in
    `DEBUGGING.md` from the earlier pass — still open) and the `ai_helper.py`
    key rotation (flagged directly to the repo owner earlier this session,

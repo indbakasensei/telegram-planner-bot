@@ -85,6 +85,43 @@ numeric Telegram IDs (the admin's ID → `"admin"`, others →
 `"user_***XXX"` keeping the last 3 digits) before anything reaches
 `bot.log`.
 
+## Delivery reliability (v13.0, Sprint 2A)
+
+Every outbound Bot API call — `send_message`, `reply_text`, `edit_message_text`,
+`send_photo`, `send_video`, `answer_callback_query`, `delete_message`, all
+of them — automatically routes through `notification_service.py`'s
+`TelegramSender`, registered once via
+`Application.builder().rate_limiter(TelegramSender())`. This is PTB's
+official rate-limiter extension point (`ExtBot._do_post()` calls
+`rate_limiter.process_request()` for every request except `getUpdates`),
+so pacing and retry apply bot-wide without any of `main.py`'s ~380 send/edit
+call sites needing to change.
+
+`TelegramSender` enforces two independent token buckets — an overall
+bot-wide cap (default 28/sec) and a per-chat cap (default 1/sec, keyed by
+`chat_id`) — so a reminder burst to one chat can't exceed Telegram's flood
+limits, and, just as importantly, so unrelated chats never share a bucket
+and can't be serialized behind each other. `RetryAfter` is honored exactly
+(waits the requested duration, then retries); `TimedOut`/`NetworkError` get
+bounded exponential backoff. Anything else propagates untouched — the rate
+limiter is explicitly not supposed to swallow arbitrary exceptions
+(`BaseRateLimiter.process_request()`'s own documented contract).
+
+Edit and callback-answer failures are a different class of problem (not
+flood control) and are handled by two separate helpers, also in
+`notification_service.py`:
+- `safe_edit_message_text(query, text, **kwargs)` — swallows "message is
+  not modified" as a no-op, falls back to sending a fresh message if the
+  edit target is gone (deleted, too old, etc.). Used at all 34
+  `edit_message_text` call sites in `main.py`, generalizing a pattern that
+  previously only existed inside the dashboard's own `_edit()` helper.
+- `safe_answer_callback_query(query, *args, **kwargs)` — swallows the
+  "already answered / expired" failure mode. Telegram allows exactly one
+  `answerCallbackQuery` per callback query id; one dashboard branch
+  (goal-complete) was calling it a second time for the same query and
+  raising `BadRequest` on every tap until this fix (found during this
+  sprint's own audit, not previously documented).
+
 ## Error handling
 
 `error_handler`, registered as the application's global error handler,

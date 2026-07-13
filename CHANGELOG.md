@@ -9,7 +9,94 @@ session can find the relevant code quickly.
 
 ---
 
-## v12.4 — Data Integrity: Reset Cleanup & IST Habit Dates (current)
+## v13.0 — Telegram Delivery Reliability (current)
+
+Sprint 2A of the post-audit production-hardening effort (see
+`ENGINEERING_AUDIT.md`, finding F1, HIGH). Telegram-delivery-only sprint —
+no AI, database, scheduling, or business-logic changes.
+
+**Audit first:** inventoried every outbound Telegram Bot API call in
+`main.py` — 386 total across `reply_text` (319), `context.bot.send_message`
+(18), `edit_message_text` (34), `send_photo`/`send_video` (2),
+`answer_callback_query`/`query.answer` (2), and message deletion (11,
+mostly "thinking..." placeholder cleanup for AI/media replies). Classified
+by trigger: the vast majority user-initiated (command replies, callback
+button taps); 13 sites scheduler-initiated (inside job callbacks, using
+`context.bot.send_message` since there's no incoming message to reply to
+— `check_reminders`, `observation_engine`, etc.); a handful AI-response
+and media (image/video generation results). No `send_chat_action` (typing
+indicator) usage was found anywhere — noted, not added (out of scope, no
+audit finding calls for it).
+
+**A previously undocumented bug found during this sprint's own audit:**
+one dashboard callback branch (marking a goal complete) called
+`query.answer()` a *second* time for the same callback query — Telegram
+allows exactly one answer per callback query id, so this raised
+`BadRequest` on every goal-completion tap. It was silently swallowed by
+the global error handler before (logged as a bug report, toast never
+shown); now it's caught explicitly and logged as an expected case instead.
+
+**Architecture — one seam, not scattered call-site edits.** Verified
+directly against the installed `python-telegram-bot` 20.7 source (not
+assumed): `ExtBot._do_post()` is the single low-level transport method
+every high-level Bot API call funnels through, and when an `Application`
+is built with `.rate_limiter(...)`, every one of those calls automatically
+routes through that limiter's `process_request()` — the same "official
+extension point, zero call-site changes" pattern used for the scheduler
+timezone fix (v12.2) and the async-offload fix (v12.3).
+
+Added `notification_service.py`:
+- `TelegramSender` (a `telegram.ext.BaseRateLimiter` subclass, registered
+  via `Application.builder().rate_limiter(TelegramSender())`) — a
+  dependency-free token-bucket rate limiter with two independent levels
+  (overall bot-wide cap, default 28/sec; per-chat cap, default 1/sec,
+  keyed by `chat_id` so unrelated chats never share a bucket and can't
+  serialize against each other), plus retry handling: `RetryAfter` is
+  honored exactly (waits the requested duration, retries), `TimedOut`/
+  `NetworkError` get bounded exponential backoff, everything else
+  propagates untouched (matches `BaseRateLimiter.process_request()`'s own
+  documented contract — it must not swallow arbitrary exceptions).
+- `safe_edit_message_text()` / `safe_answer_callback_query()` — small
+  helper functions (not part of the rate-limiter seam, since edit/answer
+  failures like "message deleted" or "already answered" aren't flood
+  control and need call-site-aware fallback behavior). Generalizes a
+  pattern that already existed for the dashboard's own `_edit()` helper
+  (try the edit, fall back to a fresh send if the target is gone, swallow
+  silently if the edit was a no-op) so it applies everywhere instead of
+  just one code path.
+
+Deliberately **not** built on PTB's own `AIORateLimiter` — it requires the
+`aiolimiter` package, not a current project dependency, and adding a new
+dependency for a personal-scale bot wasn't judged worth it. The
+implementation here is a small, direct reimplementation of the same idea,
+written after reading `AIORateLimiter`'s own source for the reference
+pattern (per-chat + overall token buckets, `RetryAfter`-aware retry loop).
+
+All 34 `edit_message_text` call sites and 2 `answer_callback_query` call
+sites in `main.py` were updated to route through the new helpers — this
+was a mechanical, uniform substitution (`await query.edit_message_text(` →
+`await safe_edit_message_text(query, `), not a rewrite of what each branch
+sends. No other call site in `main.py` changed — `reply_text`,
+`send_message`, `send_photo`, `send_video`, and message deletion all reach
+the same `TelegramSender` seam automatically without modification.
+
+Validated with a network-free test suite (fake Bot API callbacks, no real
+Telegram calls): 50 concurrent reminders to 50 different chats completed
+in under a second; a simulated 100-message burst to a single chat
+delivered all 100 in order with zero duplicates and measurably enforced
+pacing; 10 different users' messages completed concurrently rather than
+serializing behind each other; `RetryAfter` and transient network errors
+were retried correctly without double-sending; the edit-safety helpers
+correctly swallowed "not modified", fell back to a fresh send on a deleted
+message, and swallowed an already-answered callback query without raising.
+
+Modified: `main.py` (1 import line, 1 `Application` builder line, 34 edit
+call sites, 2 answer call sites — all mechanical). New:
+`notification_service.py`.
+
+---
+
+## v12.4 — Data Integrity: Reset Cleanup & IST Habit Dates (superseded by v13.0 above as current)
 
 Sprint 1C of the post-audit production-hardening effort (see
 `ENGINEERING_AUDIT.md`, findings E1 and E2, both HIGH). Data-integrity-only

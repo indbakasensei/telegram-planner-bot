@@ -71,6 +71,7 @@ import debug_system as dbg
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from async_bridge import run_blocking
+from notification_service import TelegramSender, safe_edit_message_text, safe_answer_callback_query
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -1787,7 +1788,7 @@ async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── v1.1: Inline button callback handler ──────────────
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback_query(query)
     user_id = query.from_user.id
     data = query.data
 
@@ -1822,7 +1823,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 streak_text = (f"\n🔥 Streak: *{streak_or_msg}* day"
                                f"{'s' if isinstance(streak_or_msg,int) and streak_or_msg != 1 else ''}!"
                                if ok else "\n_(already logged today)_")
-                await query.edit_message_text(
+                await safe_edit_message_text(query,
                     f"✅ *Habit completed!*\n📌 {task[1]}{streak_text}",
                     parse_mode="Markdown"
                 )
@@ -1845,12 +1846,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     db_log_interaction(user_id, "task_done")
                 except Exception:
                     pass
-                await query.edit_message_text(
+                await safe_edit_message_text(query,
                     f"✅ *Done!* Completed:\n📌 {task[1]}",
                     parse_mode="Markdown"
                 )
         else:
-            await query.edit_message_text("❌ Task not found.")
+            await safe_edit_message_text(query, "❌ Task not found.")
 
     elif action == "snooze":
         minutes = int(parts[2]) if len(parts) > 2 else 10
@@ -1881,12 +1882,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 tip += f"You usually get things done around *{suggested}* — want me to move it there? Reply: reschedule {task_id}"
             else:
                 tip += "Maybe it needs a better time or to be broken down. Try /breakdown " + str(task_id)
-            await query.edit_message_text(
+            await safe_edit_message_text(query,
                 f"⏰ Snoozed for {label}.{tip}",
                 parse_mode="Markdown"
             )
         else:
-            await query.edit_message_text(
+            await safe_edit_message_text(query,
                 f"⏰ Snoozed for {label}. I'll remind you again at {snooze_until.split()[1]}.",
             )
 
@@ -1895,35 +1896,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tomorrow = (_dt.now(IST) + _td(days=1)).strftime("%Y-%m-%d")
         postpone_task(task_id, user_id, tomorrow)
         task = get_task_by_id(task_id, user_id)
-        await query.edit_message_text(
+        await safe_edit_message_text(query,
             f"📅 Moved to tomorrow ({tomorrow}).\n📌 {task[1] if task else ''}",
         )
 
     elif action == "pause":
         pause_task(task_id, user_id)
-        await query.edit_message_text("⏸ Task paused. Reminders stopped until you resume it.")
+        await safe_edit_message_text(query, "⏸ Task paused. Reminders stopped until you resume it.")
 
     elif action == "resume":
         resume_task(task_id, user_id)
-        await query.edit_message_text("▶️ Task resumed. Reminders are back on.")
+        await safe_edit_message_text(query, "▶️ Task resumed. Reminders are back on.")
 
     elif action == "unflagdeadline":
         # v10.1: stop buffer reminders for a deadline task
         if task_id:
             try:
                 mark_as_deadline(task_id, user_id, False)
-                await query.edit_message_text(
+                await safe_edit_message_text(query,
                     "🔕 Buffer reminders muted for this task. "
                     "You'll still get the reminder at the deadline itself."
                 )
             except Exception:
-                await query.edit_message_text("Couldn't update task.")
+                await safe_edit_message_text(query, "Couldn't update task.")
 
     elif action == "vision_save_tasks":
         # v11.0: extract bullet-point tasks from vision result and create them
         atype, vdata = get_pending_action(user_id)
         if atype != "vision_result" or not vdata:
-            await query.edit_message_text("Image analysis expired — please send the photo again.")
+            await safe_edit_message_text(query, "Image analysis expired — please send the photo again.")
             return
         text = vdata.get("text", "")
         # Find bullet-point or numbered tasks in the AI's response
@@ -1938,7 +1939,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if 3 < len(candidate) < 200:
                     candidates.append(candidate)
         if not candidates:
-            await query.edit_message_text(
+            await safe_edit_message_text(query,
                 "Couldn't find clear task items in the image analysis. "
                 "Try sending the photo again with a caption like 'extract todos'.")
             return
@@ -1954,9 +1955,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines = [f"✅ {b(f'Created {len(created)} task(s) from your image:')}", ""]
             for tid, title in created:
                 lines.append(f"  {code('['+str(tid)+']')} {esc(title)}")
-            await query.edit_message_text("\n".join(lines), parse_mode=HTML)
+            await safe_edit_message_text(query, "\n".join(lines), parse_mode=HTML)
         else:
-            await query.edit_message_text("All those tasks already exist!")
+            await safe_edit_message_text(query, "All those tasks already exist!")
 
     elif action == "proj":
         # v12.0 project callbacks: proj:started:{gid}, proj:finished:{gid},
@@ -1966,25 +1967,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if subcmd == "started" and arg:
             try:
                 add_worklog(user_id, int(arg), "Work started", kind="started")
-                await query.edit_message_text(f"🚀 Marked as started (goal #{arg}).")
+                await safe_edit_message_text(query, f"🚀 Marked as started (goal #{arg}).")
             except Exception as e:
-                await query.edit_message_text(f"Error: {str(e)[:100]}")
+                await safe_edit_message_text(query, f"Error: {str(e)[:100]}")
         elif subcmd == "finished" and arg:
             try:
                 add_worklog(user_id, int(arg), "Project finished", kind="finished")
-                await query.edit_message_text("🎉 Project marked as finished!")
+                await safe_edit_message_text(query, "🎉 Project marked as finished!")
             except Exception as e:
-                await query.edit_message_text(f"Error: {str(e)[:100]}")
+                await safe_edit_message_text(query, f"Error: {str(e)[:100]}")
         elif subcmd == "got" and arg:
             try:
                 mark_material_acquired(user_id, int(arg), True)
-                await query.edit_message_text("✅ Marked as acquired.")
+                await safe_edit_message_text(query, "✅ Marked as acquired.")
             except Exception as e:
-                await query.edit_message_text(f"Error: {str(e)[:100]}")
+                await safe_edit_message_text(query, f"Error: {str(e)[:100]}")
         elif subcmd == "view" and arg:
             proj = get_project_overview(user_id, int(arg))
             if proj:
-                await query.edit_message_text(
+                await safe_edit_message_text(query,
                     f"📊 {b(esc(proj['title']))} — {proj['progress']}%\n"
                     f"Materials: {proj['materials_acquired']}/{proj['materials_total']}\n"
                     f"Send {code(f'project {arg}')} for the full card.",
@@ -1993,14 +1994,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             items = get_all_pending_materials(user_id)
             if items:
                 names = ", ".join(m[0] for m in items[:20])
-                await query.edit_message_text(
+                await safe_edit_message_text(query,
                     f"🛒 Still need: {esc(names)}",
                     parse_mode=HTML)
             else:
-                await query.edit_message_text("🛒 Shopping list is empty! 🎉")
+                await safe_edit_message_text(query, "🛒 Shopping list is empty! 🎉")
 
     elif action == "vision_ask_again":
-        await query.edit_message_text(
+        await safe_edit_message_text(query,
             "👀 Send the same image again with a more specific caption "
             "(e.g. 'what brand is this product?' or 'translate this text').")
 
@@ -2011,7 +2012,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_habit(task_id):
                 ok, streak = log_habit_completion(task_id, user_id)
                 txt = (f"\U0001f525 Streak: {streak}!" if ok else "_(already logged)_")
-                await query.edit_message_text(
+                await safe_edit_message_text(query,
                     f"\u2705 *Awesome!* Logged:\n\U0001f4cc {task[1]}\n{txt}",
                     parse_mode="Markdown")
             else:
@@ -2022,11 +2023,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                    task[3] or "00:00", _now.strftime("%Y-%m-%d %H:%M:%S"), 0)
                 except Exception:
                     pass
-                await query.edit_message_text(
+                await safe_edit_message_text(query,
                     f"\u2705 *Great job!* Marked done:\n\U0001f4cc {task[1]}",
                     parse_mode="Markdown")
         else:
-            await query.edit_message_text("Task not found.")
+            await safe_edit_message_text(query, "Task not found.")
 
     elif action == "finish_no":
         # v7.0: not finished — offer help
@@ -2039,20 +2040,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [InlineKeyboardButton("🔕 Stop asking", callback_data=f"stoprem:{task_id}")],
             ])
-            await query.edit_message_text(
+            await safe_edit_message_text(query,
                 f"No worries! For *{task[1]}*, want to:\n\n"
                 f"📅 Reschedule it to tomorrow\n"
                 f"🔨 Break it into smaller steps\n"
                 f"🔕 Or stop the follow-ups?",
                 parse_mode="Markdown", reply_markup=buttons)
         else:
-            await query.edit_message_text("Task not found.")
+            await safe_edit_message_text(query, "Task not found.")
 
     elif action == "dobreak":
         # v7.0: trigger breakdown from the follow-up flow
         task = get_task_by_id(task_id, user_id)
         if task:
-            await query.edit_message_text(f"🔨 Breaking down *{task[1]}*...",
+            await safe_edit_message_text(query, f"🔨 Breaking down *{task[1]}*...",
                                           parse_mode="Markdown")
             subtasks = await run_blocking(generate_task_breakdown, task[1], task[2])
             if subtasks:
@@ -2077,7 +2078,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task = get_task_by_id(task_id, user_id)
         if task:
             stop_reminders(task_id, user_id)
-            await query.edit_message_text(
+            await safe_edit_message_text(query,
                 f"🔕 Reminders stopped for *{task[1]}*\n"
                 f"Task still in your list but won't ping you again.\n"
                 f"Use /resume {task_id} to turn back on.",
@@ -2088,12 +2089,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task = get_task_by_id(task_id, user_id)
         if task:
             delete_task(task_id, user_id)
-            await query.edit_message_text(
+            await safe_edit_message_text(query,
                 f"🗑 Deleted: *{task[1]}*",
                 parse_mode="Markdown"
             )
         else:
-            await query.edit_message_text("❌ Task not found.")
+            await safe_edit_message_text(query, "❌ Task not found.")
 
 
 # ── v1.1: Pause / Resume commands ─────────────────────
@@ -3348,13 +3349,10 @@ async def route_dashboard_callback(update, context, parts):
     logger.info(f"[dashboard] callback page={page} arg={arg} user={user_id}")
 
     async def _edit(text, kb):
-        try:
-            await query.edit_message_text(text, parse_mode=HTML, reply_markup=kb)
-        except Exception as e:
-            # If edit fails (e.g. identical content), send fresh
-            if "not modified" not in str(e).lower():
-                await context.bot.send_message(chat_id=user_id, text=text,
-                                               parse_mode=HTML, reply_markup=kb)
+        # safe_edit_message_text already handles "not modified" (no-op)
+        # and message-gone (falls back to a fresh send) -- see
+        # notification_service.py.
+        await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
 
     if page == "home":
         text, kb = UI.dashboard_card(_gather_dashboard_data(user_id))
@@ -3391,7 +3389,7 @@ async def route_dashboard_callback(update, context, parts):
         try:
             res = update_goal_progress(int(arg), user_id, 10)
             if res and res[2]:
-                await query.answer("🎉 Goal complete!", show_alert=True)
+                await safe_answer_callback_query(query, "🎉 Goal complete!", show_alert=True)
         except (ValueError, TypeError):
             pass
         text, kb = UI.goal_card(get_goals_full(user_id))
@@ -4531,7 +4529,15 @@ def main() -> None:
     # existing run_daily()/run_repeating() call — naive `time` objects
     # passed to run_daily() now resolve against IST instead of UTC.
     defaults = Defaults(tzinfo=pytz.timezone("Asia/Kolkata"))
-    app = Application.builder().token(BOT_TOKEN).defaults(defaults).build()
+    # v13.0: every outbound Bot API call (send_message, edit_message_text,
+    # send_photo, answer_callback_query, ...) automatically routes through
+    # TelegramSender's process_request() once registered here -- pacing,
+    # retry, and flood protection apply bot-wide with no call-site changes.
+    app = (Application.builder()
+           .token(BOT_TOKEN)
+           .defaults(defaults)
+           .rate_limiter(TelegramSender())
+           .build())
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
