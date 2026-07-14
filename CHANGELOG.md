@@ -9,7 +9,65 @@ session can find the relevant code quickly.
 
 ---
 
-## DRG-001 — Intent-Aware Routing Design Review (design only, no code changes) (current)
+## v14.1B — Routing Layer (Decision Logging Only) (current)
+
+Implements DRG-001_Intent_Aware_Routing.md / docs/adr/ADR-006-intent-aware-routing.md's
+Sub-stage B ("Decision"). **No production behavior changed.** Every message
+is now also routed through a real Routing Layer that computes a genuine
+recommended destination — but `destination` is hard-coded to `LEGACY` on
+every single call, unconditionally. Only the recommendation is logged, for
+the comparison data DRG-001's own migration strategy requires before any
+real routing decision is ever acted on (Sub-stage C, not started).
+
+### Added
+
+- **Routing Layer subsystem** (`core/routing/`) — `router.py`
+  (`RoutingLayer.route()`), `routing_types.py` (`Destination` enum,
+  `RoutingDecision` dataclass), `routing_matrix.py` (per-intent write-class
+  table, confidence thresholds, the currently-empty
+  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` set), `confidence.py` (the pure
+  decision function), `exceptions.py` (`RoutingError`, unused this sprint).
+  Same architectural constraints as the Intent Engine: no AI, no database,
+  no scheduler, no Telegram, no network, no IO beyond a debug log line.
+- **`RoutingDecision`** — `trace_id`, `intent_result` (carries the
+  `IntentResult` unmodified — that dataclass was not touched), `destination`
+  (always `LEGACY` this sprint), `recommended_destination` (what the
+  Confidence Policy would actually choose), `clarification_required`,
+  `fallback_reason`, `decision_latency_ms`.
+- **Structured `[Routing]` debug logs**, additive to v14.0's `[Intent]`
+  block — Intent, Confidence, Recommended Destination, Actual Destination,
+  Trace ID, Fallback Reason, Clarification Required, Decision Latency.
+- **`tests/test_routing_layer.py`** — 23 new tests, 100% coverage of
+  `core/routing/`. Full suite is now 274 tests (was 251).
+
+### Changed
+
+- `main.py`'s `handle_message()` Shadow Mode integration point now also
+  calls `routing_layer.route(intent)` and logs the result, inside the same
+  `try/except` as the Intent Engine call — a Routing Layer failure is
+  exactly as non-fatal as an Intent Engine failure was already.
+
+### Architecture
+
+The Routing Layer is real, tested infrastructure — not a stub — but its
+one hard-coded property (`destination` is always `Destination.LEGACY`) is
+deliberate, not a placeholder to be "finished" quietly later. DRG-001
+Section 10 identifies skipping this comparison-logging period as the
+migration's dominant risk, and DRG-001 Section 13 conditions its own design
+approval on this sub-stage running to completion first. See `ARCHITECTURE.md`
+for the updated flow diagram.
+
+### Notes
+
+Routing decisions are logged only; nothing reads `recommended_destination`
+to make a real choice. Legacy execution is selected unconditionally, every
+time, by design. `IntentResult` was not modified. `Intent-Aware Routing`'s
+Offline Engine and AI Router integration remain unbuilt — explicitly out of
+this sprint's scope.
+
+---
+
+## DRG-001 — Intent-Aware Routing Design Review (design only, no code changes)
 
 Informally self-designated "v14.1A" by its own task brief — **not a shipped
 release**; no `.py` file changed. A Design Review Gate document,

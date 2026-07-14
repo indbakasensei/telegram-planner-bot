@@ -29,14 +29,17 @@ what actually shipped; the authoritative design doc itself uses Stage
   (`core/intent/`). Classifies every message deterministically via a
   tiered rule set reusing `date_parser.py`; does not yet affect routing.
   See [CHANGELOG.md](CHANGELOG.md).
-- ☐ **Stage 2 — Offline Engine** for already-offline commands (next up).
-  The Intent-Aware Routing piece of this stage now has an approved design
+- ◐ **Stage 2 — Offline Engine** for already-offline commands (in progress).
+  The Intent-Aware Routing piece of this stage has an approved design
   ([DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md),
-  informally "v14.1A" — that label is the design gate's own identifier,
-  not a claim that v14.1 has shipped; see [ADR-006](docs/adr/ADR-006-intent-aware-routing.md)).
-  Design only, not implemented — nested sub-stages (Shadow → Decision →
-  Offline → Legacy removal) live inside this same Stage 2, not as new
-  top-level stages.
+  informally "v14.1A"; see [ADR-006](docs/adr/ADR-006-intent-aware-routing.md))
+  and its Sub-stage B ("Decision") is now shipped as v14.1B — a real
+  Routing Layer (`core/routing/`) runs on every message and logs a
+  recommended destination, but always executes via Legacy (hard-coded).
+  Sub-stage C (real routing, one command group at a time) and Sub-stage D
+  (Legacy removal) are not started — the Offline Engine itself
+  (`OFFLINE_ENGINE.md`) does not exist yet, so `core/routing/`'s
+  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` set stays empty until it does.
 - ☐ **Stage 3 — AI Router**, NVIDIA-only.
 - ☐ **Stage 4** — additional AI providers (OpenAI/Anthropic/Gemini adapters).
 - ☐ **Stage 5 — Plugin System** (proof of concept via Projects).

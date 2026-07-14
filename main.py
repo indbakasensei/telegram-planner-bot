@@ -75,6 +75,7 @@ from async_bridge import run_blocking
 from notification_service import TelegramSender, safe_edit_message_text, safe_answer_callback_query
 import instance_lock
 from core.intent import IntentEngine, ConversationContext
+from core.routing import RoutingLayer
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -86,6 +87,10 @@ logger = logging.getLogger(__name__)
 # v14.0 Stage 1: Intent Engine, Shadow Mode only (see core/intent/__init__.py).
 # Stateless, so one process-wide instance is safe to share across requests.
 intent_engine = IntentEngine()
+
+# v14.1B: Routing Layer, decision-logging only (see core/routing/__init__.py).
+# ALWAYS resolves to Legacy -- see router.py's module docstring. Stateless.
+routing_layer = RoutingLayer()
 
 # v12.1: Install log sanitizer BEFORE anything else logs.
 # Redacts bot tokens, API keys, and user IDs (admin → "admin", others → "user_***XXX").
@@ -812,7 +817,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     # v14.0 Stage 1: Intent Engine, Shadow Mode (docs/adr/ADR-002-intent-engine.md).
-    # Observes every message; does not affect routing below in any way.
+    # v14.1B: Routing Layer, decision-logging only (DRG-001_Intent_Aware_Routing.md,
+    # docs/adr/ADR-006-intent-aware-routing.md) -- ALWAYS resolves to Legacy;
+    # only the recommendation is logged. Neither step affects routing below.
     try:
         intent = intent_engine.classify(
             text=user_input,
@@ -823,9 +830,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ),
         )
         logger.debug(intent)
+        routing_decision = routing_layer.route(intent)
+        logger.debug(routing_decision)
     except Exception:
-        logger.exception("Intent Engine classification failed (Shadow Mode, non-fatal)")
-    # Existing routing continues unchanged below.
+        logger.exception("Intent Engine / Routing Layer failed (decision-logging only, non-fatal)")
+    # Existing routing continues unchanged below (always Legacy, this sprint).
 
     # ── Menu buttons ──
     menu_map = {

@@ -41,20 +41,25 @@ Incoming Message
 Legacy Router (menu / state machine / slashless commands / AI fallback)
 ```
 
-**Design-only, not yet implemented:** [DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md)
-specifies how the Intent Engine's output below would eventually drive real
-routing decisions (Offline Engine / transitional Legacy Handler / AI Router)
-instead of being logged-only as it is today. No code changes accompany that
-document; the flow below remains exactly what's shipped.
+**Design:** [DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md) /
+[docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md)
+specify how the Routing Layer below will eventually act on its own
+recommendation (Offline Engine / transitional Legacy Handler / AI Router)
+instead of always executing via Legacy as it does today (v14.1B, Sub-stage B
+"Decision" — comparison-logging only, by design; see DRG-001 §10/§13 on why
+skipping this period is the migration's dominant risk).
 
-**Since v14.0 (Stage 1, Shadow Mode):**
+**Since v14.1B (Routing Layer, decision-logging only):**
 
 ```
 Incoming Message
       │
       ▼
-Intent Engine (core/intent/) ── classifies, logs, does NOT route
+Intent Engine (core/intent/) ── classifies, logs
       │
+      ▼
+Routing Layer (core/routing/) ── computes + logs a recommended
+      │                          destination, ALWAYS executes via Legacy
       ▼
 Legacy Router (menu / state machine / slashless commands / AI fallback)
                           ── UNCHANGED ──
@@ -67,33 +72,40 @@ Legacy Router (menu / state machine / slashless commands / AI fallback)
    classifier that reuses `date_parser.py` and mirrors `main.py`'s own
    command tables (see [DEBUGGING.md](DEBUGGING.md#known-issues) for the
    duplication tradeoff this involves) — and the result is logged via
-   `logger.debug()`. This step is purely observational: the classification
-   is not read by anything below. See
+   `logger.debug()`. See
    [docs/adr/ADR-002-intent-engine.md](docs/adr/ADR-002-intent-engine.md).
-3. Free text then checks the reply-keyboard menu, then
+3. **(v14.1B, decision-logging only)** The resulting `IntentResult` is
+   passed to `core/routing/`'s `RoutingLayer.route()`, which computes a
+   `RoutingDecision` — a real recommended destination (Offline/Legacy/AI
+   Router/Clarify) per `DRG-001_Intent_Aware_Routing.md`'s Confidence
+   Policy — and logs it via `logger.debug()`. **`destination` is hard-coded
+   to `LEGACY` on every call, unconditionally** — nothing below this step
+   reads `recommended_destination`. See
+   [docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md).
+4. Free text then checks the reply-keyboard menu, then
    `conversation_state.get_state(user_id)`:
    - `confirming` — handles yes/no replies, AM/PM disambiguation, or
      admin-reset confirmation phrases
    - `editing` — re-parses the message as an update to `get_editing_id()`
    - `gathering` — merges new entities into `partial_data`, either asks the
      next missing question or moves to `confirming`
-4. Otherwise, a ~40-entry slashless-command table
+5. Otherwise, a ~40-entry slashless-command table
    (`_starts_with_handlers`/`_exact_handlers`) lets every command work
    without a leading `/`, and a keyword shortcut handles plain view
    requests (today/week/month/...) without invoking the AI at all.
-5. Anything left falls to `baka_brain.get_baka_response()`, which classifies
+6. Anything left falls to `baka_brain.get_baka_response()`, which classifies
    the message into one of 11 intents (`TASK`, `HABIT`, `EDIT`, `DELETE`,
    `VIEW`, `MEMORY_SAVE`, `MEMORY_GET`, `GOAL`, `PLAN`, `ADVICE`, `CHAT`,
    `MULTIPLE`) and extracts entities. `date_parser.parse_all()` runs in
    parallel and **overrides** the AI's date/time for phrasings it's known to
    get wrong (see [docs/ai_system.md](docs/ai_system.md)).
-6. Low-confidence responses, or CHAT-intent replies to messages containing
+7. Low-confidence responses, or CHAT-intent replies to messages containing
    action verbs, get logged to `missed_capabilities` for later review via
    `/misses` (admin-only) — this is the bot's feature-gap-mining mechanism.
-7. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
+8. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
    HTML-escaped) and sent back.
 
-**Note on step 5's 11-intent taxonomy vs. the Intent Engine's 11-value
+**Note on step 6's 11-intent taxonomy vs. the Intent Engine's 11-value
 `Intent` enum (step 2):** these are two different, currently-unrelated
 classification systems that happen to both have 11 values — the AI's
 taxonomy (`TASK`/`HABIT`/`EDIT`/`DELETE`/`VIEW`/`MEMORY_SAVE`/
@@ -119,6 +131,7 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 | `notification_service.py` | The single seam every outbound Telegram Bot API call routes through: pacing, flood protection, retry, plus edit/answer failure safety (added v13.0, Sprint 2A) | `TelegramSender` (a `BaseRateLimiter` subclass registered via `Application.builder().rate_limiter(...)`) covers `send_message`/`reply_text`/`send_photo`/etc. with zero call-site changes; `safe_edit_message_text()`/`safe_answer_callback_query()` are separate helpers used explicitly at `main.py`'s edit/answer call sites — see [docs/telegram_integration.md](docs/telegram_integration.md) |
 | `date_parser.py` | Deterministic regex date/time parser (EN/Hindi/Hinglish); wins over the AI for known-ambiguous phrasings | Pure functions, no I/O |
 | `core/intent/` | v14.0 Stage 1: deterministic, tiered Intent Engine — classifies every message, but Shadow Mode only (observes, doesn't route yet; added v14.0) | Pure, stateless, zero Telegram/database/scheduler/AI/network dependencies; reuses `date_parser.py` directly. See [docs/adr/ADR-002-intent-engine.md](docs/adr/ADR-002-intent-engine.md) and `INTENT_ENGINE.md` |
+| `core/routing/` | v14.1B: Routing Layer — computes a recommended destination (Offline/Legacy/AI Router/Clarify) per `IntentResult`, but `destination` is hard-coded to `LEGACY` on every call (decision-logging only; added v14.1B) | Pure, stateless, same zero-dependency constraints as `core/intent/`. See [docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md) and `DRG-001_Intent_Aware_Routing.md` |
 | `scheduler.py` | Query helpers for due/overdue/followup tasks and quiet-hours checks | The actual timer is PTB's `job_queue`, registered in `main.py` |
 | `conversation_state.py` | In-memory (module-level dict) state machine: idle/gathering/confirming/editing | **Does not survive process restart**, despite its own docstring's "survives reliably" claim — see [DEBUGGING.md](DEBUGGING.md#known-issues) |
 | `debug_system.py` | Bug tracking (`bugs.db`), `/trace`, `/selftest` message bank | Debug-mode/last-trace state is also in-memory only |

@@ -896,3 +896,53 @@ See `docs/adr/ADR-006-intent-aware-routing.md` (created alongside this
 document — the Routing Layer is a genuinely new architectural component, not
 covered by any of `ADR-001` through `ADR-005`, so a new record is warranted
 per this project's existing convention of one ADR per significant decision).
+
+## Implementation Note (added post-Sub-stage-B, v14.1B)
+
+Sub-stage B shipped as `core/routing/` (`routing_types.py`, `routing_matrix.py`,
+`confidence.py`, `router.py`, `exceptions.py`), wired into `main.py`'s
+Shadow Mode integration point, exactly as this document's Section 3 target
+flow describes up through the Routing Layer step — `destination` hard-coded
+to `LEGACY`, `recommended_destination` computed and logged in full.
+`tests/test_routing_layer.py` (23 tests, 100% coverage) follows the same
+offline, zero-mocking shape `tests/test_intent_engine.py` already
+established. Four things worth recording:
+
+1. **Open Question 1 (generic `metadata` field) is resolved: no.** The
+   v14.1B task brief's own need — recording "the future preferred
+   destination" — turned out to be exactly the concrete need this
+   document's Section 5 predicted might arise. It's satisfied with a named
+   `recommended_destination: Destination` field, not a generic
+   `metadata: dict`, confirming this document's original reasoning rather
+   than overturning it. `clarification_required` (a small, justified
+   derived field, not in this document's original `RoutingDecision`
+   sketch) was added for the same reason `IntentResult` gained `tier`/
+   `latency_ms` beyond its own original brief: cheap, unambiguous, saves
+   every consumer from re-deriving it.
+2. **`RoutingLayer.route()`'s shipped signature takes only `IntentResult`**,
+   not `(IntentResult, ConversationContext)` as this document's Section 4
+   implied a full Routing Layer would eventually need. Sub-stage B's actual
+   logic (the Confidence Policy) doesn't consult conversation state — only
+   a future stage that routes `Gathering`-state replies differently from
+   `Idle`-state ones would need it. Threading an unused parameter through
+   now would violate this project's "avoid unnecessary abstractions"
+   convention; adding it is a small, backward-compatible signature change
+   whenever that need actually arrives.
+3. **"Execution duration" (Section 9's logging spec) is the Routing Layer's
+   own `decision_latency_ms`, not the downstream Legacy handler's wall-clock
+   time.** Measuring the latter would require wrapping the remainder of
+   `main.py`'s `handle_message()` (hundreds of lines, dozens of early
+   `return` statements) in a `try/finally` — judged too invasive for an
+   "infrastructure only" sprint. See `DEBUGGING.md`'s Routing Layer entry.
+4. **A real confidence-boundary tension surfaced**, not introduced by this
+   implementation but made concrete by it: `INTENT_ENGINE.md`'s per-intent-
+   class execution thresholds and its separate confidence-band table
+   disagree at the boundary (confidence exactly 0.75 clears the
+   reversible-write execution threshold, while the band table would still
+   call 0.75 "ambiguous"). `date_parser.py`'s Tier 1 partial match (date
+   without time) lands exactly here in practice — not a theoretical edge
+   case. Section 6's design intent was to treat Offline and Legacy
+   thresholds as identical to their *execution* threshold, which is what
+   shipped; whether 0.75 *should* instead fall in the ambiguous band is
+   flagged as a refinement for whoever tunes real thresholds in Sub-stage
+   B's comparison-logging period, not resolved here.

@@ -146,23 +146,75 @@ gaps even when they're accepted rather than fixed.
   before (Shadow Mode doesn't affect routing) — they just fall through to
   a weaker tier (or `UNKNOWN`) in the *classification log only*.
 - **Shadow-mode exception handling.** `main.py`'s integration point wraps
-  the `classify()` call in `try/except Exception: logger.exception(...)`
+  the `classify()` call (and, since v14.1B, the Routing Layer's `route()`
+  call — same `try` block) in `try/except Exception: logger.exception(...)`
   — broader than this project's usual `except sqlite3.OperationalError`-style
   specificity (`CLAUDE.md`'s migration-exception convention). Deliberate:
   the backward-compatibility requirement ("users should notice absolutely
   no behavioural difference") means a bug in brand-new, unproven
-  classification code must never be able to break the message handler it's
-  observing, at the cost of a broad except swallowing a real Intent Engine
-  bug if one occurs. Check `bot.log` for `"Intent Engine classification
+  classification or routing code must never be able to break the message
+  handler it's observing, at the cost of a broad except swallowing a real
+  bug if one occurs. Check `bot.log` for `"Intent Engine / Routing Layer
   failed"` if you suspect this is masking something.
-- **Future routing integration.** The Intent Engine's output is logged but
-  never read by any routing decision yet (Stage 1 is intentionally
-  observation-only). There is currently no mechanism to compare its
-  classifications against what `handle_message()` actually did for the
-  same message — that comparison would need to be built (e.g. a second log
-  line from the existing router, correlated by message) before Stage 1's
-  real-world accuracy can be evaluated quantitatively rather than by
-  manual `bot.log` inspection.
+- **Future routing integration — partially resolved (v14.1B).** The
+  Intent Engine's output was logged but unread through v14.0. As of
+  v14.1B, `core/routing/`'s Routing Layer *does* compute and log a real
+  `recommended_destination` for every message — the comparison mechanism
+  this bullet originally called for now exists. **Still open**: nothing
+  compares that recommendation against what `handle_message()`'s Legacy
+  path *actually did* for the same message (the Routing Layer computes a
+  recommendation but has no visibility into Legacy's own outcome) — that
+  correlation would need a second log line from the Legacy side, keyed by
+  `RoutingDecision.trace_id`, not yet built. See the Routing Layer's own
+  debt entry below for what v14.1B does and doesn't close.
+
+### Routing Layer (v14.1B) — known architectural debt, not bugs
+
+Found during Sub-stage B implementation
+(`DRG-001_Intent_Aware_Routing.md`, `docs/adr/ADR-006-intent-aware-routing.md`).
+All deliberate, documented tradeoffs, not oversights.
+
+- **`recommended_destination` can never actually equal `OFFLINE` today.**
+  `core/routing/routing_matrix.py`'s `OFFLINE_ENGINE_IMPLEMENTED_INTENTS`
+  is an empty `frozenset` — the Offline Engine doesn't exist yet
+  (`OFFLINE_ENGINE.md`, Stage 2 not started). Every currently-reachable
+  recommendation is `LEGACY`, `AI_ROUTER`, or `CLARIFY`. This is by
+  design, not a bug — `tests/test_routing_layer.py`'s
+  `test_offline_recommendation_once_a_future_stage_implements_an_intent`
+  verifies the `OFFLINE` branch's logic directly (via `monkeypatch`) since
+  production traffic can't reach it yet.
+- **"Execution duration" is the Routing Layer's own decision latency, not
+  the downstream Legacy handler's wall-clock time.** The v14.1B task brief's
+  Logging section asked for both, implicitly assuming they're one
+  measurement. They aren't: `RoutingDecision.decision_latency_ms` is
+  measured entirely inside `RoutingLayer.route()`, before
+  `handle_message()`'s Legacy routing even begins. Measuring the Legacy
+  handler's own execution time would require wrapping the *rest* of
+  `handle_message()`'s body (hundreds of lines, dozens of early `return`
+  statements across the menu/confirming/editing/gathering/slashless-command
+  branches) in a `try/finally` — judged too invasive for an
+  "infrastructure only" integration sprint. Deferred; see Roadmap.
+- **A confidence-boundary tension inherited from `INTENT_ENGINE.md`.**
+  That document's per-intent-class execution thresholds (reversible-write:
+  0.75) and its separate confidence-band table (0.6–0.84 described as
+  "ambiguous, missing field") don't perfectly align at the boundary: a
+  confidence of exactly 0.75 *clears* `core/routing/confidence.py`'s
+  reversible-write threshold (routing recommends `LEGACY`, not `CLARIFY`),
+  even though the band table would describe 0.75 as still "ambiguous."
+  This is a pre-existing tension in the already-approved design, not
+  something v14.1B introduced — `date_parser.py`'s Tier 1 partial match
+  (date resolved, no time) lands exactly on this boundary at confidence
+  0.75, so it's a real, reachable case, not a theoretical edge. Worth
+  resolving explicitly (which table wins at the boundary) before Sub-stage
+  C makes the distinction consequential.
+- **`main.py`'s Legacy Router has no visibility into the Routing Layer's
+  recommendation.** By design, this sprint (v14.1B) never lets Legacy read
+  `recommended_destination` — but that also means there's no way yet to
+  tell, from logs alone, whether Legacy's *actual* behavior for a given
+  message agrees with what the Routing Layer would have chosen. Closing
+  this gap (Legacy-side outcome logging, correlated by `trace_id`) is
+  necessary before Sub-stage C's real routing decisions can be validated
+  against real Legacy behavior as a baseline.
 
 ### Migration exception handling — resolved (v13.2)
 
