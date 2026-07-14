@@ -41,6 +41,12 @@ Incoming Message
 Legacy Router (menu / state machine / slashless commands / AI fallback)
 ```
 
+**Design-only, not yet implemented:** [DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md)
+specifies how the Intent Engine's output below would eventually drive real
+routing decisions (Offline Engine / transitional Legacy Handler / AI Router)
+instead of being logged-only as it is today. No code changes accompany that
+document; the flow below remains exactly what's shipped.
+
 **Since v14.0 (Stage 1, Shadow Mode):**
 
 ```

@@ -9,7 +9,38 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.0 — Intent Engine (Shadow Mode) (current)
+## DRG-001 — Intent-Aware Routing Design Review (design only, no code changes) (current)
+
+Informally self-designated "v14.1A" by its own task brief — **not a shipped
+release**; no `.py` file changed. A Design Review Gate document,
+[DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md), specifying
+how the Intent Engine's (v14.0, Shadow Mode) classification output should
+eventually drive real routing decisions among the Offline Engine, a
+transitional Legacy Handler path, and the AI Router — without yet building
+any of it. Companion [docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md)
+records the decision to introduce this as a distinct "Routing Layer"
+component, separate from the Intent Engine and Offline Engine.
+
+Key design outputs: a new `RoutingDecision` contract (trace ID, destination,
+fallback reason — deliberately not added to the already-shipped
+`IntentResult`); a Confidence Policy extending `INTENT_ENGINE.md`'s
+approved per-intent-class thresholds with a third "Legacy" destination tier
+and, new here, treating `IntentResult.ambiguity` (computed since v14.0 but
+previously unused) as an independent safety gate; a routing matrix grounded
+in `OFFLINE_ENGINE.md`'s real command inventory; a full failure-mode
+analysis (10 scenarios); and a four-sub-stage migration path (Shadow →
+Decision/comparison-logging → Offline → Legacy removal) nested inside the
+master spec's existing Stage 2, not given new top-level version numbers —
+see `ROADMAP.md`'s note on why fixed per-stage version labels are
+deliberately avoided.
+
+Approved conditionally (`DRG-001` §13): the Decision sub-stage
+(comparison-logging, zero behavior change) must not be skipped before any
+real routing decision is acted on.
+
+---
+
+## v14.0 — Intent Engine (Shadow Mode)
 
 Stage 1 of the v14 Autonomous Core architecture (`DESIGN_SPEC_v14_AUTONOMOUS_CORE.md`,
 approved v13.4 Architecture Freeze — see the "v14 Architecture Freeze" entry

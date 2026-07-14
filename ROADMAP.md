@@ -30,6 +30,13 @@ what actually shipped; the authoritative design doc itself uses Stage
   tiered rule set reusing `date_parser.py`; does not yet affect routing.
   See [CHANGELOG.md](CHANGELOG.md).
 - ☐ **Stage 2 — Offline Engine** for already-offline commands (next up).
+  The Intent-Aware Routing piece of this stage now has an approved design
+  ([DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md),
+  informally "v14.1A" — that label is the design gate's own identifier,
+  not a claim that v14.1 has shipped; see [ADR-006](docs/adr/ADR-006-intent-aware-routing.md)).
+  Design only, not implemented — nested sub-stages (Shadow → Decision →
+  Offline → Legacy removal) live inside this same Stage 2, not as new
+  top-level stages.
 - ☐ **Stage 3 — AI Router**, NVIDIA-only.
 - ☐ **Stage 4** — additional AI providers (OpenAI/Anthropic/Gemini adapters).
 - ☐ **Stage 5 — Plugin System** (proof of concept via Projects).
