@@ -40,6 +40,13 @@ what actually shipped; the authoritative design doc itself uses Stage
   (Legacy removal) are not started — the Offline Engine itself
   (`OFFLINE_ENGINE.md`) does not exist yet, so `core/routing/`'s
   `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` set stays empty until it does.
+  v14.1C adds the plumbing the Offline Engine itself will need once it's
+  built: a Storage Facade (`core/storage/`, thin delegation to
+  `database.py`, no new data-access abstraction — see that sprint's Phase
+  0 review in `CHANGELOG.md`) and four gradual-rollout feature flags
+  (`core/feature_flags.py`: `OFFLINE_TASKS`/`OFFLINE_HABITS`/
+  `OFFLINE_GOALS`/`OFFLINE_PROJECTS`, all still OFF, none consumed yet).
+  The Offline Engine itself is still not built.
 - ☐ **Stage 3 — AI Router**, NVIDIA-only.
 - ☐ **Stage 4** — additional AI providers (OpenAI/Anthropic/Gemini adapters).
 - ☐ **Stage 5 — Plugin System** (proof of concept via Projects).

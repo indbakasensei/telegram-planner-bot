@@ -9,7 +9,68 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.1B — Routing Layer (Decision Logging Only) (current)
+## v14.1C — Storage Facade + Feature Flags (current)
+
+Infrastructure only — **no user-visible behavior changed, no Offline Engine,
+no routing changes.** Introduces the minimum plumbing the (not yet built)
+Offline Engine will need: a Storage Facade over `database.py`, and four
+feature flags for its eventual gradual, per-domain rollout. Nothing in the
+codebase calls either yet.
+
+### Phase 0 — Engineering Review
+
+Before implementing, critically compared a Storage Facade against a full
+Repository Layer (simplicity, testability, scalability, migration cost,
+technical debt). Concluded the Facade is correct for this codebase: a
+Repository Layer's core benefit — swappable backends and fakes for
+isolated testing — isn't a live need here (`database.py`'s 32 tests
+already run in a fraction of a second against a real temp SQLite file, no
+mocking required, and no design doc anywhere calls for a second storage
+backend), and `OFFLINE_ENGINE.md` had already, independently, rejected a
+new data-access layer for the same reasons. A Repository's other selling
+point (typed domain objects instead of raw tuples) doesn't require the
+full pattern — it can be added inside a Facade later without interface
+polymorphism, if it's ever actually needed. Full reasoning in
+`core/storage/storage.py`'s module docstring.
+
+### Added
+
+- **Storage Facade** (`core/storage/`) — `Storage()` exposes four domain
+  objects (`tasks`, `habits`, `goals`, `projects`), each a thin,
+  one-line-per-method delegation to an existing `database.py` function.
+  Zero SQL, zero business logic, zero return-value reshaping — every
+  method's return value is byte-for-byte whatever the delegated-to
+  `database.py` function already returns.
+- **Feature flags** (`core/feature_flags.py`) — `OFFLINE_TASKS`,
+  `OFFLINE_HABITS`, `OFFLINE_GOALS`, `OFFLINE_PROJECTS`, all default OFF,
+  read once from environment variables at import time (same `.env`
+  convention as `BOT_TOKEN`/`OWNER_ID`). None are enabled by this sprint.
+- **`tests/test_storage_facade.py`** (18 tests) and
+  **`tests/test_feature_flags.py`** (19 tests) — 100% coverage of both new
+  modules. Full suite is now 312 tests (was 274).
+
+### Changed
+
+Nothing. `main.py` was not touched — neither the Storage Facade nor the
+feature flags are imported or consumed anywhere yet, by design (see
+Architecture below).
+
+### Architecture
+
+Deliberately unconsumed infrastructure, not a stub pretending to be
+finished — `core/routing/`'s Routing Layer remains behaviorally identical
+regardless of any flag's value, since it doesn't read these flags (it
+consults its own, separately-empty `OFFLINE_ENGINE_IMPLEMENTED_INTENTS`
+set, unrelated to this sprint). See `ARCHITECTURE.md` and `DEBUGGING.md`.
+
+### Notes
+
+No feature flags were enabled. No Offline Engine logic exists. This sprint
+is purely additive plumbing for a future stage.
+
+---
+
+## v14.1B — Routing Layer (Decision Logging Only)
 
 Implements DRG-001_Intent_Aware_Routing.md / docs/adr/ADR-006-intent-aware-routing.md's
 Sub-stage B ("Decision"). **No production behavior changed.** Every message

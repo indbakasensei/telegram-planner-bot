@@ -216,6 +216,41 @@ All deliberate, documented tradeoffs, not oversights.
   necessary before Sub-stage C's real routing decisions can be validated
   against real Legacy behavior as a baseline.
 
+### Storage Facade and feature flags (v14.1C) — introduced but not yet consumed
+
+Found during v14.1C implementation. Both deliberate, not oversights.
+
+- **Nothing imports `core/storage/` or `core/feature_flags.py` yet.**
+  Neither is wired into `main.py` or `core/routing/`. This is intentional —
+  the task that introduced them explicitly scoped out building the Offline
+  Engine itself, and there is currently nothing for either module to be
+  *used by*. Don't assume a missing import elsewhere is a wiring bug; check
+  `CHANGELOG.md`'s v14.1C entry first.
+- **Two currently-unrelated "is this feature offline yet" signals exist,
+  and they are not reconciled.** `core/feature_flags.py`'s
+  `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` (all
+  OFF, unread) and `core/routing/routing_matrix.py`'s
+  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` (an empty `frozenset`, consulted by
+  `core/routing/confidence.py` on every message) both exist to represent
+  "has this domain been migrated to the Offline Engine," but nothing
+  connects them — flipping `OFFLINE_TASKS=true` in `.env` today would
+  change precisely nothing, since `confidence.py` never reads it. When
+  Stage 2 (Offline Engine) actually starts, someone will need to decide
+  whether these collapse into one mechanism (most likely:
+  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` gets *derived from* the
+  `core/feature_flags.py` flags at startup, rather than being a separately
+  hand-maintained set) or stay deliberately separate for a reason not yet
+  identified. Flagged here so it isn't rediscovered from scratch.
+- **Storage Facade coverage is representative of four domains, not
+  exhaustive of `database.py`'s ~120 functions.** `TaskStorage`/
+  `HabitStorage`/`GoalStorage`/`ProjectStorage` cover the core CRUD each
+  domain's feature flag implies, not every `database.py` function in that
+  domain's neighborhood (e.g. memory/settings/template/analytics functions
+  have no facade wrapper at all yet). Extending coverage as the Offline
+  Engine actually needs more functions is expected, low-risk, incremental
+  work — the same "representative, not exhaustive" pattern already
+  accepted for `core/intent/rules.py`'s Tier 0 command table.
+
 ### Migration exception handling — resolved (v13.2)
 
 `init_db()`'s `ALTER TABLE ... ADD COLUMN` loops used to catch bare
