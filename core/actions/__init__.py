@@ -1,12 +1,12 @@
 """
-core.actions -- Offline Engine action implementations (v14.2).
+core.actions -- Offline Engine action implementations.
 
-Each module exposes exactly one function, `execute(context: RequestContext,
-storage: Storage) -> ActionResult`, matching the signature
-core/offline/engine.py's dispatch table expects. Stage 1 of the Offline
-Engine (this sprint): four read-only task actions only. See OUT OF SCOPE
-in CHANGELOG.md's v14.2 entry for what these deliberately do not cover.
+Stage 1 (v14.2) read-only actions each expose exactly one function,
+`execute(context: RequestContext, storage: Storage) -> ActionResult`.
+Stage 2 (v14.3) adds the first write action, `create_task`, which is
+two-phase (`propose()`/`commit()`) instead -- see create_task.py's module
+docstring and docs/adr/ADR-008-offline-write-operations.md for why.
 """
-from core.actions import list_tasks, search_tasks, today_tasks, week_tasks
+from core.actions import create_task, list_tasks, search_tasks, today_tasks, week_tasks
 
-__all__ = ["list_tasks", "today_tasks", "week_tasks", "search_tasks"]
+__all__ = ["list_tasks", "today_tasks", "week_tasks", "search_tasks", "create_task"]

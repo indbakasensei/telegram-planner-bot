@@ -71,6 +71,9 @@ class TaskStorage:
     def exists(self, user_id, title, due_date):
         return database.task_exists(user_id, title, due_date)
 
+    def mark_as_deadline(self, task_id, user_id, is_deadline=True):
+        return database.mark_as_deadline(task_id, user_id, is_deadline)
+
 
 class HabitStorage:
     """Delegates to database.py's habit functions (habits are recurring

@@ -1,6 +1,9 @@
 """
-engine.py -- OfflineEngine (v14.2): the first production Offline Engine
-path. Dispatches RequestContext -> read-only task Action -> ActionResult.
+engine.py -- OfflineEngine: the production Offline Engine dispatcher.
+Stage 1 (v14.2): read-only task actions. Stage 2 (v14.3): task creation,
+the first write operation -- see execute_pending()'s docstring and
+docs/adr/ADR-008-offline-write-operations.md for why write actions need
+a second entry point.
 
 MUST NOT (and does not): call database.py directly (Storage Facade only,
 core/storage/), call AI, call scheduler.py, import Telegram objects,
@@ -36,7 +39,7 @@ from __future__ import annotations
 
 import logging
 
-from core.actions import list_tasks, search_tasks, today_tasks, week_tasks
+from core.actions import create_task, list_tasks, search_tasks, today_tasks, week_tasks
 from core.intent.intent_types import Intent
 from core.offline.action_result import ActionResult
 from core.offline.request_context import RequestContext
@@ -79,42 +82,76 @@ def _select_action(text: str):
 
 class OfflineEngine:
     """
-    Stage 1: dispatches only to the four read-only task actions
-    (core/actions/{list,today,week,search}_tasks.py). Anything else
-    returns a graceful "unsupported" ActionResult -- never raises for
-    ordinary input, same discipline IntentEngine.classify() and
-    RoutingLayer.route() already established.
+    Stage 1: dispatches to the four read-only task actions
+    (core/actions/{list,today,week,search}_tasks.py) for Intent.QUERY_TASK.
+    Stage 2: dispatches Intent.ADD_TASK to create_task.propose() -- a
+    proposal only, never a write; see execute_pending() for the commit
+    step. Anything else returns a graceful "unsupported" ActionResult --
+    never raises for ordinary input, same discipline IntentEngine.classify()
+    and RoutingLayer.route() already established.
     """
 
     def __init__(self, storage: Storage):
         self._storage = storage
 
     def execute(self, context: RequestContext) -> ActionResult:
-        if context.intent is not Intent.QUERY_TASK:
-            result = ActionResult(
-                success=False, message="", warnings=["unsupported_intent"],
-            )
+        if context.intent is Intent.QUERY_TASK:
+            action = _select_action(context.text)
+            if action is None:
+                result = ActionResult(success=False, message="", warnings=["unsupported_action"])
+                self._log(context, result)
+                return result
+            try:
+                result = action(context, self._storage)
+            except Exception as exc:
+                logger.exception("Offline Engine action execution failed")
+                result = ActionResult(
+                    success=False, message="",
+                    warnings=[f"action_exception:{type(exc).__name__}"],
+                )
             self._log(context, result)
             return result
 
-        action = _select_action(context.text)
-        if action is None:
-            result = ActionResult(
-                success=False, message="", warnings=["unsupported_action"],
-            )
+        if context.intent is Intent.ADD_TASK:
+            try:
+                result = create_task.propose(context, self._storage)
+            except Exception as exc:
+                logger.exception("Offline Engine action execution failed")
+                result = ActionResult(
+                    success=False, message="",
+                    warnings=[f"action_exception:{type(exc).__name__}"],
+                )
             self._log(context, result)
             return result
 
-        try:
-            result = action(context, self._storage)
-        except Exception as exc:
-            logger.exception("Offline Engine action execution failed")
-            result = ActionResult(
-                success=False, message="",
-                warnings=[f"action_exception:{type(exc).__name__}"],
-            )
+        result = ActionResult(success=False, message="", warnings=["unsupported_intent"])
         self._log(context, result)
         return result
+
+    def execute_pending(self, action_type: str, pending_data: dict, user_id: int) -> ActionResult:
+        """
+        Commits a previously-proposed write action after the user
+        confirms (main.py's `confirming` state, "yes" reply). Separate
+        from execute() deliberately: there's no fresh RequestContext at
+        confirm time, just the pending_data dict main.py's integration
+        point saved from a prior propose()'s ActionResult.metadata --
+        see docs/adr/ADR-008-offline-write-operations.md. Never raises.
+        """
+        if action_type == "offline_add_task":
+            try:
+                result = create_task.commit(pending_data, user_id, self._storage)
+            except Exception as exc:
+                logger.exception("Offline Engine commit failed")
+                result = ActionResult(
+                    success=False, message="",
+                    warnings=[f"commit_exception:{type(exc).__name__}"],
+                )
+            logger.debug(
+                "[Offline Commit]\nUser:\n%s\nAction:\n%s\nSuccess:\n%s\nWarnings:\n%s",
+                user_id, action_type, result.success, ", ".join(result.warnings) or "(none)",
+            )
+            return result
+        return ActionResult(success=False, message="", warnings=["unknown_action_type"])
 
     @staticmethod
     def _log(context: RequestContext, result: ActionResult) -> None:

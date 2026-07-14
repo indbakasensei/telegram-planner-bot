@@ -77,6 +77,7 @@ import instance_lock
 from core.intent import IntentEngine, ConversationContext
 from core.routing import RoutingLayer
 from core.offline import OfflineEngine, RequestContext
+from core.actions.create_task import format_summary as _offline_format_summary
 from core.storage import Storage
 from core import feature_flags
 
@@ -860,6 +861,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 intent=intent.intent, entities=intent.entities,
                 now=datetime.now(IST),
             ))
+            if offline_result.success and offline_result.metadata.get("needs_confirmation"):
+                # v14.3: task creation always confirms before writing, same
+                # as Legacy's execute_task_action() -- reuses conversation_state.py's
+                # existing confirming-state machinery exactly as Legacy does,
+                # with a distinct action_type so the confirming-state handler
+                # below can commit via the Storage Facade instead of Legacy's
+                # own database.add_task() call. See ADR-008.
+                set_pending_action(user_id, "offline_add_task",
+                                    offline_result.metadata["pending_data"])
+                await update.message.reply_text(
+                    offline_result.message, parse_mode=HTML, reply_markup=yes_no_menu()
+                )
+                return
             if offline_result.success:
                 await update.message.reply_text(
                     offline_result.message, parse_mode=HTML, reply_markup=main_menu()
@@ -924,6 +938,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("Cancelled — nothing deleted.",
                                                 reply_markup=main_menu())
+            return
+        # v14.3: Offline task creation's own confirm step (ADR-008). Same
+        # positive/negative word lists as the generic branch below, kept
+        # local to this branch since it commits via the Storage Facade
+        # (offline_engine.execute_pending), not Legacy's execute_task_action().
+        if action_type == "offline_add_task":
+            positive_o = any(w in user_input.lower() for w in
+                          ["yes", "yeah", "yep", "haan", "ha", "ok", "okay", "sure",
+                           "✅", "save", "confirm", "bilkul", "do it", "kar do", "theek"])
+            negative_o = any(w in user_input.lower() for w in
+                          ["no", "nahi", "nope", "cancel", "❌", "mat", "don't", "dont", "band"])
+            if positive_o:
+                clear_state(user_id)
+                commit_result = offline_engine.execute_pending("offline_add_task", data, user_id)
+                await update.message.reply_text(
+                    commit_result.message, parse_mode=HTML, reply_markup=main_menu()
+                )
+            elif negative_o:
+                clear_state(user_id)
+                await update.message.reply_text("❌ Cancelled!", reply_markup=main_menu())
+            else:
+                await update.message.reply_text(
+                    _offline_format_summary(data) + "\n\nSay yes to save, no to cancel.",
+                    parse_mode=HTML, reply_markup=yes_no_menu()
+                )
             return
         am_pm = re.match(r"^(\d{1,2})\s*(AM|PM)$", user_input.upper())
         if am_pm:

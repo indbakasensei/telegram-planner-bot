@@ -45,16 +45,22 @@ what actually shipped; the authoritative design doc itself uses Stage
   abstraction — see that sprint's Phase 0 review in `CHANGELOG.md`) and
   four gradual-rollout feature flags (`core/feature_flags.py`:
   `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`).
-  **v14.2 shipped the Offline Engine itself** (`core/offline/`,
-  `core/actions/`, [ADR-007](docs/adr/ADR-007-offline-engine-stage1.md)) —
-  Stage 1 scope only: four read-only task actions (list/today/week/search),
-  gated behind `OFFLINE_TASKS` (still OFF — this is the first sprint where
-  real traffic *could* execute through the new path, but nothing has
-  turned the flag on). `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`
-  and all write operations (task creation/editing/deletion, reminders)
-  remain unimplemented. Next: enable `OFFLINE_TASKS` in a real deployment
-  and observe before expanding scope (see `ADR-007`'s Migration Review),
-  then migrate write operations one command group at a time.
+  v14.2 shipped the Offline Engine itself (`core/offline/`, `core/actions/`,
+  [ADR-007](docs/adr/ADR-007-offline-engine-stage1.md)) — read-only task
+  actions only (list/today/week/search). **v14.3 shipped its first write
+  operation, task creation**
+  ([ADR-008](docs/adr/ADR-008-offline-write-operations.md)) — a two-phase
+  propose/confirm/commit flow reusing `conversation_state.py`'s existing
+  machinery so Legacy's "always confirm before writing" property holds
+  for the Offline path too. Still gated behind `OFFLINE_TASKS` (still
+  OFF — no deployment has enabled it yet). Recognizes exactly four
+  explicit verb commands (`add task`/`create task`/`new task`/`todo`);
+  free-form natural-language task creation ("remind me to...") remains
+  Legacy-only, since title extraction needs the AI this Offline Engine
+  explicitly excludes. `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`
+  and task editing/deletion/completion remain unimplemented. Next: enable
+  `OFFLINE_TASKS` in a real deployment and observe before migrating Task
+  Update (see `ADR-008`'s Migration Review for the concrete blockers).
 - ☐ **Stage 3 — AI Router**, NVIDIA-only.
 - ☐ **Stage 4** — additional AI providers (OpenAI/Anthropic/Gemini adapters).
 - ☐ **Stage 5 — Plugin System** (proof of concept via Projects).

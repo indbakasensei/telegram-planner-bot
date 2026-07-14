@@ -253,7 +253,7 @@ Found during v14.1C implementation.
   work — the same "representative, not exhaustive" pattern already
   accepted for `core/intent/rules.py`'s Tier 0 command table.
 
-### Offline Engine action dispatch is text-pattern-based, not Intent-based (v14.2)
+### Offline Engine action dispatch is text-pattern-based, not Intent-based (v14.2, v14.3)
 
 `Intent.QUERY_TASK` (`core/intent/intent_types.py`) is deliberately
 coarser than the four read-only task actions Stage 1 implements — it also
@@ -275,6 +275,48 @@ structured action/command hint added to `IntentResult.entities` at
 classification time — is deliberately not built yet
 (`docs/adr/ADR-007-offline-engine-stage1.md`'s Decision explains why
 modifying the already-Accepted Intent Engine wasn't done for this sprint).
+
+**v14.3 has a second, more severe instance of the same problem**:
+`Intent.ADD_TASK` doesn't reliably classify the four create-task verbs at
+all — verified directly: `"todo buy milk"` classifies `UNKNOWN` (no rule
+matches it), `"add task buy milk"` classifies at confidence ~0.4 (Tier 4,
+weak keyword), both below `INTENT_ENGINE.md`'s approved 0.75
+reversible-write threshold. `core/actions/create_task.py`'s
+`_match_prefix_and_title()` is its own independent prefix table (a
+*fourth* level of the same duplication chain, not reusing
+`core/offline/engine.py`'s `_select_action()` since it matches different
+verbs). See `docs/adr/ADR-008-offline-write-operations.md`'s Decision.
+
+### Offline task creation: known limitations, verified inherited from Legacy, not introduced (v14.3)
+
+Found while writing Behavioral Equivalence tests. Both confirmed present
+in Legacy too (via direct code reading / testing), not Offline-only
+regressions:
+
+- **Duplicate detection silently fails for tasks with no due date.**
+  `database.task_exists()`'s `WHERE due_date=?` never matches when
+  `due_date` is `NULL` — standard SQL semantics (`NULL = NULL` is not
+  `TRUE`), not a bug in the query. Since Offline's `create_task.propose()`/
+  `commit()` call this function verbatim via the Storage Facade, this
+  limitation is inherited exactly, not introduced. `tests/test_create_task.py`'s
+  `test_equivalence_duplicate_detection_matches_legacy_exactly` verifies
+  the two paths behave identically, including this quirk.
+- **`commit()` re-validates against the real system clock, not the
+  original message's time.** `date_parser.validate_datetime()` defaults
+  to `_now()` (the real clock) when no `now` is passed, and neither
+  `commit()` nor Legacy's `execute_task_action()` passes one — verified
+  by reading `execute_task_action()` directly. This means a task proposed
+  as valid can be rejected at confirm time if enough wall-clock time
+  passes and the date becomes stale — correct, intentional behavior in
+  both paths, not a bug. Caught during this sprint's own manual testing
+  when a test used a fixed simulated `now` for `propose()` and the real
+  clock for `commit()`'s validation disagreed — a test-writing pitfall
+  worth knowing about, not a code defect: always use a consistent `now`
+  (or the real clock throughout) when testing propose-then-commit flows.
+- **Titles retain trailing date/time phrases verbatim.** Documented as a
+  deliberate, accepted limitation (not attempted to fix with fragile
+  regex stripping) in `docs/adr/ADR-008-offline-write-operations.md`'s
+  Decision — not a bug report, listed here for discoverability.
 
 ### Migration exception handling — resolved (v13.2)
 

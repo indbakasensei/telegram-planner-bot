@@ -9,7 +9,111 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.2 — Offline Engine Stage 1: Read-Only Task Commands (current)
+## v14.3 — Offline Engine Stage 2: Task Creation (current)
+
+**The first write operation handled by the Offline Engine.** Still gated
+behind `OFFLINE_TASKS` (default OFF, not enabled by this release; behavior
+today remains byte-for-byte identical to v14.2, verified by all 347
+pre-existing tests passing unmodified).
+
+### Phase 0 — Engineering Review
+
+Critically evaluated the proposed migration rather than implementing it
+as given. Confirmed task creation is the safest first write operation
+(can only add data, never corrupt/destroy existing rows) while naming a
+real nuance: it's also the highest-frequency write action, so per-incident
+safety isn't the same as zero aggregate risk. Found two gaps the brief
+didn't address, verified by reading `main.py` directly rather than
+assuming: (1) the Intent Engine never extracts a task title, for any
+tier — resolved by scoping to four explicit verb commands only, title
+taken verbatim (no NLP cleanup); (2) neither `"todo X"` nor `"add task X"`
+classifies with sufficient confidence under the shipped Intent Engine to
+be safely auto-executed (0.0 and ~0.4 respectively, both below
+`INTENT_ENGINE.md`'s approved 0.75 reversible-write threshold) — resolved
+with a narrow, documented dispatch-layer stopgap (`ADR-007`'s established
+pattern, applied a second time). The biggest finding: reading
+`execute_task_action()` directly confirmed Legacy *always* confirms
+before saving any task, with no exception — implemented genuine two-turn
+confirm-flow equivalence rather than skip it, which required touching
+`main.py`'s `confirming`-state branch for the first time (Stage 1 only
+touched the top of `handle_message()`). Full review in
+`docs/adr/ADR-008-offline-write-operations.md`.
+
+### Added
+
+- **`core/actions/create_task.py`** — the first two-phase Offline Engine
+  action: `propose()` (parse, validate, check for a duplicate, never
+  writes) and `commit()` (the actual save, called only after user
+  confirmation). Mirrors `main.py`'s `execute_task_action()`
+  field-for-field: title requirement, `date_parser.validate_datetime()`,
+  `database.task_exists()`-based duplicate detection (via the Storage
+  Facade), recurrence mapping (including monthly's day-of-month default
+  of 1), `mark_as_deadline()`, and a closely-matching success message.
+- **`OfflineEngine.execute_pending()`** — a second public entry point
+  (alongside Stage 1's `execute()`) for committing a previously-proposed
+  write after confirmation; there's no fresh `RequestContext` at confirm
+  time, only the `pending_data` a prior `propose()` produced.
+- **`TaskStorage.mark_as_deadline()`** (`core/storage/storage.py`) — one
+  new thin delegation to `database.mark_as_deadline()`, needed to mirror
+  Legacy's deadline-marking step.
+- **`docs/adr/ADR-008-offline-write-operations.md`** — records the
+  two-phase propose/commit pattern and reuse of `conversation_state.py`'s
+  existing confirm machinery.
+- **`tests/test_create_task.py`** — 36 new tests, including genuine
+  Behavioral Equivalence tests that call `database.add_task()` the way
+  Legacy does and `create_task.commit()` the way Offline does for the
+  same logical input, then compare the resulting database rows field by
+  field. 100% coverage of `core/actions/create_task.py`,
+  `core/offline/engine.py`, `core/storage/storage.py`. Full suite is now
+  383 tests (was 347).
+
+### Changed
+
+- `main.py`'s `OFFLINE_TASKS`-gated block now also handles `Intent.ADD_TASK`:
+  on a recognized create-task phrasing, it stores the proposal via
+  `conversation_state.set_pending_action()` (a new `"offline_add_task"`
+  action_type) and shows the same yes/no confirmation UX Legacy already
+  uses, instead of executing directly.
+- `main.py`'s `confirming`-state handler gains one new branch,
+  `if action_type == "offline_add_task":`, styled identically to the
+  existing `admin_reset_tasks`/`admin_reset_all` branches immediately
+  above it — routes a confirmed offline-originated task to
+  `OfflineEngine.execute_pending()` instead of Legacy's
+  `execute_task_action()`. Every existing action_type's behavior is
+  unchanged.
+
+### Behavioral Equivalence Results
+
+Verified matches: stored fields (title/date/time/category/priority/
+recurrence) identical for equivalent inputs; timestamps identical by
+construction (both paths call the same `database.add_task()`, so any
+schema-level default applies identically); reminder eligibility
+identical by construction (both produce rows `scheduler.py` polls the
+same way); duplicate-detection logic identical, including its inherited
+SQL-NULL limitation (verified present in both, not introduced by
+Offline). **Documented, accepted difference**: Offline-created titles
+retain any trailing date/time phrase verbatim (no AI-mediated cleanup) —
+Legacy's AI-assisted title extraction produces cleaner titles for
+messages this Stage doesn't even recognize (free-form "remind me to..."
+phrasing remains Legacy-only).
+
+### Architecture
+
+Deliberately, verifiably inert today: `OFFLINE_TASKS` defaults OFF and is
+not enabled by this release. See `ARCHITECTURE.md` for the updated flow
+and `docs/adr/ADR-008-offline-write-operations.md` for the two-phase
+pattern's full rationale.
+
+### Notes
+
+Task editing, deletion, completion, habits, goals, projects, shopping,
+and AI remain explicitly out of scope and unimplemented. Legacy Router
+was not removed. `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`
+remain unconsumed.
+
+---
+
+## v14.2 — Offline Engine Stage 1: Read-Only Task Commands
 
 **The first sprint where real user traffic can execute through the new
 v14 architecture** — gated entirely behind `OFFLINE_TASKS` (default OFF,
