@@ -9,7 +9,105 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.3 — Offline Engine Stage 2: Task Creation (current)
+## v14.4 — Offline Engine Stage 3: Task Update (current)
+
+**BAKA's second Offline write operation.** Still gated behind
+`OFFLINE_TASKS` (default OFF, not enabled by this release; all 383
+pre-existing tests pass unmodified).
+
+### Phase 0 — Engineering Review
+
+Critically evaluated the migration plan against `main.py`'s real code,
+not its description. Found the brief's core assumption was factually
+wrong: it asked to "preserve Legacy confirmation flow... using the same
+Pending Action system," but Legacy's real editing-state handler
+(`main.py:1022-1055`) applies an update **immediately** on the next
+message, with no confirm step and no `set_pending_action()` call at all
+— confirmed by direct reading, not inference. Implementing the brief's
+described confirm step would have been a behavioral *divergence* from
+Legacy, contradicting the brief's own higher-priority goal ("preserve
+Legacy behaviour"). Also found "change recurrence" — listed as a
+SUPPORTED example — isn't actually a real Legacy capability:
+`database.update_task()`'s signature has no recurrence parameters, and
+Legacy's handler doesn't pass any. Both findings resolved in favor of
+verified reality over the brief's assumptions. Full review in
+`docs/adr/ADR-009-offline-task-update.md`.
+
+### Added
+
+- **`core/actions/update_task.py`** — `start_editing()` (message 1: "edit
+  task <id>" / "rename task <id>", verifies the task exists, never
+  writes) and `apply_change()` (message 2: recognizes date/time — reused
+  `date_parser.parse_all()` — plus new explicit priority/category/title
+  patterns; commits immediately, no confirm step, matching Legacy's real
+  behavior). Recognizes "cancel"/"nevermind"/"stop" and clears state
+  cleanly — a narrow, documented improvement over Legacy's real behavior
+  (which would hand these to the AI as a confusing no-op edit attempt).
+- **`OfflineEngine.continue_editing()`** — a third dispatch entry point,
+  gated on conversation state (`state == "editing"`) rather than Intent
+  Engine classification, since a bare "set time to 6pm" reply carries no
+  reliable intent signal on its own.
+- **`docs/adr/ADR-009-offline-task-update.md`**.
+- **`tests/test_update_task.py`** — 41 new tests: field-recognition,
+  transaction safety (validate-before-write), Behavioral Equivalence
+  tests (Legacy's `update_task()` vs. Offline's `apply_change()`,
+  compared field by field), Failure Injection tests (database exception,
+  validation failure, cancel, verified-absent duplicate check,
+  non-existent task), and a Legacy-vs-Offline performance benchmark.
+  100% coverage of `core/actions/update_task.py`,
+  `core/offline/engine.py`. Full suite is now 424 tests (was 383).
+
+### Changed
+
+- `main.py`'s `OFFLINE_TASKS`-gated block now also handles
+  `Intent.EDIT_TASK`/`Intent.UNKNOWN` for the entry phrases and, in a new
+  check gated on `state == "editing"` (checked before the intent-gated
+  block, mirroring Legacy's own state-over-intent prioritization),
+  intercepts the change-description message. Both reuse
+  `conversation_state.py`'s existing `set_editing()`/`get_editing_id()` —
+  the same functions Legacy's `edit_task_cmd()` already uses.
+
+### Behavioral Equivalence Results
+
+Verified matches: stored fields identical for equivalent priority/
+category/title/date/time changes; per-field-conditional update semantics
+identical (only the changed field is ever written, `storage.tasks.update()`
+already supported this from Stage 1, no Storage Facade changes needed);
+duplicate detection identically absent in both paths (verified — Legacy's
+real handler never calls `task_exists()` for updates, and Offline
+doesn't either); recurrence changes unsupported in both paths (verified
+Legacy limitation, not an Offline gap). **Documented, accepted
+differences**: Offline validates dates before writing where Legacy does
+not (Transaction Safety requirement, a safety-only addition); Offline
+recognizes "cancel"/"nevermind"/"stop" explicitly where Legacy would
+confusingly hand them to the AI (a narrow, one-input-class improvement).
+
+### Performance
+
+Legacy's deterministic-portion equivalent (`parse_all()` + `update_task()`
++ `get_task_by_id()`, excluding the AI call that dominates Legacy's real
+production latency and can't be benchmarked offline): ~0.79ms/call.
+Offline's `apply_change()` (full validate-then-commit cycle): ~0.95ms/call.
+Difference: ~0.16ms, from the added validation call and explicit-pattern
+regex checks. Measurement only, no optimization attempted, per this
+sprint's explicit instruction.
+
+### Architecture
+
+Deliberately, verifiably inert today: `OFFLINE_TASKS` defaults OFF and is
+not enabled by this release. See `ARCHITECTURE.md` and
+`docs/adr/ADR-009-offline-task-update.md`.
+
+### Notes
+
+Task delete, complete, habits, goals, projects, shopping, and AI remain
+explicitly out of scope and unimplemented. Legacy Router was not
+removed. Recurrence changes remain unsupported (verified: Legacy can't
+do this either).
+
+---
+
+## v14.3 — Offline Engine Stage 2: Task Creation
 
 **The first write operation handled by the Offline Engine.** Still gated
 behind `OFFLINE_TASKS` (default OFF, not enabled by this release; behavior

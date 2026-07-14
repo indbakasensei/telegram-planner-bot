@@ -3,7 +3,11 @@ engine.py -- OfflineEngine: the production Offline Engine dispatcher.
 Stage 1 (v14.2): read-only task actions. Stage 2 (v14.3): task creation,
 the first write operation -- see execute_pending()'s docstring and
 docs/adr/ADR-008-offline-write-operations.md for why write actions need
-a second entry point.
+a second entry point. Stage 3 (v14.4): task update -- see
+continue_editing()'s docstring and docs/adr/ADR-009-offline-task-update.md
+for why update needs a THIRD kind of entry point (state-gated, not
+Intent-gated), and why it applies directly with no confirm step (unlike
+Stage 2), matching Legacy's real, verified update behavior.
 
 MUST NOT (and does not): call database.py directly (Storage Facade only,
 core/storage/), call AI, call scheduler.py, import Telegram objects,
@@ -39,7 +43,9 @@ from __future__ import annotations
 
 import logging
 
-from core.actions import create_task, list_tasks, search_tasks, today_tasks, week_tasks
+from datetime import datetime
+
+from core.actions import create_task, list_tasks, search_tasks, today_tasks, update_task, week_tasks
 from core.intent.intent_types import Intent
 from core.offline.action_result import ActionResult
 from core.offline.request_context import RequestContext
@@ -124,8 +130,61 @@ class OfflineEngine:
             self._log(context, result)
             return result
 
+        if context.intent in (Intent.EDIT_TASK, Intent.UNKNOWN):
+            # UNKNOWN included deliberately: verified directly that
+            # "rename task 5" classifies UNKNOWN under the shipped Intent
+            # Engine (Tier 0 has no "rename " prefix), not EDIT_TASK --
+            # same class of under-classification ADR-007/ADR-008 already
+            # found for other explicit commands. update_task._ENTRY_RE is
+            # specific enough (requires "edit task <digits>" or "rename
+            # task <digits>" exactly) that gating on intent here is a
+            # cheap pre-filter, not the source of correctness -- see
+            # ADR-009.
+            task_id = update_task.match_entry_command(context.text)
+            if task_id is None:
+                result = ActionResult(success=False, message="", warnings=["unsupported_action"])
+                self._log(context, result)
+                return result
+            try:
+                result = update_task.start_editing(task_id, context.user_id, self._storage)
+            except Exception as exc:
+                logger.exception("Offline Engine action execution failed")
+                result = ActionResult(
+                    success=False, message="",
+                    warnings=[f"action_exception:{type(exc).__name__}"],
+                )
+            self._log(context, result)
+            return result
+
         result = ActionResult(success=False, message="", warnings=["unsupported_intent"])
         self._log(context, result)
+        return result
+
+    def continue_editing(self, text: str, task_id: int, user_id: int,
+                          now: datetime) -> ActionResult:
+        """
+        Message 2 of the update flow: the change description, only
+        called by main.py when conversation_state's state is already
+        "editing" (set by a prior start_editing() result). Deliberately
+        NOT routed through execute() -- Intent Engine classification of a
+        bare "set time to 6pm" reply carries no reliable EDIT_TASK signal
+        on its own (core/intent/rules.py has no notion of conversation
+        state), so main.py checks state directly and calls this instead,
+        mirroring how Legacy's own handle_message() prioritizes state
+        over intent-based routing. Never raises.
+        """
+        try:
+            result = update_task.apply_change(text, task_id, user_id, self._storage, now)
+        except Exception as exc:
+            logger.exception("Offline Engine update failed")
+            result = ActionResult(
+                success=False, message="",
+                warnings=[f"update_exception:{type(exc).__name__}"],
+            )
+        logger.debug(
+            "[Offline Update]\nUser:\n%s\nTask:\n%s\nText:\n%r\nSuccess:\n%s\nWarnings:\n%s",
+            user_id, task_id, text, result.success, ", ".join(result.warnings) or "(none)",
+        )
         return result
 
     def execute_pending(self, action_type: str, pending_data: dict, user_id: int) -> ActionResult:

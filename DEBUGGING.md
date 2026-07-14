@@ -287,6 +287,23 @@ reversible-write threshold. `core/actions/create_task.py`'s
 `core/offline/engine.py`'s `_select_action()` since it matches different
 verbs). See `docs/adr/ADR-008-offline-write-operations.md`'s Decision.
 
+**v14.4 has a third instance**: `"edit task 5"` correctly classifies
+`Intent.EDIT_TASK` at confidence 1.0 (Tier 0's existing `"edit "` prefix
+already covers it), but `"rename task 5"` classifies `Intent.UNKNOWN` —
+there is no `"rename "` Tier 0 prefix at all. `OfflineEngine.execute()`
+gates entry-command recognition on `context.intent in (Intent.EDIT_TASK,
+Intent.UNKNOWN)` to compensate, relying on
+`core/actions/update_task.py`'s own specific `_ENTRY_RE` regex for
+correctness rather than the coarse intent check. A *separate* dispatch
+problem also appears here for the first time: message 2 of the update
+flow (the change description, e.g. "set time to 6pm") cannot be
+Intent-Engine-gated at all, reliably or otherwise — a bare reply like
+that carries no EDIT_TASK signal on its own, since `core/intent/rules.py`
+has no notion of conversation state. `core/offline/engine.py`'s
+`continue_editing()` is gated on `conversation_state`'s `"editing"` state
+directly instead, checked by `main.py` before any intent-based dispatch —
+see `docs/adr/ADR-009-offline-task-update.md`.
+
 ### Offline task creation: known limitations, verified inherited from Legacy, not introduced (v14.3)
 
 Found while writing Behavioral Equivalence tests. Both confirmed present
@@ -317,6 +334,37 @@ regressions:
   deliberate, accepted limitation (not attempted to fix with fragile
   regex stripping) in `docs/adr/ADR-008-offline-write-operations.md`'s
   Decision — not a bug report, listed here for discoverability.
+
+### Offline task update: known limitations, verified inherited from Legacy, not introduced (v14.4)
+
+Found while writing Behavioral Equivalence tests, same discipline as the
+v14.3 entry above.
+
+- **Legacy's real update flow has no confirm step, contrary to what an
+  earlier reading of the task brief for this sprint assumed.** Verified
+  by reading `main.py:1022-1055` directly: `update_task()` is called
+  immediately on the next message after `/edit <id>`, with no yes/no
+  step and no `set_pending_action()` call. Offline Update matches this
+  real behavior (`apply_change()` commits immediately) rather than the
+  brief's assumed confirm-flow — implementing the brief's described step
+  would have been a behavioral *divergence* from Legacy. See
+  `docs/adr/ADR-009-offline-task-update.md`.
+- **Recurrence cannot be updated in either path.** `database.update_task()`'s
+  real signature has no recurrence parameters at all, despite "change
+  recurrence" appearing as a SUPPORTED example in an earlier reading of
+  this sprint's task brief. Not an Offline gap — Legacy genuinely cannot
+  do this today. `tests/test_update_task.py`'s
+  `test_equivalence_recurrence_cannot_be_changed_in_either_path` verifies
+  this directly.
+- **Legacy's update flow never validates dates or checks duplicates.**
+  Verified by reading the handler: no `validate_datetime()` call, no
+  `task_exists()` call. Offline Update deliberately adds date/time
+  validation (this sprint's own Transaction Safety requirement justifies
+  it — a safety-only addition, no user-visible flow change) but
+  deliberately does *not* add duplicate-checking (no such requirement
+  existed, and adding one would be an unequivalent enhancement, not a
+  safety net). Two different divergences from Legacy, two different
+  justifications — not treated the same way by default.
 
 ### Migration exception handling — resolved (v13.2)
 

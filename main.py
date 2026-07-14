@@ -854,6 +854,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # other QUERY_TASK phrasings like "/habits") falls through to Legacy
     # exactly as if this block didn't exist -- see engine.py's module
     # docstring for why intent alone isn't enough to gate this precisely.
+    # v14.4: task update's second message (the change itself) is gated on
+    # conversation state, not Intent Engine classification -- a bare
+    # "set time to 6pm" reply carries no reliable EDIT_TASK signal on its
+    # own (core/intent/rules.py has no notion of conversation state).
+    # Checked before the intent-gated block below, mirroring how Legacy's
+    # own handle_message() prioritizes state over intent-based routing.
+    # See docs/adr/ADR-009-offline-task-update.md.
+    if feature_flags.OFFLINE_TASKS and state == "editing":
+        editing_task_id = get_editing_id(user_id)
+        if editing_task_id:
+            try:
+                edit_result = offline_engine.continue_editing(
+                    user_input, editing_task_id, user_id, datetime.now(IST)
+                )
+                if edit_result.success:
+                    clear_state(user_id)
+                    await update.message.reply_text(
+                        edit_result.message, parse_mode=HTML, reply_markup=main_menu()
+                    )
+                    return
+                if "unrecognized_change" not in edit_result.warnings:
+                    # A recognized failure (task not found, validation
+                    # failed) -- show it directly rather than falling
+                    # through to Legacy's AI-mediated handler, which
+                    # would likely fail identically on the same input.
+                    await update.message.reply_text(
+                        edit_result.message or "❌ Something went wrong.",
+                        reply_markup=main_menu()
+                    )
+                    return
+                # unrecognized_change: fall through to Legacy's own
+                # `if state == "editing":` handler below, unchanged --
+                # state is NOT cleared, nothing was written.
+            except Exception:
+                logger.exception("Offline Engine update failed -- falling through to Legacy")
+
     if feature_flags.OFFLINE_TASKS and intent is not None:
         try:
             offline_result = offline_engine.execute(RequestContext(
@@ -861,6 +897,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 intent=intent.intent, entities=intent.entities,
                 now=datetime.now(IST),
             ))
+            if offline_result.success and offline_result.metadata.get("start_editing"):
+                # v14.4: task update entry point ("edit task <id>" /
+                # "rename task <id>") -- reuses conversation_state.py's
+                # existing set_editing()/get_editing_id(), the same
+                # mechanism Legacy's own edit_task_cmd() uses. See ADR-009.
+                set_editing(user_id, offline_result.metadata["task_id"])
+                await update.message.reply_text(
+                    offline_result.message, parse_mode=HTML, reply_markup=ReplyKeyboardRemove()
+                )
+                return
             if offline_result.success and offline_result.metadata.get("needs_confirmation"):
                 # v14.3: task creation always confirms before writing, same
                 # as Legacy's execute_task_action() -- reuses conversation_state.py's

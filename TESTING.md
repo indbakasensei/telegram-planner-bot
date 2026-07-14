@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**383 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**424 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~9 seconds, all 383 tests
+pytest                             # ~10 seconds, all 424 tests
 ```
 
 | File | Tests | Covers |
@@ -27,6 +27,7 @@ pytest                             # ~9 seconds, all 383 tests
 | `tests/test_intent_engine.py` | 40 | `core/intent/`'s tiered classifier (v14.0 Stage 1): all 10 required categories (add/edit/delete reminder, greeting, help, small talk, random/unknown input, time query, schedule query), ambiguity scoring when tiers disagree, purity (same input → same output, never reads the system clock), entity extraction, and latency (100% coverage of `core/intent/`) |
 | `tests/test_routing_layer.py` | 23 | `core/routing/`'s Routing Layer (v14.1B): `destination` is always `LEGACY` regardless of input, every `confidence.evaluate()` branch (AI-shaped intents, unknown, high-confidence-not-yet-offline, below-clarify-band, ambiguous middle band, ambiguity safety cap, the currently-unreachable `OFFLINE` branch via `monkeypatch`), `RoutingDecision` contract (trace ID uniqueness/validity, `clarification_required` derivation, purity), and an end-to-end test against the real `IntentEngine` (100% coverage of `core/routing/`) |
 | `tests/test_create_task.py` | 36 | `core/actions/create_task.py`'s two-phase write action (v14.3, Stage 2): verb-prefix/title extraction (all 4 verbs, case-insensitivity, unsupported text), recurrence mapping, `propose()` (validation rejection, duplicate detection, missing-clock handling), `commit()` (mirrors the same checks post-confirmation, deadline-marking with exception containment), `OfflineEngine.execute_pending()` dispatch, and **Behavioral Equivalence tests** that call `database.add_task()` the way Legacy does and `create_task.commit()` the way Offline does for equivalent inputs, then compare the resulting database rows field by field (100% coverage of `core/actions/create_task.py`, `core/offline/engine.py`, `core/storage/storage.py`) |
+| `tests/test_update_task.py` | 41 | `core/actions/update_task.py`'s direct-apply write action (v14.4, Stage 3): entry-command recognition (`edit task`/`rename task`, both intent-classification paths), field-change recognition (priority/category/title/date-time/cancel), transaction safety (validate-before-write, per-field-only updates), `OfflineEngine.continue_editing()`/`execute()` dispatch, **Behavioral Equivalence tests** (Legacy's `update_task()` vs. Offline's `apply_change()` compared field by field, including verifying recurrence updates are unsupported in *both* paths), and **Failure Injection tests** (database exception, validation failure, cancel, verified-absent duplicate check, non-existent task) plus a Legacy-vs-Offline latency/memory benchmark (100% coverage of `core/actions/update_task.py`) |
 | `tests/test_offline_engine.py` | 34 | `core/offline/` + `core/actions/`'s Offline Engine (v14.2, Stage 1): `RequestContext`/`ActionResult` contract shape, dispatch (`_select_action()`'s text-pattern matching for all four actions, unsupported intent, unsupported action, exception containment), each action against real temp-DB data via the Storage Facade (including empty-result and missing-`now` branches), the feature-flag gating condition `main.py` uses, and AST-based checks that `core/offline/`/`core/actions/` never import `database` or `telegram` directly (100% coverage of both packages) |
 | `tests/test_storage_facade.py` | 18 | `core/storage/`'s Storage Facade (v14.1C): every `TaskStorage`/`HabitStorage`/`GoalStorage`/`ProjectStorage` method delegates to exactly the `database.py` function it wraps, verified by asserting the facade's return value equals calling `database.py` directly (not just "doesn't crash") — proves pure delegation, zero reshaping (100% coverage of `core/storage/`) |
 | `tests/test_feature_flags.py` | 19 | `core/feature_flags.py`'s rollout flags (v14.1C): the `_flag()` helper across truthy/falsy env-var spellings, all four flags defaulting OFF when unset, and — via `importlib.reload()` — that the exported constants actually pick up an environment variable at import time, not just the helper function in isolation (100% coverage of `core/feature_flags.py`) |

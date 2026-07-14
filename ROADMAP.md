@@ -57,10 +57,27 @@ what actually shipped; the authoritative design doc itself uses Stage
   explicit verb commands (`add task`/`create task`/`new task`/`todo`);
   free-form natural-language task creation ("remind me to...") remains
   Legacy-only, since title extraction needs the AI this Offline Engine
-  explicitly excludes. `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`
-  and task editing/deletion/completion remain unimplemented. Next: enable
-  `OFFLINE_TASKS` in a real deployment and observe before migrating Task
-  Update (see `ADR-008`'s Migration Review for the concrete blockers).
+  explicitly excludes. **v14.4 shipped a second write operation, task
+  update** ([ADR-009](docs/adr/ADR-009-offline-task-update.md)) — applies
+  directly with no confirm step, genuinely matching Legacy's real update
+  behavior (verified: Legacy itself doesn't confirm updates either,
+  despite the task brief that requested this sprint assuming it did).
+  Supports date/time/priority/category/title changes; recurrence changes
+  remain unsupported in *both* paths (verified: `database.update_task()`
+  has no recurrence parameters — not an Offline gap, a real Legacy
+  limitation). Still gated behind `OFFLINE_TASKS` (still OFF).
+  `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` and task
+  deletion/completion remain unimplemented. Next: enable `OFFLINE_TASKS`
+  in a real deployment and observe before migrating Task Delete (see
+  `ADR-009`'s Migration Review for the concrete blockers).
+
+  **Naming note**: task creation/update are sometimes called "Offline
+  Engine Stage 2/Stage 3" in their own commit messages and ADR titles
+  (`ADR-008`/`ADR-009`) — this is a *different*, nested numbering from
+  the master-spec "Stage 3 — AI Router" entry immediately below, which
+  hasn't started. Same kind of numbering collision this file's own intro
+  note already warns about; flagged explicitly here rather than left to
+  cause confusion.
 - ☐ **Stage 3 — AI Router**, NVIDIA-only.
 - ☐ **Stage 4** — additional AI providers (OpenAI/Anthropic/Gemini adapters).
 - ☐ **Stage 5 — Plugin System** (proof of concept via Projects).

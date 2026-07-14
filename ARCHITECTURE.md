@@ -41,7 +41,7 @@ Incoming Message
 Legacy Router (menu / state machine / slashless commands / AI fallback)
 ```
 
-**Since v14.3 (Offline Engine Stage 2, feature-flag gated — OFF today):**
+**Since v14.4 (Offline Engine write operations 1 and 2, feature-flag gated — OFF today):**
 
 ```
 Incoming Message
@@ -53,15 +53,23 @@ Intent Engine (core/intent/) ── classifies, logs
 Routing Layer (core/routing/) ── computes + logs a recommended
       │                          destination, ALWAYS executes via Legacy
       ▼
-Offline Engine (core/offline/) ── IF OFFLINE_TASKS flag is on:
-      │                           · one of 4 read-only task actions ->
-      │                             executes via Storage Facade, replies directly
-      │                           · a recognized create-task verb -> PROPOSES
-      │                             (validates, checks duplicates, never writes),
-      │                             stores pending_data via conversation_state's
-      │                             existing set_pending_action(), shows the
-      │                             same yes/no confirm UX Legacy already uses
-      │                           Flag is OFF today -- this step is a no-op.
+[if state == "editing"] Offline Engine continue_editing() ── IF OFFLINE_TASKS
+      │                 is on: applies a recognized date/time/priority/
+      │                 category/title change immediately (no confirm step --
+      │                 matches Legacy's real update behavior, ADR-009),
+      │                 or falls through unchanged on unrecognized text.
+      ▼
+Offline Engine execute() ── IF OFFLINE_TASKS flag is on:
+      │                     · one of 4 read-only task actions ->
+      │                       executes via Storage Facade, replies directly
+      │                     · a recognized create-task verb -> PROPOSES
+      │                       (validates, checks duplicates, never writes),
+      │                       stores pending_data via set_pending_action(),
+      │                       shows the same yes/no confirm UX Legacy uses
+      │                     · a recognized "edit task <id>"/"rename task <id>" ->
+      │                       verifies the task exists, calls set_editing()
+      │                       (the same function edit_task_cmd() uses)
+      │                     Flag is OFF today -- both steps are a no-op.
       ▼
 Legacy Router (menu / state machine / slashless commands / AI fallback)
                           ── UNCHANGED, EXCEPT: `confirming` state gains one
@@ -96,25 +104,44 @@ granular enough to gate individual actions yet).
    to `LEGACY` on every call, unconditionally** — nothing below this step
    reads `recommended_destination`. See
    [docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md).
-4. **(v14.2/v14.3, feature-flag gated — `OFFLINE_TASKS`, OFF today)** If
-   the flag is on: for `IntentResult.intent == QUERY_TASK`, `core/offline/`'s
-   `OfflineEngine.execute()` attempts to match one of four read-only task
-   actions (list/today/week/search); for `Intent.ADD_TASK`, it attempts to
-   match one of four create-task verbs (`add task`/`create task`/
-   `new task`/`todo`) — both narrow, documented text-pattern stopgaps, not
-   a general Intent-driven dispatch (see
-   [docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md)
-   and [docs/adr/ADR-008-offline-write-operations.md](docs/adr/ADR-008-offline-write-operations.md)).
+4. **(v14.4, feature-flag gated — `OFFLINE_TASKS`, OFF today, state-gated,
+   checked before intent-based dispatch)** If the flag is on and
+   conversation state is already `"editing"` (set by a prior `/edit`,
+   Legacy or Offline), `OfflineEngine.continue_editing()` attempts to
+   recognize the message as a date/time/priority/category/title change
+   (or "cancel"/"nevermind"/"stop") and, if recognized, applies it
+   **immediately** — no confirmation step, genuinely matching Legacy's
+   real update behavior (verified by reading `main.py`'s editing-state
+   handler directly; see
+   [docs/adr/ADR-009-offline-task-update.md](docs/adr/ADR-009-offline-task-update.md)).
+   Checked by conversation state, not `IntentResult.intent`, since a bare
+   "set time to 6pm" reply carries no reliable intent signal on its own.
+   On no match, state is left untouched and the message falls through to
+   step 6's `editing` branch exactly as if this step didn't exist.
+5. **(v14.2/v14.3/v14.4, feature-flag gated — `OFFLINE_TASKS`, OFF today)**
+   If the flag is on: for `IntentResult.intent == QUERY_TASK`,
+   `core/offline/`'s `OfflineEngine.execute()` attempts to match one of
+   four read-only task actions (list/today/week/search); for
+   `Intent.ADD_TASK`, one of four create-task verbs (`add task`/
+   `create task`/`new task`/`todo`); for `Intent.EDIT_TASK` or
+   `Intent.UNKNOWN`, an "edit task <id>"/"rename task <id>" entry phrase —
+   all narrow, documented text-pattern stopgaps, not a general
+   Intent-driven dispatch (see
+   [docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md),
+   [ADR-008](docs/adr/ADR-008-offline-write-operations.md),
+   [ADR-009](docs/adr/ADR-009-offline-task-update.md)).
    A read-only match replies directly. A create-task match *proposes*
    only (never writes) and stores the proposal via
-   `conversation_state.set_pending_action()` — the same mechanism Legacy
-   already uses — before showing a yes/no confirmation, exactly like
-   Legacy's own task-creation flow. Either way, steps 5-9 below never run
-   for that message. On no match (including every other `QUERY_TASK`/
-   `ADD_TASK` phrasing, e.g. `/habits` or "remind me to..."), it falls
-   through to step 5 exactly as if this step didn't exist. With the flag
-   OFF (today), this step never activates.
-5. Free text then checks the reply-keyboard menu, then
+   `conversation_state.set_pending_action()` before showing a yes/no
+   confirmation, exactly like Legacy's own task-creation flow. An
+   edit/rename match verifies the task exists and calls
+   `conversation_state.set_editing()` — the same function
+   `edit_task_cmd()` already uses — so the *next* message reaches step 4
+   above. Any match here means steps 6-10 below never run for that
+   message. On no match (e.g. `/habits`, "remind me to...", "delete 5"),
+   it falls through to step 6 exactly as if this step didn't exist. With
+   the flag OFF (today), steps 4 and 5 never activate.
+6. Free text then checks the reply-keyboard menu, then
    `conversation_state.get_state(user_id)`:
    - `confirming` — handles yes/no replies, AM/PM disambiguation,
      admin-reset confirmation phrases, and (v14.3, only reachable when
@@ -122,25 +149,27 @@ granular enough to gate individual actions yet).
      via `OfflineEngine.execute_pending()` and the Storage Facade instead
      of Legacy's `execute_task_action()`
    - `editing` — re-parses the message as an update to `get_editing_id()`
+     via the AI (`get_baka_response()`); only reached when step 4 above
+     didn't recognize the change deterministically
    - `gathering` — merges new entities into `partial_data`, either asks the
      next missing question or moves to `confirming`
-6. Otherwise, a ~40-entry slashless-command table
+7. Otherwise, a ~40-entry slashless-command table
    (`_starts_with_handlers`/`_exact_handlers`) lets every command work
    without a leading `/`, and a keyword shortcut handles plain view
    requests (today/week/month/...) without invoking the AI at all.
-7. Anything left falls to `baka_brain.get_baka_response()`, which classifies
+8. Anything left falls to `baka_brain.get_baka_response()`, which classifies
    the message into one of 11 intents (`TASK`, `HABIT`, `EDIT`, `DELETE`,
    `VIEW`, `MEMORY_SAVE`, `MEMORY_GET`, `GOAL`, `PLAN`, `ADVICE`, `CHAT`,
    `MULTIPLE`) and extracts entities. `date_parser.parse_all()` runs in
    parallel and **overrides** the AI's date/time for phrasings it's known to
    get wrong (see [docs/ai_system.md](docs/ai_system.md)).
-8. Low-confidence responses, or CHAT-intent replies to messages containing
+9. Low-confidence responses, or CHAT-intent replies to messages containing
    action verbs, get logged to `missed_capabilities` for later review via
    `/misses` (admin-only) — this is the bot's feature-gap-mining mechanism.
-9. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
-   HTML-escaped) and sent back.
+10. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
+    HTML-escaped) and sent back.
 
-**Note on step 7's 11-intent taxonomy vs. the Intent Engine's 11-value
+**Note on step 8's 11-intent taxonomy vs. the Intent Engine's 11-value
 `Intent` enum (step 2):** these are two different, currently-unrelated
 classification systems that happen to both have 11 values — the AI's
 taxonomy (`TASK`/`HABIT`/`EDIT`/`DELETE`/`VIEW`/`MEMORY_SAVE`/
@@ -170,7 +199,7 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 | `core/storage/` | v14.1C: Storage Facade — domain-grouped (`tasks`/`habits`/`goals`/`projects`) thin delegation to `database.py`. Consumed by `core/offline/`/`core/actions/` since v14.2 | Zero SQL, zero business logic, zero return-value reshaping — a Facade, not a Repository (Phase 0 review, `CHANGELOG.md`'s v14.1C entry) |
 | `core/feature_flags.py` | v14.1C: `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`, all default OFF. `OFFLINE_TASKS` read by `main.py` since v14.2 (still OFF, not enabled) | `.env`-backed, same convention as `BOT_TOKEN`/`OWNER_ID` |
 | `core/offline/` | v14.2: Offline Engine Stage 1 — `OfflineEngine.execute()` dispatches `RequestContext` to a read-only task action, returns `ActionResult`. Storage Facade only, never `database.py` directly (AST-enforced by tests) | Feature-flag gated (`OFFLINE_TASKS`, OFF today). See [docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md) |
-| `core/actions/` | v14.2: four read-only task actions (`list_tasks`/`today_tasks`/`week_tasks`/`search_tasks`), each `execute(RequestContext, Storage) -> ActionResult`. v14.3 adds `create_task` — two-phase `propose()`/`commit()`, the first write action | No Telegram/database.py imports (AST-enforced). Task edit/delete/complete and other domains (habits/goals/projects) not implemented — see [docs/adr/ADR-008-offline-write-operations.md](docs/adr/ADR-008-offline-write-operations.md) |
+| `core/actions/` | v14.2: four read-only task actions (`list_tasks`/`today_tasks`/`week_tasks`/`search_tasks`), each `execute(RequestContext, Storage) -> ActionResult`. v14.3 adds `create_task` — two-phase `propose()`/`commit()` with a confirm step. v14.4 adds `update_task` — `start_editing()`/`apply_change()`, applies directly with no confirm step (matches Legacy's real behavior, [ADR-009](docs/adr/ADR-009-offline-task-update.md)) | No Telegram/database.py imports (AST-enforced). Task delete/complete and other domains (habits/goals/projects) not implemented. Recurrence updates unsupported — verified Legacy limitation, not an Offline gap |
 | `scheduler.py` | Query helpers for due/overdue/followup tasks and quiet-hours checks | The actual timer is PTB's `job_queue`, registered in `main.py` |
 | `conversation_state.py` | In-memory (module-level dict) state machine: idle/gathering/confirming/editing | **Does not survive process restart**, despite its own docstring's "survives reliably" claim — see [DEBUGGING.md](DEBUGGING.md#known-issues) |
 | `debug_system.py` | Bug tracking (`bugs.db`), `/trace`, `/selftest` message bank | Debug-mode/last-trace state is also in-memory only |
