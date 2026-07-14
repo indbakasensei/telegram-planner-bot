@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**312 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**347 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~9 seconds, all 312 tests
+pytest                             # ~9 seconds, all 347 tests
 ```
 
 | File | Tests | Covers |
@@ -26,6 +26,7 @@ pytest                             # ~9 seconds, all 312 tests
 | `tests/test_async_bridge.py` | 12 | `run_blocking()` actually executes off the calling thread, a slow wrapped call doesn't block concurrent fast tasks (with a control-group test proving the unwrapped case *does* block), exception propagation (type preserved, one failure doesn't affect concurrent siblings), and nested synchronous calls within a wrapped function (the exact shape of `generate_video()` calling `generate_image()` internally) all running in the same worker thread |
 | `tests/test_intent_engine.py` | 40 | `core/intent/`'s tiered classifier (v14.0 Stage 1): all 10 required categories (add/edit/delete reminder, greeting, help, small talk, random/unknown input, time query, schedule query), ambiguity scoring when tiers disagree, purity (same input → same output, never reads the system clock), entity extraction, and latency (100% coverage of `core/intent/`) |
 | `tests/test_routing_layer.py` | 23 | `core/routing/`'s Routing Layer (v14.1B): `destination` is always `LEGACY` regardless of input, every `confidence.evaluate()` branch (AI-shaped intents, unknown, high-confidence-not-yet-offline, below-clarify-band, ambiguous middle band, ambiguity safety cap, the currently-unreachable `OFFLINE` branch via `monkeypatch`), `RoutingDecision` contract (trace ID uniqueness/validity, `clarification_required` derivation, purity), and an end-to-end test against the real `IntentEngine` (100% coverage of `core/routing/`) |
+| `tests/test_offline_engine.py` | 34 | `core/offline/` + `core/actions/`'s Offline Engine (v14.2, Stage 1): `RequestContext`/`ActionResult` contract shape, dispatch (`_select_action()`'s text-pattern matching for all four actions, unsupported intent, unsupported action, exception containment), each action against real temp-DB data via the Storage Facade (including empty-result and missing-`now` branches), the feature-flag gating condition `main.py` uses, and AST-based checks that `core/offline/`/`core/actions/` never import `database` or `telegram` directly (100% coverage of both packages) |
 | `tests/test_storage_facade.py` | 18 | `core/storage/`'s Storage Facade (v14.1C): every `TaskStorage`/`HabitStorage`/`GoalStorage`/`ProjectStorage` method delegates to exactly the `database.py` function it wraps, verified by asserting the facade's return value equals calling `database.py` directly (not just "doesn't crash") — proves pure delegation, zero reshaping (100% coverage of `core/storage/`) |
 | `tests/test_feature_flags.py` | 19 | `core/feature_flags.py`'s rollout flags (v14.1C): the `_flag()` helper across truthy/falsy env-var spellings, all four flags defaulting OFF when unset, and — via `importlib.reload()` — that the exported constants actually pick up an environment variable at import time, not just the helper function in isolation (100% coverage of `core/feature_flags.py`) |
 

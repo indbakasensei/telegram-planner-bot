@@ -40,13 +40,21 @@ what actually shipped; the authoritative design doc itself uses Stage
   (Legacy removal) are not started — the Offline Engine itself
   (`OFFLINE_ENGINE.md`) does not exist yet, so `core/routing/`'s
   `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` set stays empty until it does.
-  v14.1C adds the plumbing the Offline Engine itself will need once it's
-  built: a Storage Facade (`core/storage/`, thin delegation to
-  `database.py`, no new data-access abstraction — see that sprint's Phase
-  0 review in `CHANGELOG.md`) and four gradual-rollout feature flags
-  (`core/feature_flags.py`: `OFFLINE_TASKS`/`OFFLINE_HABITS`/
-  `OFFLINE_GOALS`/`OFFLINE_PROJECTS`, all still OFF, none consumed yet).
-  The Offline Engine itself is still not built.
+  v14.1C added the plumbing the Offline Engine needed: a Storage Facade
+  (`core/storage/`, thin delegation to `database.py`, no new data-access
+  abstraction — see that sprint's Phase 0 review in `CHANGELOG.md`) and
+  four gradual-rollout feature flags (`core/feature_flags.py`:
+  `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`).
+  **v14.2 shipped the Offline Engine itself** (`core/offline/`,
+  `core/actions/`, [ADR-007](docs/adr/ADR-007-offline-engine-stage1.md)) —
+  Stage 1 scope only: four read-only task actions (list/today/week/search),
+  gated behind `OFFLINE_TASKS` (still OFF — this is the first sprint where
+  real traffic *could* execute through the new path, but nothing has
+  turned the flag on). `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`
+  and all write operations (task creation/editing/deletion, reminders)
+  remain unimplemented. Next: enable `OFFLINE_TASKS` in a real deployment
+  and observe before expanding scope (see `ADR-007`'s Migration Review),
+  then migrate write operations one command group at a time.
 - ☐ **Stage 3 — AI Router**, NVIDIA-only.
 - ☐ **Stage 4** — additional AI providers (OpenAI/Anthropic/Gemini adapters).
 - ☐ **Stage 5 — Plugin System** (proof of concept via Projects).

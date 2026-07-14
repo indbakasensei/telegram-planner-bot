@@ -76,6 +76,9 @@ from notification_service import TelegramSender, safe_edit_message_text, safe_an
 import instance_lock
 from core.intent import IntentEngine, ConversationContext
 from core.routing import RoutingLayer
+from core.offline import OfflineEngine, RequestContext
+from core.storage import Storage
+from core import feature_flags
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -91,6 +94,12 @@ intent_engine = IntentEngine()
 # v14.1B: Routing Layer, decision-logging only (see core/routing/__init__.py).
 # ALWAYS resolves to Legacy -- see router.py's module docstring. Stateless.
 routing_layer = RoutingLayer()
+
+# v14.1C/v14.2: Storage Facade + Offline Engine (see core/storage/__init__.py,
+# core/offline/__init__.py). Stateless. Gated entirely by core/feature_flags.py
+# (all OFF today) -- see the integration point in handle_message() below.
+storage = Storage()
+offline_engine = OfflineEngine(storage)
 
 # v12.1: Install log sanitizer BEFORE anything else logs.
 # Redacts bot tokens, API keys, and user IDs (admin → "admin", others → "user_***XXX").
@@ -820,6 +829,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v14.1B: Routing Layer, decision-logging only (DRG-001_Intent_Aware_Routing.md,
     # docs/adr/ADR-006-intent-aware-routing.md) -- ALWAYS resolves to Legacy;
     # only the recommendation is logged. Neither step affects routing below.
+    intent = None
     try:
         intent = intent_engine.classify(
             text=user_input,
@@ -834,7 +844,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.debug(routing_decision)
     except Exception:
         logger.exception("Intent Engine / Routing Layer failed (decision-logging only, non-fatal)")
-    # Existing routing continues unchanged below (always Legacy, this sprint).
+
+    # v14.2: Offline Engine, feature-flag gated (core/offline/engine.py,
+    # ADR-007). OFF today (OFFLINE_TASKS defaults False, unset in .env) --
+    # this whole block is a no-op and behaviour below is byte-for-byte
+    # identical to v14.1C. When ON, only the four read-only task actions
+    # this Stage implements are handled here; everything else (including
+    # other QUERY_TASK phrasings like "/habits") falls through to Legacy
+    # exactly as if this block didn't exist -- see engine.py's module
+    # docstring for why intent alone isn't enough to gate this precisely.
+    if feature_flags.OFFLINE_TASKS and intent is not None:
+        try:
+            offline_result = offline_engine.execute(RequestContext(
+                user_id=user_id, text=user_input,
+                intent=intent.intent, entities=intent.entities,
+                now=datetime.now(IST),
+            ))
+            if offline_result.success:
+                await update.message.reply_text(
+                    offline_result.message, parse_mode=HTML, reply_markup=main_menu()
+                )
+                return
+        except Exception:
+            logger.exception("Offline Engine execution failed -- falling through to Legacy")
+    # Existing routing continues unchanged below (Legacy).
 
     # ── Menu buttons ──
     menu_map = {

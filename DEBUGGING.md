@@ -216,31 +216,33 @@ All deliberate, documented tradeoffs, not oversights.
   necessary before Sub-stage C's real routing decisions can be validated
   against real Legacy behavior as a baseline.
 
-### Storage Facade and feature flags (v14.1C) — introduced but not yet consumed
+### Storage Facade and feature flags (v14.1C) — partially resolved (v14.2)
 
-Found during v14.1C implementation. Both deliberate, not oversights.
+Found during v14.1C implementation.
 
-- **Nothing imports `core/storage/` or `core/feature_flags.py` yet.**
-  Neither is wired into `main.py` or `core/routing/`. This is intentional —
-  the task that introduced them explicitly scoped out building the Offline
-  Engine itself, and there is currently nothing for either module to be
-  *used by*. Don't assume a missing import elsewhere is a wiring bug; check
-  `CHANGELOG.md`'s v14.1C entry first.
-- **Two currently-unrelated "is this feature offline yet" signals exist,
-  and they are not reconciled.** `core/feature_flags.py`'s
-  `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` (all
-  OFF, unread) and `core/routing/routing_matrix.py`'s
-  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` (an empty `frozenset`, consulted by
-  `core/routing/confidence.py` on every message) both exist to represent
-  "has this domain been migrated to the Offline Engine," but nothing
-  connects them — flipping `OFFLINE_TASKS=true` in `.env` today would
-  change precisely nothing, since `confidence.py` never reads it. When
-  Stage 2 (Offline Engine) actually starts, someone will need to decide
-  whether these collapse into one mechanism (most likely:
-  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` gets *derived from* the
-  `core/feature_flags.py` flags at startup, rather than being a separately
-  hand-maintained set) or stay deliberately separate for a reason not yet
-  identified. Flagged here so it isn't rediscovered from scratch.
+- **`core/storage/` and `core/feature_flags.OFFLINE_TASKS` are now
+  consumed — resolved (v14.2).** `core/offline/`/`core/actions/` use the
+  Storage Facade exclusively (AST-enforced by
+  `tests/test_offline_engine.py`), and `main.py` reads `OFFLINE_TASKS`
+  to gate the entire Offline Engine integration point. Still unconsumed:
+  `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` (no corresponding
+  Offline Engine domain exists yet).
+- **The two "is this feature offline yet" signals are still not fully
+  reconciled — deliberately, not by oversight (v14.2).**
+  `core/feature_flags.OFFLINE_TASKS` and `core/routing/routing_matrix.py`'s
+  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` (still an empty `frozenset`) remain
+  separate. This was considered directly during v14.2
+  (`docs/adr/ADR-007-offline-engine-stage1.md`'s Consequences) and kept
+  separate on purpose: `Intent.QUERY_TASK` is coarser than what the
+  Offline Engine actually implements (four specific phrasings, not all of
+  `QUERY_TASK` — see the next entry), so populating
+  `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` with `Intent.QUERY_TASK` would
+  incorrectly imply full coverage. `main.py`'s actual gate is
+  `feature_flags.OFFLINE_TASKS` plus `OfflineEngine.execute()`'s own
+  graceful `unsupported_action` fallback — `core/routing/`'s
+  recommendation is informational only for now, not wired to real
+  dispatch. Revisit once the Offline Engine covers whole intent classes,
+  not fragments of one.
 - **Storage Facade coverage is representative of four domains, not
   exhaustive of `database.py`'s ~120 functions.** `TaskStorage`/
   `HabitStorage`/`GoalStorage`/`ProjectStorage` cover the core CRUD each
@@ -250,6 +252,29 @@ Found during v14.1C implementation. Both deliberate, not oversights.
   Engine actually needs more functions is expected, low-risk, incremental
   work — the same "representative, not exhaustive" pattern already
   accepted for `core/intent/rules.py`'s Tier 0 command table.
+
+### Offline Engine action dispatch is text-pattern-based, not Intent-based (v14.2)
+
+`Intent.QUERY_TASK` (`core/intent/intent_types.py`) is deliberately
+coarser than the four read-only task actions Stage 1 implements — it also
+covers `/habits`, `/goals`, `/dashboard`, `/settings`, and more
+(`DRG-001_Intent_Aware_Routing.md` Section 7's Routing Matrix). Neither
+`IntentResult.intent` nor `.entities` carries a signal distinguishing
+"list" from "today" from "week" from "search" (Tier 0's exact-phrase
+matches produce empty `entities`, `core/intent/rules.py`). `core/offline/engine.py`'s
+`_select_action()` resolves this with a narrow, hand-maintained mirror of
+`core/intent/rules.py`'s own Tier 0 phrase groups, checked directly
+against `RequestContext.text` — a third level of the same accepted
+duplication pattern (`main.py`'s tables → `core/intent/rules.py`'s mirror →
+`core/offline/engine.py`'s mirror of a slice of that mirror). If any of
+these three drift out of sync, the symptom is a message that Legacy would
+handle one way but the Offline Engine (once its flag is enabled) would
+either handle differently or not recognize at all — check all three
+before assuming a routing bug is anywhere else. The real fix — a
+structured action/command hint added to `IntentResult.entities` at
+classification time — is deliberately not built yet
+(`docs/adr/ADR-007-offline-engine-stage1.md`'s Decision explains why
+modifying the already-Accepted Intent Engine wasn't done for this sprint).
 
 ### Migration exception handling — resolved (v13.2)
 

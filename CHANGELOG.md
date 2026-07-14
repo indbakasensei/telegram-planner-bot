@@ -9,7 +9,84 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.1C — Storage Facade + Feature Flags (current)
+## v14.2 — Offline Engine Stage 1: Read-Only Task Commands (current)
+
+**The first sprint where real user traffic can execute through the new
+v14 architecture** — gated entirely behind `OFFLINE_TASKS` (default OFF,
+not enabled by this release; behavior today is byte-for-byte identical to
+v14.1C, verified by all 312 pre-existing tests passing unmodified).
+
+### Phase 0 — Engineering Review
+
+Critically evaluated (not rubber-stamped) the proposed action-based
+architecture against a command-handler port, confirmed `RequestContext`/
+`ActionResult`'s Telegram decoupling is worth its cost at this project's
+stated scale (~90 eventual handlers), and verified read-only-first is
+genuinely the safest starting point by reading the underlying
+`database.py` functions directly (`get_tasks`/`get_tasks_by_date`/
+`get_tasks_by_week`/`search_tasks_by_title`: pure `SELECT`, zero side
+effects). Found and addressed a real design gap the proposal didn't
+account for: `Intent.QUERY_TASK` is coarser than the four actions this
+Stage implements (it also covers `/habits`, `/goals`, `/dashboard`,
+`/settings`) — resolved with a narrow, documented text-pattern dispatch
+stopgap rather than modifying the already-Accepted Intent Engine. Full
+review in `docs/adr/ADR-007-offline-engine-stage1.md`.
+
+### Added
+
+- **Offline Engine** (`core/offline/`) — `RequestContext` (domain-only
+  input: `user_id`, `text`, `intent`, `entities`, caller-injected `now`;
+  no Telegram objects, no PTB imports, enforced by an AST-based test),
+  `ActionResult` (`success`/`message`/`data`/`warnings`/`metadata`),
+  `OfflineEngine.execute()` (dispatches to read-only task actions only,
+  never raises, always falls back gracefully).
+- **Four read-only task actions** (`core/actions/`) — `list_tasks`,
+  `today_tasks`, `week_tasks`, `search_tasks`. Each accesses data
+  exclusively through the Storage Facade (`core/storage/`, v14.1C) —
+  never `import database` directly, verified by an AST-based test that
+  fails the build on any violation.
+- **`tests/test_offline_engine.py`** — 34 new tests, 100% coverage of
+  `core/offline/` and `core/actions/`. Full suite is now 347 tests
+  (was 312).
+- **`docs/adr/ADR-007-offline-engine-stage1.md`** — records the
+  action-based architecture decision and the `Intent.QUERY_TASK`
+  coarseness gap as tracked debt, not silently resolved.
+
+### Changed
+
+- `main.py`'s `handle_message()` integration point now attempts Offline
+  Engine execution (feature-flag gated) immediately after the existing
+  Intent Engine / Routing Layer calls. When `OFFLINE_TASKS` is False
+  (today's only real state), this block is a complete no-op.
+
+### Fixed
+
+- **Real bug found by this sprint's own tests, before shipping**:
+  `core/offline/engine.py`'s `_select_action()` and
+  `core/actions/search_tasks.py`'s `_extract_keyword()` both stripped
+  trailing whitespace before checking a prefix that itself ends in a
+  space (`"search "`), so an input of exactly `"search "` (no query yet)
+  missed the prefix match entirely. Fixed by left-stripping only before
+  the prefix comparison. See `ADR-007`'s Consequences.
+
+### Architecture
+
+Deliberately, verifiably inert today: `OFFLINE_TASKS` defaults OFF and is
+not enabled by this release. See `ARCHITECTURE.md` for the updated flow
+diagram and `docs/adr/ADR-007-offline-engine-stage1.md` for why read-only
+task commands were chosen as the first real path.
+
+### Notes
+
+`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` remain unimplemented
+and unconsumed (v14.1C). Task creation, editing, deletion, reminders,
+scheduler integration, AI, habits, goals, and projects were explicitly
+out of scope for this sprint. Legacy Router was not removed and remains
+the path for every message this Stage doesn't recognize.
+
+---
+
+## v14.1C — Storage Facade + Feature Flags
 
 Infrastructure only — **no user-visible behavior changed, no Offline Engine,
 no routing changes.** Introduces the minimum plumbing the (not yet built)

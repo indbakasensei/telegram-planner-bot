@@ -41,15 +41,7 @@ Incoming Message
 Legacy Router (menu / state machine / slashless commands / AI fallback)
 ```
 
-**Design:** [DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md) /
-[docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md)
-specify how the Routing Layer below will eventually act on its own
-recommendation (Offline Engine / transitional Legacy Handler / AI Router)
-instead of always executing via Legacy as it does today (v14.1B, Sub-stage B
-"Decision" — comparison-logging only, by design; see DRG-001 §10/§13 on why
-skipping this period is the migration's dominant risk).
-
-**Since v14.1B (Routing Layer, decision-logging only):**
+**Since v14.2 (Offline Engine Stage 1, feature-flag gated — OFF today):**
 
 ```
 Incoming Message
@@ -61,9 +53,23 @@ Intent Engine (core/intent/) ── classifies, logs
 Routing Layer (core/routing/) ── computes + logs a recommended
       │                          destination, ALWAYS executes via Legacy
       ▼
+Offline Engine (core/offline/) ── IF OFFLINE_TASKS flag is on AND this is
+      │                           one of 4 read-only task actions: executes
+      │                           via the Storage Facade and replies directly.
+      │                           Flag is OFF today -- this step is a no-op.
+      ▼
 Legacy Router (menu / state machine / slashless commands / AI fallback)
                           ── UNCHANGED ──
 ```
+
+`core/routing/`'s `RoutingDecision.destination` remains hard-coded to
+`LEGACY` (v14.1B, unchanged by v14.2) — the Offline Engine gate in
+`main.py` is a *separate*, feature-flag-driven check, not yet wired to
+`RoutingDecision.recommended_destination`. See
+[docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md)
+for why (`Intent.QUERY_TASK` is coarser than what the Offline Engine
+actually implements, so `core/routing/`'s per-Intent recommendation isn't
+granular enough to gate individual actions yet).
 
 1. A Telegram update arrives; PTB dispatches to a `CommandHandler` (if it
    starts with `/`) or the catch-all `MessageHandler` for free text.
@@ -82,30 +88,41 @@ Legacy Router (menu / state machine / slashless commands / AI fallback)
    to `LEGACY` on every call, unconditionally** — nothing below this step
    reads `recommended_destination`. See
    [docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md).
-4. Free text then checks the reply-keyboard menu, then
+4. **(v14.2, feature-flag gated — `OFFLINE_TASKS`, OFF today)** If the
+   flag is on and `IntentResult.intent` is `QUERY_TASK`, `core/offline/`'s
+   `OfflineEngine.execute()` attempts to match the raw text against four
+   known read-only task actions (list/today/week/search — a narrow,
+   documented text-pattern stopgap, not a general Intent-driven dispatch;
+   see [docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md)).
+   On a match, it replies directly via the Storage Facade
+   (`core/storage/`) and returns — steps 5-8 below never run for that
+   message. On no match (including every other `QUERY_TASK` phrasing,
+   e.g. `/habits`), it falls through to step 5 exactly as if this step
+   didn't exist. With the flag OFF (today), this step never activates.
+5. Free text then checks the reply-keyboard menu, then
    `conversation_state.get_state(user_id)`:
    - `confirming` — handles yes/no replies, AM/PM disambiguation, or
      admin-reset confirmation phrases
    - `editing` — re-parses the message as an update to `get_editing_id()`
    - `gathering` — merges new entities into `partial_data`, either asks the
      next missing question or moves to `confirming`
-5. Otherwise, a ~40-entry slashless-command table
+6. Otherwise, a ~40-entry slashless-command table
    (`_starts_with_handlers`/`_exact_handlers`) lets every command work
    without a leading `/`, and a keyword shortcut handles plain view
    requests (today/week/month/...) without invoking the AI at all.
-6. Anything left falls to `baka_brain.get_baka_response()`, which classifies
+7. Anything left falls to `baka_brain.get_baka_response()`, which classifies
    the message into one of 11 intents (`TASK`, `HABIT`, `EDIT`, `DELETE`,
    `VIEW`, `MEMORY_SAVE`, `MEMORY_GET`, `GOAL`, `PLAN`, `ADVICE`, `CHAT`,
    `MULTIPLE`) and extracts entities. `date_parser.parse_all()` runs in
    parallel and **overrides** the AI's date/time for phrasings it's known to
    get wrong (see [docs/ai_system.md](docs/ai_system.md)).
-7. Low-confidence responses, or CHAT-intent replies to messages containing
+8. Low-confidence responses, or CHAT-intent replies to messages containing
    action verbs, get logged to `missed_capabilities` for later review via
    `/misses` (admin-only) — this is the bot's feature-gap-mining mechanism.
-8. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
+9. The result is rendered via `fmt.py`/`ui.py` helpers (all user content is
    HTML-escaped) and sent back.
 
-**Note on step 6's 11-intent taxonomy vs. the Intent Engine's 11-value
+**Note on step 7's 11-intent taxonomy vs. the Intent Engine's 11-value
 `Intent` enum (step 2):** these are two different, currently-unrelated
 classification systems that happen to both have 11 values — the AI's
 taxonomy (`TASK`/`HABIT`/`EDIT`/`DELETE`/`VIEW`/`MEMORY_SAVE`/
@@ -132,8 +149,10 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 | `date_parser.py` | Deterministic regex date/time parser (EN/Hindi/Hinglish); wins over the AI for known-ambiguous phrasings | Pure functions, no I/O |
 | `core/intent/` | v14.0 Stage 1: deterministic, tiered Intent Engine — classifies every message, but Shadow Mode only (observes, doesn't route yet; added v14.0) | Pure, stateless, zero Telegram/database/scheduler/AI/network dependencies; reuses `date_parser.py` directly. See [docs/adr/ADR-002-intent-engine.md](docs/adr/ADR-002-intent-engine.md) and `INTENT_ENGINE.md` |
 | `core/routing/` | v14.1B: Routing Layer — computes a recommended destination (Offline/Legacy/AI Router/Clarify) per `IntentResult`, but `destination` is hard-coded to `LEGACY` on every call (decision-logging only; added v14.1B) | Pure, stateless, same zero-dependency constraints as `core/intent/`. See [docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md) and `DRG-001_Intent_Aware_Routing.md` |
-| `core/storage/` | v14.1C: Storage Facade — domain-grouped (`tasks`/`habits`/`goals`/`projects`) thin delegation to `database.py`, for the not-yet-built Offline Engine. **Not consumed anywhere yet** | Zero SQL, zero business logic, zero return-value reshaping — a Facade, not a Repository (Phase 0 review, `CHANGELOG.md`'s v14.1C entry) |
-| `core/feature_flags.py` | v14.1C: `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`, all default OFF. **Not read anywhere yet** | `.env`-backed, same convention as `BOT_TOKEN`/`OWNER_ID`; gates the Offline Engine's future per-domain rollout, unrelated to `core/routing/`'s own `OFFLINE_ENGINE_IMPLEMENTED_INTENTS` set |
+| `core/storage/` | v14.1C: Storage Facade — domain-grouped (`tasks`/`habits`/`goals`/`projects`) thin delegation to `database.py`. Consumed by `core/offline/`/`core/actions/` since v14.2 | Zero SQL, zero business logic, zero return-value reshaping — a Facade, not a Repository (Phase 0 review, `CHANGELOG.md`'s v14.1C entry) |
+| `core/feature_flags.py` | v14.1C: `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`, all default OFF. `OFFLINE_TASKS` read by `main.py` since v14.2 (still OFF, not enabled) | `.env`-backed, same convention as `BOT_TOKEN`/`OWNER_ID` |
+| `core/offline/` | v14.2: Offline Engine Stage 1 — `OfflineEngine.execute()` dispatches `RequestContext` to a read-only task action, returns `ActionResult`. Storage Facade only, never `database.py` directly (AST-enforced by tests) | Feature-flag gated (`OFFLINE_TASKS`, OFF today). See [docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md) |
+| `core/actions/` | v14.2: four read-only task actions (`list_tasks`/`today_tasks`/`week_tasks`/`search_tasks`), each `execute(RequestContext, Storage) -> ActionResult` | No Telegram/database.py imports (AST-enforced). Write actions (create/edit/delete) and other domains (habits/goals/projects) not implemented |
 | `scheduler.py` | Query helpers for due/overdue/followup tasks and quiet-hours checks | The actual timer is PTB's `job_queue`, registered in `main.py` |
 | `conversation_state.py` | In-memory (module-level dict) state machine: idle/gathering/confirming/editing | **Does not survive process restart**, despite its own docstring's "survives reliably" claim — see [DEBUGGING.md](DEBUGGING.md#known-issues) |
 | `debug_system.py` | Bug tracking (`bugs.db`), `/trace`, `/selftest` message bank | Debug-mode/last-trace state is also in-memory only |
