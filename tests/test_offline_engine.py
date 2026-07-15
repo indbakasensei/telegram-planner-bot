@@ -88,7 +88,12 @@ def test_action_result_warnings_and_metadata_are_independent_per_instance():
 # ── OfflineEngine dispatch ───────────────────────────────────────────────
 
 def test_non_query_task_intent_is_unsupported(engine, uid):
-    result = engine.execute(ctx("delete 5", uid, intent=Intent.DELETE_TASK))
+    # CHAT is inherently AI-shaped and will never be an Offline Engine
+    # intent (core/intent/rules.py's Tier 3 named exception) -- a stable
+    # choice for "genuinely unsupported," unlike ADD_TASK/EDIT_TASK/
+    # DELETE_TASK, all of which became real, supported intents across
+    # v14.3/v14.4/v14.5 after this test was originally written.
+    result = engine.execute(ctx("how are you", uid, intent=Intent.CHAT))
     assert result.success is False
     assert "unsupported_intent" in result.warnings
 

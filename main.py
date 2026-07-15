@@ -74,10 +74,11 @@ from zoneinfo import ZoneInfo
 from async_bridge import run_blocking
 from notification_service import TelegramSender, safe_edit_message_text, safe_answer_callback_query
 import instance_lock
-from core.intent import IntentEngine, ConversationContext
+from core.intent import IntentEngine, ConversationContext, Intent
 from core.routing import RoutingLayer
 from core.offline import OfflineEngine, RequestContext
 from core.actions.create_task import format_summary as _offline_format_summary
+from core.actions.delete_task import format_preview as _offline_format_delete_preview
 from core.storage import Storage
 from core import feature_flags
 
@@ -914,7 +915,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # with a distinct action_type so the confirming-state handler
                 # below can commit via the Storage Facade instead of Legacy's
                 # own database.add_task() call. See ADR-008.
-                set_pending_action(user_id, "offline_add_task",
+                # v14.5: task delete ALSO confirms -- deliberately, unlike
+                # Legacy's real delete_task_cmd() (verified: no confirmation
+                # at all). See ADR-010.
+                pending_action_type = ("offline_delete_task" if intent.intent is Intent.DELETE_TASK
+                                       else "offline_add_task")
+                set_pending_action(user_id, pending_action_type,
                                     offline_result.metadata["pending_data"])
                 await update.message.reply_text(
                     offline_result.message, parse_mode=HTML, reply_markup=yes_no_menu()
@@ -1009,6 +1015,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     _offline_format_summary(data) + "\n\nSay yes to save, no to cancel.",
                     parse_mode=HTML, reply_markup=yes_no_menu()
                 )
+            return
+        # v14.5: Offline task delete's own confirm step (ADR-010) --
+        # deliberately added beyond Legacy's real (verified) no-confirm
+        # delete_task_cmd() behavior. Same word lists, same layering as
+        # offline_add_task above.
+        if action_type == "offline_delete_task":
+            positive_d = any(w in user_input.lower() for w in
+                          ["yes", "yeah", "yep", "haan", "ha", "ok", "okay", "sure",
+                           "✅", "save", "confirm", "bilkul", "do it", "kar do", "theek"])
+            negative_d = any(w in user_input.lower() for w in
+                          ["no", "nahi", "nope", "cancel", "❌", "mat", "don't", "dont", "band"])
+            if positive_d:
+                clear_state(user_id)
+                commit_result = offline_engine.execute_pending("offline_delete_task", data, user_id)
+                await update.message.reply_text(
+                    commit_result.message, parse_mode=HTML, reply_markup=main_menu()
+                )
+            elif negative_d:
+                clear_state(user_id)
+                await update.message.reply_text("❌ Cancelled!", reply_markup=main_menu())
+            else:
+                task_for_preview = storage.tasks.get_by_id(data.get("task_id"), user_id)
+                if task_for_preview is None:
+                    clear_state(user_id)
+                    await update.message.reply_text(
+                        "❌ That task no longer exists.", reply_markup=main_menu()
+                    )
+                else:
+                    await update.message.reply_text(
+                        _offline_format_delete_preview(task_for_preview)
+                        + "\n\nSay yes to delete, no to cancel.",
+                        parse_mode=HTML, reply_markup=yes_no_menu()
+                    )
             return
         am_pm = re.match(r"^(\d{1,2})\s*(AM|PM)$", user_input.upper())
         if am_pm:

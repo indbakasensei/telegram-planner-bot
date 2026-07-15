@@ -65,11 +65,26 @@ what actually shipped; the authoritative design doc itself uses Stage
   Supports date/time/priority/category/title changes; recurrence changes
   remain unsupported in *both* paths (verified: `database.update_task()`
   has no recurrence parameters — not an Offline gap, a real Legacy
-  limitation). Still gated behind `OFFLINE_TASKS` (still OFF).
-  `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` and task
-  deletion/completion remain unimplemented. Next: enable `OFFLINE_TASKS`
-  in a real deployment and observe before migrating Task Delete (see
-  `ADR-009`'s Migration Review for the concrete blockers).
+  limitation). **v14.5 shipped a third write operation, task delete**
+  ([ADR-010](docs/adr/ADR-010-destructive-operations-policy.md)) — the
+  first (and so far only) case where Offline deliberately does *not*
+  match Legacy's real behavior: Legacy's `/delete <id>` deletes
+  immediately with zero confirmation (verified), but Offline Delete adds
+  one, justified by irreversibility. `ADR-010` generalizes this into a
+  reusable policy for future write operations: confirm when irreversible,
+  match Legacy otherwise. Idempotent (a repeated confirmation or
+  concurrent delete is reported gracefully, never double-executed) and
+  self-verifying (re-checks the row is actually gone before reporting
+  success). Still gated behind `OFFLINE_TASKS` (still OFF — no
+  deployment has enabled any of Stages 1-4 yet).
+  `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` and task completion
+  remain unimplemented. Next: enable `OFFLINE_TASKS` in a real deployment
+  and observe before migrating Task Complete — per `ADR-010`'s policy,
+  Complete is reversible (a completed task can presumably be
+  un-completed) and should default to matching Legacy's real behavior
+  first, the same way Update did, not assumed to need a confirm step
+  just because Delete has one (see `ADR-010`'s Migration Review for the
+  concrete blockers).
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles

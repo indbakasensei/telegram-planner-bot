@@ -45,7 +45,7 @@ import logging
 
 from datetime import datetime
 
-from core.actions import create_task, list_tasks, search_tasks, today_tasks, update_task, week_tasks
+from core.actions import create_task, delete_task, list_tasks, search_tasks, today_tasks, update_task, week_tasks
 from core.intent.intent_types import Intent
 from core.offline.action_result import ActionResult
 from core.offline.request_context import RequestContext
@@ -156,6 +156,30 @@ class OfflineEngine:
             self._log(context, result)
             return result
 
+        if context.intent is Intent.DELETE_TASK:
+            task_id = context.entities.get("task_id")
+            if task_id is None:
+                # No under-classification gap here (unlike ADD_TASK/EDIT_TASK) --
+                # "delete 5"/"delete task 5"/"remove task 5" all classify
+                # DELETE_TASK at confidence 1.0 with task_id already in
+                # entities (Tier 0's extract_numeric_id(), core/intent/rules.py),
+                # verified directly. Missing task_id means the message
+                # genuinely doesn't name a task (e.g. "delete this") --
+                # correctly falls through to Legacy.
+                result = ActionResult(success=False, message="", warnings=["unsupported_action"])
+                self._log(context, result)
+                return result
+            try:
+                result = delete_task.propose(task_id, context.user_id, self._storage)
+            except Exception as exc:
+                logger.exception("Offline Engine action execution failed")
+                result = ActionResult(
+                    success=False, message="",
+                    warnings=[f"action_exception:{type(exc).__name__}"],
+                )
+            self._log(context, result)
+            return result
+
         result = ActionResult(success=False, message="", warnings=["unsupported_intent"])
         self._log(context, result)
         return result
@@ -196,9 +220,10 @@ class OfflineEngine:
         point saved from a prior propose()'s ActionResult.metadata --
         see docs/adr/ADR-008-offline-write-operations.md. Never raises.
         """
-        if action_type == "offline_add_task":
+        if action_type in ("offline_add_task", "offline_delete_task"):
+            commit_fn = create_task.commit if action_type == "offline_add_task" else delete_task.commit
             try:
-                result = create_task.commit(pending_data, user_id, self._storage)
+                result = commit_fn(pending_data, user_id, self._storage)
             except Exception as exc:
                 logger.exception("Offline Engine commit failed")
                 result = ActionResult(

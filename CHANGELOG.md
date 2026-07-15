@@ -9,7 +9,109 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.4 — Offline Engine Stage 3: Task Update (current)
+## v14.5 — Offline Engine Stage 4: Task Delete (current)
+
+**BAKA's first destructive Offline write operation.** Still gated behind
+`OFFLINE_TASKS` (default OFF, not enabled by this release; all 424
+pre-existing tests pass, with one expected update to an outdated
+assertion — see Changed below).
+
+### Phase 0 — Engineering Review
+
+Reviewed Legacy Delete completely before implementing, per this sprint's
+explicit "do not assume confirmation flow" instruction. Found
+`main.py`'s real `delete_task_cmd()` (verified directly, lines 483-504)
+deletes **immediately with zero confirmation of any kind** — even less
+safety than Task Update. Unlike every prior sprint's "match Legacy's
+real behavior exactly" resolution, this sprint deliberately diverges:
+Offline Delete adds a confirmation step Legacy lacks, because deletion
+is irreversible (unlike Update, which is correctable with another edit)
+and because this sprint's own explicit safety specification
+(Locate→Preview→Confirm→Delete→Verify→Return) is a clear, deliberate
+signal, not an assumption to override. This is the first time this
+migration has intentionally chosen *not* to match Legacy's real
+behavior in full — documented prominently, not silently, in
+`docs/adr/ADR-010-destructive-operations-policy.md`, which also
+generalizes this into a reusable rule (confirm when irreversible, match
+Legacy otherwise) for future write operations.
+
+### Added
+
+- **`core/actions/delete_task.py`** — `propose()` (Locate + Preview,
+  never deletes) and `commit()` (Confirm + Delete + Verify + Return,
+  idempotent: a repeated confirmation or concurrent delete from another
+  path is reported gracefully, never attempted twice or treated as an
+  error; re-fetches after deleting to verify the row is actually gone
+  before reporting success).
+- **`OfflineEngine`** gains `Intent.DELETE_TASK` dispatch in `execute()`
+  and `"offline_delete_task"` handling in `execute_pending()`. No
+  Intent-Engine-coarseness gap this time (unlike Create/Update) —
+  `"delete 5"`/`"delete task 5"`/`"remove task 5"` all classify
+  `DELETE_TASK` at confidence 1.0 with `task_id` already extracted into
+  `entities`, verified directly.
+- **`docs/adr/ADR-010-destructive-operations-policy.md`** — generalizes
+  three sprints' worth of per-operation confirm-flow findings
+  (`ADR-008`/`ADR-009`/this one) into a reusable policy anchored to
+  irreversibility, not to "sounds destructive."
+- **`tests/test_delete_task.py`** — 28 new tests: Behavioral Equivalence
+  (Legacy's `delete_task()` vs. Offline's `propose()`+`commit()`,
+  including verifying no cascading cleanup in either path), idempotency,
+  and all 8 Failure Injection scenarios this sprint's brief named
+  (database locked, database exception, task missing, double
+  confirmation, cancel, invalid ID, timeout, concurrent delete). 100%
+  coverage of `core/actions/delete_task.py`. Full suite is now 452 tests
+  (was 424).
+
+### Changed
+
+- `main.py`'s `OFFLINE_TASKS`-gated block: the existing `needs_confirmation`
+  branch now selects between `"offline_add_task"` and `"offline_delete_task"`
+  based on the classified intent (previously hard-coded to creation only,
+  since delete didn't exist yet); a new `confirming`-state branch commits
+  a confirmed delete via `OfflineEngine.execute_pending()`.
+- `tests/test_offline_engine.py`'s `test_non_query_task_intent_is_unsupported`
+  — a Stage-1-era test used `Intent.DELETE_TASK` as an example of "not
+  yet supported," which stopped being true this sprint. Updated to use
+  `Intent.CHAT` (genuinely, permanently unsupported — inherently
+  AI-shaped) instead. Expected test maintenance, not a behavior change.
+
+### Behavioral Equivalence Results
+
+Verified matches: the deleted row is identical in both paths (same
+underlying `database.delete_task()` call via the Storage Facade); no
+cascading cleanup in either path (verified — plain single-table
+`DELETE`, confirmed by reading the function and by testing that an
+unrelated goal survives a task deletion); no scheduler interaction
+needed in either path (the scheduler polls the tasks table; a deleted
+row simply stops appearing). **Documented, deliberate divergence**: Legacy
+deletes in one message with no confirmation; Offline Delete requires a
+second, confirming message — this sprint's one intentional exception to
+"match Legacy exactly," justified by irreversibility (`ADR-010`).
+
+### Performance
+
+Legacy's bare `delete_task()`: ~0.45ms/call. Offline's `commit()`
+(existence check + delete + post-delete verify — three queries vs.
+Legacy's one): ~1.20ms/call. The ~0.75ms difference is the direct,
+expected cost of the idempotency and verification guarantees, not
+wasted work. Measurement only, no optimization attempted.
+
+### Architecture
+
+Deliberately, verifiably inert today: `OFFLINE_TASKS` defaults OFF and is
+not enabled by this release. See `ARCHITECTURE.md` and
+`docs/adr/ADR-010-destructive-operations-policy.md`.
+
+### Notes
+
+Task complete, habits, goals, projects, shopping, and AI remain
+explicitly out of scope and unimplemented. Legacy Router was not
+removed (including Legacy's own `/delete`, which keeps its real,
+unconfirmed behavior — only the Offline path gained the confirm step).
+
+---
+
+## v14.4 — Offline Engine Stage 3: Task Update
 
 **BAKA's second Offline write operation.** Still gated behind
 `OFFLINE_TASKS` (default OFF, not enabled by this release; all 383

@@ -366,6 +366,31 @@ v14.3 entry above.
   safety net). Two different divergences from Legacy, two different
   justifications — not treated the same way by default.
 
+### Offline task delete: intentional divergence from Legacy, not a bug (v14.5)
+
+Different in kind from the v14.3/v14.4 entries above — those documented
+*accidental* gaps found and matched or fixed. This one documents a
+*deliberate* choice, so it isn't mistaken for one later.
+
+- **Offline Delete requires a confirmation Legacy's real `/delete`
+  doesn't have.** Verified directly (`main.py:483-504`):
+  `delete_task_cmd()` deletes immediately, no confirm step, no exception.
+  `core/actions/delete_task.py`'s `propose()`/`commit()` split adds one,
+  on purpose — see `docs/adr/ADR-010-destructive-operations-policy.md`
+  for the full reasoning (irreversibility, not "sounds destructive").
+  This is the *only* place in the v14.2-v14.5 Offline Engine work where
+  Offline intentionally does not match Legacy's real behavior in full.
+  If you're auditing for equivalence bugs, don't flag this one — it's
+  the one accepted exception, not an oversight.
+- **No dispatch-coarseness gap for `Intent.DELETE_TASK`** — worth noting
+  precisely because Create/Update/QUERY_TASK all had one. `"delete 5"`/
+  `"delete task 5"`/`"remove task 5"` all classify `DELETE_TASK` at
+  confidence 1.0 with `task_id` already in `entities` (Tier 0's
+  `extract_numeric_id()`, `core/intent/rules.py`, verified directly). No
+  narrow dispatch-layer regex was needed for entry recognition — the
+  first Offline write/read action where the shipped Intent Engine's
+  classification was sufficient on its own.
+
 ### Migration exception handling — resolved (v13.2)
 
 `init_db()`'s `ALTER TABLE ... ADD COLUMN` loops used to catch bare
