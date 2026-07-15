@@ -9,7 +9,27 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.7 — Offline Engine Stage 6: Task Lifecycle (current)
+## v14.7.1 — Release Candidate Phase 1: Architecture Validation (review only, no code changes) (current)
+
+Review-only sprint validating the entire v14.0–v14.7 architecture before
+any canary enablement of `OFFLINE_TASKS`. Zero `.py` files changed.
+Full findings, canary deployment plan, and three-phase Legacy removal
+plan in [RC_v14_ARCHITECTURE_VALIDATION.md](RC_v14_ARCHITECTURE_VALIDATION.md).
+
+Headline results: **no architectural defect requiring code found**;
+pyflakes reports zero findings across all of `core/` (vs. 49 stale-import
+findings in Legacy `main.py`); zero TODO/FIXME/HACK markers repo-wide;
+ADR-010 validated by its two subsequent applications; ADR-011 confirmed
+as the top pre-canary blocker. Exactly two blockers remain before
+enabling `OFFLINE_TASKS` in a canary: apply ADR-011 Option A (small,
+specified), and the canary's operational logistics. Post-canary work
+queue (not blockers): dispatch-table refactor before Habits, routing
+reconciliation using canary comparison logs, the Intent-Engine
+structured-hint fix for the four-level phrase-duplication chain.
+
+---
+
+## v14.7 — Offline Engine Stage 6: Task Lifecycle
 
 **The final Task-domain migration sprint.** Still gated behind
 `OFFLINE_TASKS` (default OFF, not enabled by this release; all 490

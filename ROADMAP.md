@@ -99,10 +99,14 @@ what actually shipped; the authoritative design doc itself uses Stage
   `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` remain
   unimplemented. **The Task domain is feature-complete under the new
   architecture** — every deterministic, message-path Task operation
-  Legacy supports now exists behind the flag. Next: (1) apply ADR-011's
-  Option A (small change + regression test), then (2) enable
-  `OFFLINE_TASKS` in a canary and observe. There is no more Task-domain
-  code to build ahead of real-traffic validation.
+  Legacy supports now exists behind the flag. v14.7.1 completed the
+  Release Candidate architecture validation
+  ([RC_v14_ARCHITECTURE_VALIDATION.md](RC_v14_ARCHITECTURE_VALIDATION.md)
+  — review only, no defects requiring code found; includes the canary
+  deployment plan and the three-phase Legacy removal plan). Next:
+  (1) apply ADR-011's Option A (small change + regression test), then
+  (2) run the canary per the RC plan. There is no more Task-domain code
+  to build ahead of real-traffic validation.
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles
