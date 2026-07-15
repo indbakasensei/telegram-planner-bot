@@ -9,7 +9,111 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.6 — Offline Engine Stage 5: Task Completion (current)
+## v14.7 — Offline Engine Stage 6: Task Lifecycle (current)
+
+**The final Task-domain migration sprint.** Still gated behind
+`OFFLINE_TASKS` (default OFF, not enabled by this release; all 490
+pre-existing tests pass unmodified). The Task domain is now
+feature-complete under the new architecture — see Phase 4's Task Domain
+Completion Review in this sprint's report.
+
+### Phase 0 — Engineering Review
+
+Per the brief's "do NOT assume any feature exists," every candidate
+lifecycle operation was verified against `main.py`/`database.py` before
+any code was written. **Verified to exist and migrated**: Pause
+(`paused=1`), Resume (`paused=0`), Paused view, Snooze (`snooze_until`,
+1–1440-minute validation, `log_snooze`/`log_interaction("task_snooze")`
+side effects — swallow included), Stop-reminders (`due_time=NULL,
+snooze_until=NULL`), Carry-forward (bulk; its paused/recurring
+exclusions live in `database.py`'s WHERE clause, shared by construction).
+**Verified to exist but not migrated, with reasons**: Delreminder (a pure
+delete alias — `"delete reminder <id>"` already classifies `DELETE_TASK`,
+so v14.5's offline delete path already covers it, confirm step and all);
+Postpone (only reachable via reminder callback buttons, not the
+text-message path); `clear_snooze()` (internal scheduler plumbing).
+**Verified to NOT exist — documented, not invented**: Archive, Restore,
+Hide, Unhide, Unsnooze (zero matches in `main.py`; a test pins this
+finding). None of the migrated operations confirms before acting in
+Legacy, and none is irreversible (pause/resume are inverses; the rest are
+correctable) — per `ADR-010`'s policy, all apply directly, no confirm.
+
+### Added
+
+- **`core/actions/lifecycle_task.py`** — one module for six operations,
+  deliberately (five share an identical locate→single-UPDATE→reply
+  skeleton; the brief's per-file names were examples subordinate to its
+  own "Do NOT duplicate logic" instruction). Entry regexes mirror
+  `main.py`'s slashless prefix groups verbatim; id-less phrasings
+  ("pause", "snooze 5") deliberately fall through to Legacy's
+  usage/pick-list replies.
+- **Storage Facade extensions** — `TaskStorage.pause/resume/snooze/
+  stop_reminders/get_paused/carry_forward_overdue`,
+  `LearningStorage.log_snooze` — all thin one-line delegations.
+- **`docs/adr/ADR-011-conversation-state-priority.md`** — the
+  conversation-state ordering question (surfaced v14.6) promoted from a
+  debugging observation to an architectural decision. Recommends
+  Option A (state outranks intent-gated dispatch, matching Legacy's real
+  semantics and v14.4's own `editing` precedent). **Implementation
+  deliberately unchanged** per the brief — document and justify only;
+  applying it is a named pre-enablement blocker.
+- **`tests/test_lifecycle_task.py`** — 55 new tests: all entry phrases,
+  per-operation happy paths verified against raw scheduler-state columns
+  (`paused`/`snooze_until` *are* the scheduler state — `get_due_tasks()`
+  filters on them, so column equality is scheduler-state equality),
+  idempotency (re-pause/re-resume/re-snooze all match Legacy's guardless
+  UPDATEs), the full failure matrix (missing task, invalid ID, database
+  exception/locked, duplicate, concurrent, wrong intent), a test pinning
+  the nonexistence of Archive/Restore/Hide/Unhide/Unsnooze, Behavioral
+  Equivalence tests per operation (including `snooze_log` rows
+  field-for-field and carry-forward's exclusions), and a benchmark with
+  **query-count instrumentation** (a traced `sqlite3.connect` wrapper)
+  asserting Legacy and Offline execute identical statement counts. 100%
+  coverage. Full suite is now 545 tests (was 490).
+
+### Changed
+
+- `core/offline/engine.py`: the `EDIT_TASK`/`UNKNOWN` branch tries
+  lifecycle entry phrases after completion's and before update's (all
+  regexes disjoint); `_select_action()`'s `QUERY_TASK` table gains the
+  paused-view phrases. **`main.py`: zero changes** for the second sprint
+  running — direct-apply results ride the existing generic success path.
+
+### Behavioral Equivalence Results
+
+Verified matches per operation: database state (raw column comparisons),
+scheduler state (same columns, by construction — same `database.py`
+functions), learning logs (`snooze_log`/`interaction_log` rows
+field-for-field), validation (snooze's 1–1440 bound, checked before
+locate in the same order as Legacy), responses (same wording, HTML vs.
+Markdown markup only), errors (same "not found" text; id-less usage
+replies stay Legacy's). **One Legacy wording quirk replicated, not
+fixed**: stopreminder's reply says "Use /resume to turn back on," but
+`resume_task()` only flips `paused` — it doesn't restore the cleared
+`due_time`, so the pings don't actually come back. Misleading text,
+faithfully mirrored (a wording quibble is neither a genuine bug nor a
+safety issue under the brief's improvement criteria) — tracked in
+DEBUGGING.md.
+
+### Performance
+
+Measured at n=500 with query-count instrumentation: pause — Legacy
+1.980ms/call vs. Offline 1.978ms/call, **identical 4 traced statements**;
+snooze — Legacy 4.901ms vs. Offline 5.167ms (+0.27ms), **identical 16
+traced statements**. The facade adds zero queries; latency differences
+are within noise. Measurement only.
+
+### Notes
+
+Habits, Goals, Projects, AI Router, Plugin System, UI work, and
+repository cleanup remain explicitly out of scope. Legacy Router was not
+removed. With this sprint, every deterministic, message-path Task
+operation Legacy supports is available behind `OFFLINE_TASKS` — which
+has still never been enabled anywhere.
+
+---
+
+## v14.6 — Offline Engine Stage 5: Task Completion
 
 **BAKA's fourth Offline write operation.** Still gated behind
 `OFFLINE_TASKS` (default OFF, not enabled by this release; all 452

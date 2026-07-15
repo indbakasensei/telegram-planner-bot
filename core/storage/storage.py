@@ -74,6 +74,24 @@ class TaskStorage:
     def mark_as_deadline(self, task_id, user_id, is_deadline=True):
         return database.mark_as_deadline(task_id, user_id, is_deadline)
 
+    def pause(self, task_id, user_id):
+        return database.pause_task(task_id, user_id)
+
+    def resume(self, task_id, user_id):
+        return database.resume_task(task_id, user_id)
+
+    def snooze(self, task_id, user_id, snooze_until):
+        return database.snooze_task(task_id, user_id, snooze_until)
+
+    def stop_reminders(self, task_id, user_id):
+        return database.stop_reminders(task_id, user_id)
+
+    def get_paused(self, user_id):
+        return database.get_paused_tasks(user_id)
+
+    def carry_forward_overdue(self, user_id, current_date):
+        return database.carry_forward_overdue(user_id, current_date)
+
 
 class HabitStorage:
     """Delegates to database.py's habit functions (habits are recurring
@@ -180,6 +198,9 @@ class LearningStorage:
 
     def log_interaction(self, user_id, action):
         return database.log_interaction(user_id, action)
+
+    def log_snooze(self, user_id, task_id, title, category, snooze_minutes):
+        return database.log_snooze(user_id, task_id, title, category, snooze_minutes)
 
 
 class Storage:

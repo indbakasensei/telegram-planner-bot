@@ -16,13 +16,18 @@ docs/adr/ADR-010-destructive-operations-policy.md.
 Stage 5 (v14.6) adds `complete_task`, direct-apply like update_task,
 matching Legacy's real no-confirm completion (and branching habits away
 to Legacy untouched) -- see complete_task.py's module docstring.
+Stage 6 (v14.7) adds `lifecycle_task` -- pause/resume/snooze/
+stop-reminders/carry-forward/paused-view in one module (shared
+locate->update->reply skeleton; see its module docstring for the full
+verified-inventory including the operations Legacy does NOT have).
 """
 from core.actions import (
-    complete_task, create_task, delete_task, list_tasks,
+    complete_task, create_task, delete_task, lifecycle_task, list_tasks,
     search_tasks, today_tasks, update_task, week_tasks,
 )
 
 __all__ = [
     "list_tasks", "today_tasks", "week_tasks", "search_tasks",
     "create_task", "update_task", "delete_task", "complete_task",
+    "lifecycle_task",
 ]

@@ -83,15 +83,26 @@ what actually shipped; the authoritative design doc itself uses Stage
   via a new `LearningStorage` facade domain; habits branch away to
   Legacy's streak logic untouched; no undo exists in either path
   (verified Legacy has none — documented per the Reversibility Review,
-  not invented). Still gated behind `OFFLINE_TASKS` (still OFF — no
-  deployment has enabled any of Stages 1-5 yet).
+  not invented). **v14.7 shipped the final Task-domain stage, task
+  lifecycle** — pause/resume/snooze/stop-reminders/carry-forward/
+  paused-view, all direct apply matching Legacy's real no-confirm
+  behavior, with snooze's learning-log side effects replicated. Verified
+  non-existent in Legacy and deliberately not invented: archive/restore/
+  hide/unhide/unsnooze. Delreminder needed nothing (a delete alias,
+  already covered by v14.5's delete path). Also produced
+  [ADR-011](docs/adr/ADR-011-conversation-state-priority.md): the
+  conversation-state-ordering question is now a documented architectural
+  decision (recommendation: state outranks intent-gated dispatch;
+  implementation deliberately deferred — a named pre-enablement
+  blocker). Still gated behind `OFFLINE_TASKS` (still OFF — no
+  deployment has enabled any stage yet).
   `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` remain
-  unimplemented. **The core task surface (read/create/update/delete/
-  complete) is now fully migrated behind the flag.** Next: enable
-  `OFFLINE_TASKS` in a real deployment and observe — every stage's
-  Migration Review has recommended this, and with task CRUD+complete
-  done there is no more low-risk task-domain scope to build ahead of
-  real-traffic validation.
+  unimplemented. **The Task domain is feature-complete under the new
+  architecture** — every deterministic, message-path Task operation
+  Legacy supports now exists behind the flag. Next: (1) apply ADR-011's
+  Option A (small change + regression test), then (2) enable
+  `OFFLINE_TASKS` in a canary and observe. There is no more Task-domain
+  code to build ahead of real-traffic validation.
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles

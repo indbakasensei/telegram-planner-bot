@@ -391,7 +391,35 @@ real code, matched rather than "fixed":
   a habit's streak behaves oddly, the Offline Engine is not a suspect —
   it never writes anything for habits, in either flag state.
 
-### Offline Engine gate runs before the confirming/gathering state branches (v14.2+, surfaced by v14.6's review)
+### Offline task lifecycle: verified findings (v14.7)
+
+Same discipline as the v14.3–v14.6 entries:
+
+- **Archive, Restore, Hide, Unhide, and Unsnooze do not exist in
+  Legacy** — zero matches in all of `main.py`, verified during v14.7's
+  Phase 0. Not invented; a test
+  (`test_archive_restore_hide_unhide_do_not_exist`) pins the finding so
+  a future sprint doesn't accidentally "restore" a feature that never
+  was. If a user asks for these, it's a feature request, not a
+  regression.
+- **stopreminder's reply text is misleading — in both paths, on
+  purpose.** It says "Use /resume <id> to turn back on", but
+  `resume_task()` only flips `paused`; it does not restore the
+  `due_time` that `stop_reminders()` cleared, so resuming after
+  stopreminder does *not* bring the pings back. A Legacy wording quirk,
+  faithfully mirrored per behavioral equivalence (a wording quibble is
+  neither a genuine bug nor a safety issue under v14.7's improvement
+  criteria). If a user reports "resume didn't restart my reminders,"
+  this is why — in Legacy and Offline alike.
+- **Delreminder needed no migration** — it's a pure delete alias
+  (`delreminder_cmd` calls `delete_task()`), and `"delete reminder <id>"`
+  already classifies `DELETE_TASK`, so v14.5's offline delete path
+  (including its deliberate confirm step, `ADR-010`) already covers it.
+- **Postpone is callback-only** — `postpone_task()` is reachable only
+  via reminder buttons (`handle_callback`), not the text-message path
+  the Offline Engine integrates with. Out of scope, unchanged.
+
+### Offline Engine gate runs before the confirming/gathering state branches — now ADR-011 (v14.2+, surfaced by v14.6's review, decided v14.7)
 
 Found during v14.6's Phase 0 conversation-state verification; applies to
 **every** intent-gated Offline action since v14.2, not just completion.
@@ -403,11 +431,13 @@ the flag ON, a message like `"done 5"` typed *while mid-conversation in
 whereas Legacy's confirming handler would have re-prompted ("say yes to
 save..."). With the flag OFF (today, always) this is unreachable.
 Assessment: arguably the interception is what the user actually meant,
-but it is a real, currently-undocumented behavioral difference in
-mid-conversation states — worth an explicit decision (either move the
-gate below the state branches, or bless the interception) before
-`OFFLINE_TASKS` is ever enabled in production. Tracked here so the
-enablement review doesn't miss it.
+but it is a real behavioral difference in mid-conversation states.
+**Update (v14.7): this is now a documented architectural decision** —
+[docs/adr/ADR-011-conversation-state-priority.md](docs/adr/ADR-011-conversation-state-priority.md)
+recommends Option A (state outranks intent-gated dispatch, matching
+Legacy's real semantics), with implementation deliberately deferred per
+that sprint's own instructions. Applying ADR-011 is a named blocker
+before `OFFLINE_TASKS` is ever enabled in production.
 
 ### Offline task delete: intentional divergence from Legacy, not a bug (v14.5)
 

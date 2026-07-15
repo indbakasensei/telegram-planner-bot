@@ -50,7 +50,7 @@ import logging
 from datetime import datetime
 
 from core.actions import (
-    complete_task, create_task, delete_task, list_tasks,
+    complete_task, create_task, delete_task, lifecycle_task, list_tasks,
     search_tasks, today_tasks, update_task, week_tasks,
 )
 from core.intent.intent_types import Intent
@@ -90,6 +90,11 @@ def _select_action(text: str):
         return week_tasks.execute
     if low in _LIST_PHRASES:
         return list_tasks.execute
+    if low in lifecycle_task.PAUSED_VIEW_PHRASES:
+        # v14.7: paused-tasks view -- same read-only shape as the Stage 1
+        # actions, mirrors core/intent/rules.py's ("paused", "show paused",
+        # "paused tasks") QUERY_TASK exact group.
+        return lifecycle_task.paused_list
     return None
 
 
@@ -157,6 +162,26 @@ class OfflineEngine:
                 try:
                     result = complete_task.execute(
                         complete_id, context.user_id, self._storage, context.now,
+                    )
+                except Exception as exc:
+                    logger.exception("Offline Engine action execution failed")
+                    result = ActionResult(
+                        success=False, message="",
+                        warnings=[f"action_exception:{type(exc).__name__}"],
+                    )
+                self._log(context, result)
+                return result
+
+            # v14.7: lifecycle operations (pause/resume/snooze/stop-reminders/
+            # carry-forward) -- all classify EDIT_TASK via Tier 0's existing
+            # prefix groups; regexes are disjoint from completion's and
+            # update's entry patterns.
+            lifecycle_match = lifecycle_task.match_entry(context.text)
+            if lifecycle_match is not None:
+                operation, args = lifecycle_match
+                try:
+                    result = lifecycle_task.execute_entry(
+                        operation, args, context, self._storage,
                     )
                 except Exception as exc:
                     logger.exception("Offline Engine action execution failed")
