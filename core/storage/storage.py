@@ -164,6 +164,24 @@ class ProjectStorage:
         return database.get_all_pending_materials(user_id)
 
 
+class LearningStorage:
+    """Delegates to database.py's preference-learning log functions
+    (v6.0's completions_log/interaction_log tables). Added v14.6 because
+    Legacy's task-completion path (main.py's done_task()) writes to both
+    as a side effect, and Offline Task Completion must replicate that for
+    genuine behavioral equivalence -- see core/actions/complete_task.py."""
+
+    def log_completion(self, user_id, task_id, title, category,
+                       scheduled_time, completed_at, delay_minutes=0):
+        return database.log_completion(
+            user_id, task_id, title, category,
+            scheduled_time, completed_at, delay_minutes,
+        )
+
+    def log_interaction(self, user_id, action):
+        return database.log_interaction(user_id, action)
+
+
 class Storage:
     """
     The Storage Facade's single entry point: one Storage() instance
@@ -179,3 +197,4 @@ class Storage:
         self.habits = HabitStorage()
         self.goals = GoalStorage()
         self.projects = ProjectStorage()
+        self.learning = LearningStorage()

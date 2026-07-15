@@ -7,6 +7,8 @@ design review (Facade chosen over a Repository Layer) and hard rules
 Not yet consumed anywhere -- no Offline Engine exists to call it. See
 DEBUGGING.md.
 """
-from core.storage.storage import GoalStorage, HabitStorage, ProjectStorage, Storage, TaskStorage
+from core.storage.storage import (
+    GoalStorage, HabitStorage, LearningStorage, ProjectStorage, Storage, TaskStorage,
+)
 
-__all__ = ["Storage", "TaskStorage", "HabitStorage", "GoalStorage", "ProjectStorage"]
+__all__ = ["Storage", "TaskStorage", "HabitStorage", "GoalStorage", "ProjectStorage", "LearningStorage"]

@@ -75,16 +75,23 @@ what actually shipped; the authoritative design doc itself uses Stage
   match Legacy otherwise. Idempotent (a repeated confirmation or
   concurrent delete is reported gracefully, never double-executed) and
   self-verifying (re-checks the row is actually gone before reporting
-  success). Still gated behind `OFFLINE_TASKS` (still OFF — no
-  deployment has enabled any of Stages 1-4 yet).
-  `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` and task completion
-  remain unimplemented. Next: enable `OFFLINE_TASKS` in a real deployment
-  and observe before migrating Task Complete — per `ADR-010`'s policy,
-  Complete is reversible (a completed task can presumably be
-  un-completed) and should default to matching Legacy's real behavior
-  first, the same way Update did, not assumed to need a confirm step
-  just because Delete has one (see `ADR-010`'s Migration Review for the
-  concrete blockers).
+  success). **v14.6 shipped a fourth write operation, task completion** —
+  direct apply matching Legacy's real no-confirm behavior, exactly as
+  `ADR-010`'s policy predicted for a row-preserving operation.
+  Replicates Legacy's learning-log side effects
+  (`completions_log`/`interaction_log`, including the exception swallow)
+  via a new `LearningStorage` facade domain; habits branch away to
+  Legacy's streak logic untouched; no undo exists in either path
+  (verified Legacy has none — documented per the Reversibility Review,
+  not invented). Still gated behind `OFFLINE_TASKS` (still OFF — no
+  deployment has enabled any of Stages 1-5 yet).
+  `OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS` remain
+  unimplemented. **The core task surface (read/create/update/delete/
+  complete) is now fully migrated behind the flag.** Next: enable
+  `OFFLINE_TASKS` in a real deployment and observe — every stage's
+  Migration Review has recommended this, and with task CRUD+complete
+  done there is no more low-risk task-domain scope to build ahead of
+  real-traffic validation.
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles

@@ -366,6 +366,49 @@ v14.3 entry above.
   safety net). Two different divergences from Legacy, two different
   justifications — not treated the same way by default.
 
+### Offline task completion: known behaviors, verified inherited from Legacy (v14.6)
+
+Same discipline as the v14.3/v14.4 entries — verified against Legacy's
+real code, matched rather than "fixed":
+
+- **No undo exists in either path.** Zero undone/uncomplete/undo matches
+  anywhere in `main.py` (verified by grep). A completed task's row
+  survives (`done=1`) but no user-facing command flips it back. Per the
+  v14.6 sprint's own Reversibility Review instruction: documented, not
+  invented — Offline adds no undo either.
+- **Re-completing an already-done task succeeds silently and re-logs, in
+  both paths.** `get_task_by_id()` has no done-flag filter, `mark_done()`'s
+  UPDATE is idempotent, and Legacy's `done_task()` has no already-done
+  guard around `log_completion()` — so a duplicate completion adds a
+  *second* `completions_log` row in Legacy today, and Offline matches
+  exactly (tested). If `preferences.py`'s learning stats ever look
+  inflated, duplicate completions are a plausible cause in either path —
+  a pre-existing Legacy quirk, not an Offline regression.
+- **Habits never reach the Offline path.** Legacy's `done_task()` checks
+  `is_habit()` before `mark_done()` and routes habits to streak logic
+  instead; Offline's `complete_task.execute()` replicates the check and
+  returns `habit_not_supported`, falling through to Legacy untouched. If
+  a habit's streak behaves oddly, the Offline Engine is not a suspect —
+  it never writes anything for habits, in either flag state.
+
+### Offline Engine gate runs before the confirming/gathering state branches (v14.2+, surfaced by v14.6's review)
+
+Found during v14.6's Phase 0 conversation-state verification; applies to
+**every** intent-gated Offline action since v14.2, not just completion.
+`main.py`'s `OFFLINE_TASKS` `execute()` gate sits *above* the
+`confirming`/`gathering` state branches in `handle_message()` (only
+`editing` is explicitly checked first, for the v14.4 update flow). With
+the flag ON, a message like `"done 5"` typed *while mid-conversation in
+`confirming` state* would be intercepted and executed as a completion,
+whereas Legacy's confirming handler would have re-prompted ("say yes to
+save..."). With the flag OFF (today, always) this is unreachable.
+Assessment: arguably the interception is what the user actually meant,
+but it is a real, currently-undocumented behavioral difference in
+mid-conversation states — worth an explicit decision (either move the
+gate below the state branches, or bless the interception) before
+`OFFLINE_TASKS` is ever enabled in production. Tracked here so the
+enablement review doesn't miss it.
+
 ### Offline task delete: intentional divergence from Legacy, not a bug (v14.5)
 
 Different in kind from the v14.3/v14.4 entries above — those documented

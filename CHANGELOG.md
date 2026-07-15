@@ -9,7 +9,101 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.5 — Offline Engine Stage 4: Task Delete (current)
+## v14.6 — Offline Engine Stage 5: Task Completion (current)
+
+**BAKA's fourth Offline write operation.** Still gated behind
+`OFFLINE_TASKS` (default OFF, not enabled by this release; all 452
+pre-existing tests pass unmodified).
+
+### Phase 0 — Engineering Review
+
+Reviewed Legacy's real `done_task()` (`main.py:428-482`) before writing
+code, per this sprint's "do not assume how completion works" instruction.
+Findings, all verified directly: **no confirmation** (`mark_done()` fires
+immediately — matched, consistent with `ADR-010`'s policy since
+completion preserves the row and doesn't meet Delete's irreversibility
+bar); **no undo capability anywhere in Legacy** (zero
+undone/uncomplete/undo matches — documented per the Reversibility Review
+instruction, not invented); **habits branch away before `mark_done()`**
+(Legacy checks `is_habit()` first and routes habits to
+`log_habit_completion()` + streak display — habits are out of scope, so
+Offline returns `habit_not_supported` and falls through to Legacy's
+streak logic untouched); **completion has learning-log side effects**
+(`log_completion()` with a computed minutes-late delay, plus
+`log_interaction(user_id, "task_done")`, both exception-swallowed —
+replicated field-for-field including the swallow); **recurrence handling
+is identical by construction** (`mark_done()` is a plain
+`UPDATE tasks SET done=1`, no recurrence special-casing, and
+`get_recurring_tasks()` turns out to be dead code — defined, never
+called); **re-completing an already-done task succeeds silently in
+Legacy** (no done-flag filter in `get_task_by_id()`, idempotent UPDATE —
+matched and tested, not "fixed").
+
+### Added
+
+- **`core/actions/complete_task.py`** — `match_entry_command()` (mirrors
+  Legacy's slashless prefix group verbatim: `done <id>`/`complete task
+  <id>`/`finish task <id>`/`mark done <id>`; bare `done` and other
+  id-less phrasings stay Legacy-only for its pick-list UX) and
+  `execute()` (direct apply: locate → habit branch-away → `mark_done()`
+  → learning-log side effects → reply, with Legacy's exact
+  minutes-late-delay computation replicated).
+- **`LearningStorage`** (`core/storage/storage.py`) — new Storage Facade
+  domain with `log_completion()`/`log_interaction()`, thin delegations
+  needed to replicate Legacy's completion side effects without importing
+  `database.py` from the action.
+- **`tests/test_complete_task.py`** — 38 new tests: entry-command
+  recognition, delay computation, learning-log side effects (verified by
+  querying `completions_log`/`interaction_log` directly), all 8 required
+  failure scenarios (already completed, task missing, invalid ID,
+  database exception, database locked, duplicate completion, concurrent
+  completion, invalid state — a habit), the Legacy-swallow equivalence
+  for learning-log failures, Behavioral Equivalence tests comparing final
+  database state (task row + both learning-log tables, field by field),
+  and a Legacy-vs-Offline latency/memory benchmark. 100% coverage. Full
+  suite is now 490 tests (was 452).
+
+### Changed
+
+- `core/offline/engine.py`'s `EDIT_TASK`/`UNKNOWN` branch now tries
+  `complete_task.match_entry_command()` before `update_task`'s — the two
+  entry regexes are disjoint (completion verbs vs. `edit task`/`rename
+  task`), verified by a no-crosstalk test. **`main.py` needed zero
+  changes** — completion is a direct-apply action, and the existing
+  generic success-reply path in the `OFFLINE_TASKS` gate already covers
+  it.
+
+### Behavioral Equivalence Results
+
+Verified matches: `done` flag set identically (same `mark_done()` via
+the Storage Facade); learning-log rows identical field-for-field
+(scheduled time, completed-at, delay minutes); recurrence handling
+identical by construction; already-done re-completion behaves
+identically (succeeds, re-logs — Legacy has no guard either, verified
+and matched); habit completion untouched in both flag states (Offline
+branches away before writing anything). **Documented, unavoidable
+difference**: message markup only (Legacy replies in Markdown, Offline in
+Telegram HTML — same wording), consistent with every prior stage.
+
+### Performance
+
+Legacy completion sequence: ~1.61ms/call; Offline `execute()`:
+~1.96ms/call at n=500. The ~0.35ms gap overstates reality: the benchmark's
+Legacy replica omitted the `is_habit()` check real Legacy also makes —
+actual per-completion query counts are identical (5 each). Measurement
+only, no optimization attempted.
+
+### Notes
+
+Task lifecycle, habits, goals, projects, shopping, AI, UI improvements,
+and repository cleanup remain explicitly out of scope. Legacy Router was
+not removed. No ADR changes — `ADR-010`'s policy applied exactly as
+written (its Decision section explicitly anticipated Complete defaulting
+to Legacy's real behavior, the way Update did).
+
+---
+
+## v14.5 — Offline Engine Stage 4: Task Delete
 
 **BAKA's first destructive Offline write operation.** Still gated behind
 `OFFLINE_TASKS` (default OFF, not enabled by this release; all 424

@@ -7,7 +7,11 @@ a second entry point. Stage 3 (v14.4): task update -- see
 continue_editing()'s docstring and docs/adr/ADR-009-offline-task-update.md
 for why update needs a THIRD kind of entry point (state-gated, not
 Intent-gated), and why it applies directly with no confirm step (unlike
-Stage 2), matching Legacy's real, verified update behavior.
+Stage 2), matching Legacy's real, verified update behavior. Stage 5
+(v14.6): task completion -- direct-apply like update, dispatched inside
+the EDIT_TASK/UNKNOWN branch (completion phrases share Tier 0's
+done-group EDIT_TASK mapping); habits branch away to Legacy untouched
+(complete_task.py's module docstring).
 
 MUST NOT (and does not): call database.py directly (Storage Facade only,
 core/storage/), call AI, call scheduler.py, import Telegram objects,
@@ -45,7 +49,10 @@ import logging
 
 from datetime import datetime
 
-from core.actions import create_task, delete_task, list_tasks, search_tasks, today_tasks, update_task, week_tasks
+from core.actions import (
+    complete_task, create_task, delete_task, list_tasks,
+    search_tasks, today_tasks, update_task, week_tasks,
+)
 from core.intent.intent_types import Intent
 from core.offline.action_result import ActionResult
 from core.offline.request_context import RequestContext
@@ -135,11 +142,31 @@ class OfflineEngine:
             # "rename task 5" classifies UNKNOWN under the shipped Intent
             # Engine (Tier 0 has no "rename " prefix), not EDIT_TASK --
             # same class of under-classification ADR-007/ADR-008 already
-            # found for other explicit commands. update_task._ENTRY_RE is
-            # specific enough (requires "edit task <digits>" or "rename
-            # task <digits>" exactly) that gating on intent here is a
-            # cheap pre-filter, not the source of correctness -- see
-            # ADR-009.
+            # found for other explicit commands. The entry regexes below
+            # are specific enough that gating on intent here is a cheap
+            # pre-filter, not the source of correctness -- see ADR-009.
+            #
+            # v14.6: completion checked first. "done 5"/"complete task 5"/
+            # "finish task 5"/"mark done 5" all classify EDIT_TASK (they
+            # share Tier 0's done-group prefix mapping in
+            # core/intent/rules.py) -- the two entry regexes are disjoint
+            # (completion verbs vs. "edit task"/"rename task"), so order
+            # is for clarity, not correctness.
+            complete_id = complete_task.match_entry_command(context.text)
+            if complete_id is not None:
+                try:
+                    result = complete_task.execute(
+                        complete_id, context.user_id, self._storage, context.now,
+                    )
+                except Exception as exc:
+                    logger.exception("Offline Engine action execution failed")
+                    result = ActionResult(
+                        success=False, message="",
+                        warnings=[f"action_exception:{type(exc).__name__}"],
+                    )
+                self._log(context, result)
+                return result
+
             task_id = update_task.match_entry_command(context.text)
             if task_id is None:
                 result = ActionResult(success=False, message="", warnings=["unsupported_action"])

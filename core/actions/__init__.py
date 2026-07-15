@@ -13,10 +13,16 @@ Stage 4 (v14.5) adds `delete_task`, two-phase like create_task
 (`propose()`/`commit()`) but for a different reason -- see
 delete_task.py's module docstring and
 docs/adr/ADR-010-destructive-operations-policy.md.
+Stage 5 (v14.6) adds `complete_task`, direct-apply like update_task,
+matching Legacy's real no-confirm completion (and branching habits away
+to Legacy untouched) -- see complete_task.py's module docstring.
 """
-from core.actions import create_task, delete_task, list_tasks, search_tasks, today_tasks, update_task, week_tasks
+from core.actions import (
+    complete_task, create_task, delete_task, list_tasks,
+    search_tasks, today_tasks, update_task, week_tasks,
+)
 
 __all__ = [
     "list_tasks", "today_tasks", "week_tasks", "search_tasks",
-    "create_task", "update_task", "delete_task",
+    "create_task", "update_task", "delete_task", "complete_task",
 ]
