@@ -219,8 +219,8 @@ def carry_forward(user_id: int, storage: Storage,
 
 def paused_list(context: RequestContext, storage: Storage) -> ActionResult:
     """Read-only paused-tasks view -- signature matches the Stage 1
-    read-only actions so engine._select_action() can dispatch it from
-    the same QUERY_TASK table."""
+    read-only actions so the registry's QUERY_TASK specs
+    (core/offline/registrations.py) can dispatch it the same way."""
     tasks = storage.tasks.get_paused(context.user_id)
     if not tasks:
         return ActionResult(success=True, message="No paused tasks.", data=tasks)

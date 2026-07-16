@@ -118,8 +118,8 @@ def _match_change(text: str, now: datetime) -> tuple[dict[str, Any], str] | None
     """Returns (fields_to_update, human_description) for the first
     recognized pattern, checked most-specific-first (explicit patterns
     before date_parser's general date/time detection, same "specificity
-    wins" discipline core/offline/engine.py's _select_action fix already
-    established) -- or None if nothing deterministic matched."""
+    wins" discipline core/offline/registrations.py's search-matcher fix
+    already established) -- or None if nothing deterministic matched."""
     stripped = text.strip()
 
     m = _PRIORITY_RE.search(stripped)

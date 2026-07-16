@@ -9,7 +9,91 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.7.1 — Release Candidate Phase 1: Architecture Validation (review only, no code changes) (current)
+## v14.8 — Offline Engine Infrastructure Refactor: Registry-Based Dispatch (current)
+
+Pure infrastructure refactor, zero user-visible behavior change —
+executes the dispatch-table refactor the v14.7.1 RC audit required
+before any Habits sprint. `OfflineEngine.execute()`'s ~90-line
+if/elif intent ladder (grown v14.2–v14.7) is replaced by an explicit
+**ActionRegistry**; see
+[docs/adr/ADR-012-registry-based-dispatch.md](docs/adr/ADR-012-registry-based-dispatch.md)
+for the design and the alternatives rejected (decorator registration,
+flat intent→action map, class-based Action interface).
+
+### Added
+
+- **`core/offline/registry.py`** — `ActionRegistry` (pure mechanism:
+  ordered per-intent `ActionSpec` tuples, O(1) `resolve()`, pending-commit
+  table, `RegistryError` validation at registration time — duplicates,
+  non-callables, non-Intent keys all fail at startup, never per-message),
+  `ActionSpec` (frozen dataclass: `name`, `match`, `run`; match runs
+  outside exception containment exactly where the ladder's inline matcher
+  calls sat, run inside it).
+- **`core/offline/registrations.py`** — `build_default_registry()`, the
+  single file to edit when adding an Offline action. All dispatch
+  knowledge moved here verbatim from `engine.py`: the QUERY_TASK phrase
+  tables (search-prefix-first precedence preserved), the
+  complete→lifecycle→update EDIT_TASK/UNKNOWN chain (same spec objects
+  registered under both intents), ADD_TASK's match-everything proposal,
+  DELETE_TASK's entities-based matcher, and both ADR-008 pending commits.
+- **`tests/test_action_registry.py`** — 28 tests: registry mechanism with
+  synthetic specs (ordering, duplicate/invalid registration, unknown
+  intent/pending lookups), default-registry configuration pins (intents,
+  spec names, and ORDER — registration order is match precedence, so
+  reordering fails a test before it changes behavior), and
+  OfflineEngine-as-thin-dispatcher (injected registries, exception
+  containment, both fallback warnings, pending path).
+
+### Changed
+
+- **`core/offline/engine.py`** — `execute()` is now ~25 lines: resolve →
+  first non-None match → run under the single containment block →
+  identical `unsupported_intent`/`unsupported_action` fallbacks.
+  `execute_pending()` resolves commits through the registry
+  (`unknown_action_type` fallback unchanged). `continue_editing()`
+  deliberately unchanged — state-gated, one target, nothing to select
+  between (ADR-009). Constructor gains an optional `registry` parameter
+  (defaults to `build_default_registry()`; tests inject synthetic ones).
+- **`core/offline/__init__.py`** — exports `ActionRegistry`, `ActionSpec`,
+  `RegistryError`, `build_default_registry` alongside the existing three.
+- **`main.py` — zero changes** (same as v14.6/v14.7).
+
+### Behavioral equivalence (verified, not asserted)
+
+- All 545 pre-existing tests pass. Expected maintenance, same class as
+  v14.5's: 7 test monkeypatch targets retargeted from
+  `core.offline.engine.<module>.<fn>` to `core.actions.<module>.<fn>`
+  (same module objects; engine no longer imports what it doesn't call),
+  and `test_offline_engine.py`'s 2 `_select_action` unit tests now pin
+  the same precedence through `build_default_registry()` — runners call
+  through module attributes (late binding) precisely so monkeypatching
+  still works.
+- A 40-case dispatch matrix (every intent branch, every lifecycle op,
+  the two-message update flow, propose→commit for add and delete,
+  idempotent re-delete, unknown pending type) was run against the
+  pre-refactor commit `7ad1a0b` in a git worktree and against the
+  refactored tree: serialized ActionResults **byte-identical** (172/172
+  output lines).
+- Comment-only edits in 4 `core/actions/` files (stale
+  `_select_action` cross-references updated); pyflakes still 0 findings
+  across `core/`.
+
+### Performance (measured old vs. new, same harness)
+
+Storage-touching paths unchanged (~1.1–1.6 ms, DB I/O dominates; deltas
+within run-to-run noise). Pure-dispatch paths: no-match QUERY_TASK scan
+0.0039→0.0075 ms (+~3.6 µs — per-matcher function calls vs. inline
+checks), unsupported intent unchanged (0.0034 ms). Registry:
+~0.5 µs/lookup, ~47 µs one-time build at startup, ~728 B; cold
+`import core.offline` unchanged (~130–180 ms both sides).
+
+Suite: **573 tests, ~16 s** (545 + 28). Also corrects TESTING.md's
+`test_offline_engine.py` count from 34 to 35 — stale by one *before*
+this sprint (verified by collecting on the pre-refactor commit).
+
+---
+
+## v14.7.1 — Release Candidate Phase 1: Architecture Validation (review only, no code changes)
 
 Review-only sprint validating the entire v14.0–v14.7 architecture before
 any canary enablement of `OFFLINE_TASKS`. Zero `.py` files changed.

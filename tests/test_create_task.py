@@ -220,7 +220,7 @@ def test_commit_swallows_mark_as_deadline_failure(temp_db, uid):
 def test_engine_propose_exception_is_caught(uid, monkeypatch):
     engine = OfflineEngine(Storage())
     monkeypatch.setattr(
-        "core.offline.engine.create_task.propose",
+        "core.actions.create_task.propose",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     result = engine.execute(ctx("todo Buy milk", uid))
@@ -238,7 +238,7 @@ def test_execute_pending_unknown_action_type(uid):
 def test_engine_execute_pending_exception_is_caught(uid, monkeypatch):
     engine = OfflineEngine(Storage())
     monkeypatch.setattr(
-        "core.offline.engine.create_task.commit",
+        "core.actions.create_task.commit",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     result = engine.execute_pending("offline_add_task", {"title": "x"}, uid)

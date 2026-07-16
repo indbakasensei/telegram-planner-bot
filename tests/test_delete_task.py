@@ -91,7 +91,7 @@ def test_engine_execute_delete_task_missing_id(temp_db, uid, engine):
 
 def test_engine_execute_delete_task_exception_is_caught(uid, engine, monkeypatch):
     monkeypatch.setattr(
-        "core.offline.engine.delete_task.propose",
+        "core.actions.delete_task.propose",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     result = engine.execute(ctx("delete task 1", uid, task_id=1))
@@ -107,7 +107,7 @@ def test_engine_execute_pending_delete_dispatches_correctly(temp_db, uid, engine
 
 def test_engine_execute_pending_delete_exception_is_caught(uid, engine, monkeypatch):
     monkeypatch.setattr(
-        "core.offline.engine.delete_task.commit",
+        "core.actions.delete_task.commit",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     result = engine.execute_pending("offline_delete_task", {"task_id": 1}, uid)

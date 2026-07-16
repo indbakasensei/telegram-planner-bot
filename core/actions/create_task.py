@@ -55,7 +55,7 @@ def _match_prefix_and_title(text: str) -> str | None:
     """Returns the stripped title if text starts with a recognized verb
     prefix and has non-empty content after it; None otherwise. Left-strip
     only before the prefix check -- same reasoning as
-    core/offline/engine.py's _select_action() fix (ADR-007)."""
+    core/offline/registrations.py's search-matcher fix (ADR-007)."""
     left_stripped = text.lstrip()
     low = left_stripped.lower()
     for prefix in _CREATE_PREFIXES:

@@ -261,12 +261,14 @@ covers `/habits`, `/goals`, `/dashboard`, `/settings`, and more
 (`DRG-001_Intent_Aware_Routing.md` Section 7's Routing Matrix). Neither
 `IntentResult.intent` nor `.entities` carries a signal distinguishing
 "list" from "today" from "week" from "search" (Tier 0's exact-phrase
-matches produce empty `entities`, `core/intent/rules.py`). `core/offline/engine.py`'s
-`_select_action()` resolves this with a narrow, hand-maintained mirror of
-`core/intent/rules.py`'s own Tier 0 phrase groups, checked directly
-against `RequestContext.text` — a third level of the same accepted
-duplication pattern (`main.py`'s tables → `core/intent/rules.py`'s mirror →
-`core/offline/engine.py`'s mirror of a slice of that mirror). If any of
+matches produce empty `entities`, `core/intent/rules.py`). The
+QUERY_TASK matchers in `core/offline/registrations.py` (v14.8; lived
+inline in `engine.py`'s `_select_action()` v14.2–v14.7) resolve this
+with a narrow, hand-maintained mirror of `core/intent/rules.py`'s own
+Tier 0 phrase groups, checked directly against `RequestContext.text` — a
+third level of the same accepted duplication pattern (`main.py`'s tables
+→ `core/intent/rules.py`'s mirror →
+`core/offline/registrations.py`'s mirror of a slice of that mirror). If any of
 these three drift out of sync, the symptom is a message that Legacy would
 handle one way but the Offline Engine (once its flag is enabled) would
 either handle differently or not recognize at all — check all three
@@ -284,8 +286,9 @@ weak keyword), both below `INTENT_ENGINE.md`'s approved 0.75
 reversible-write threshold. `core/actions/create_task.py`'s
 `_match_prefix_and_title()` is its own independent prefix table (a
 *fourth* level of the same duplication chain, not reusing
-`core/offline/engine.py`'s `_select_action()` since it matches different
-verbs). See `docs/adr/ADR-008-offline-write-operations.md`'s Decision.
+`core/offline/registrations.py`'s search matcher since it matches
+different verbs). See `docs/adr/ADR-008-offline-write-operations.md`'s
+Decision.
 
 **v14.4 has a third instance**: `"edit task 5"` correctly classifies
 `Intent.EDIT_TASK` at confidence 1.0 (Tier 0's existing `"edit "` prefix

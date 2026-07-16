@@ -18,7 +18,8 @@ import pytest
 import core.feature_flags as feature_flags
 from core.intent.intent_types import Intent
 from core.offline.action_result import ActionResult
-from core.offline.engine import OfflineEngine, _select_action
+from core.offline.engine import OfflineEngine
+from core.offline.registrations import build_default_registry
 from core.offline.request_context import RequestContext
 from core.storage import Storage
 
@@ -107,7 +108,19 @@ def test_query_task_intent_with_unrecognized_text_is_unsupported(engine, uid):
     assert "unsupported_action" in result.warnings
 
 
-@pytest.mark.parametrize("text,expected_module", [
+def _first_matching_spec(text, uid=555000111):
+    """First QUERY_TASK spec whose matcher accepts `text`, in the
+    default registry's registration (= precedence) order -- the v14.8
+    registry equivalent of the old engine._select_action() helper
+    these tests originally exercised directly (ADR-012)."""
+    context = ctx(text, uid)
+    for spec in build_default_registry().resolve(Intent.QUERY_TASK):
+        if spec.match(context) is not None:
+            return spec
+    return None
+
+
+@pytest.mark.parametrize("text,expected_spec", [
     ("list", "list_tasks"),
     ("my tasks", "list_tasks"),
     ("today", "today_tasks"),
@@ -118,21 +131,21 @@ def test_query_task_intent_with_unrecognized_text_is_unsupported(engine, uid):
     ("find keys", "search_tasks"),
     ("look for wallet", "search_tasks"),
 ])
-def test_select_action_dispatches_to_correct_action(text, expected_module):
-    action = _select_action(text)
-    assert action is not None
-    assert action.__module__.endswith(expected_module)
+def test_query_dispatch_selects_correct_action(text, expected_spec):
+    spec = _first_matching_spec(text)
+    assert spec is not None
+    assert spec.name == expected_spec
 
 
-def test_select_action_returns_none_for_unrecognized_text():
-    assert _select_action("habits") is None
-    assert _select_action("random gibberish") is None
+def test_query_dispatch_matches_nothing_for_unrecognized_text():
+    assert _first_matching_spec("habits") is None
+    assert _first_matching_spec("random gibberish") is None
 
 
 def test_engine_execution_exception_is_caught_gracefully(engine, uid, monkeypatch):
     def _boom(context, storage):
         raise RuntimeError("simulated failure")
-    monkeypatch.setattr("core.offline.engine.list_tasks.execute", _boom)
+    monkeypatch.setattr("core.actions.list_tasks.execute", _boom)
     result = engine.execute(ctx("list", uid))
     assert result.success is False
     assert any(w.startswith("action_exception:") for w in result.warnings)
@@ -199,7 +212,7 @@ def test_today_tasks_action_empty(temp_db, uid, engine):
 def test_extract_keyword_direct_call_without_prefix():
     # execute() calls _extract_keyword(context.text) unconditionally;
     # this branch (no recognized prefix at all) is unreachable via
-    # _select_action's own routing (which requires a prefix match to
+    # the registry's search matcher (which requires a prefix match to
     # dispatch here in the first place) but is exercised if
     # search_tasks.execute() is ever called directly -- a real,
     # deliberate fallback (treat the whole text as the keyword), not

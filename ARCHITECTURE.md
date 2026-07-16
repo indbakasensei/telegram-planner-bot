@@ -132,9 +132,17 @@ granular enough to gate individual actions yet).
    "set time to 6pm" reply carries no reliable intent signal on its own.
    On no match, state is left untouched and the message falls through to
    step 6's `editing` branch exactly as if this step didn't exist.
-5. **(v14.2–v14.7, feature-flag gated — `OFFLINE_TASKS`, OFF today)** If
-   the flag is on: for `IntentResult.intent == QUERY_TASK`,
-   `core/offline/`'s `OfflineEngine.execute()` attempts to match one of
+5. **(v14.2–v14.8, feature-flag gated — `OFFLINE_TASKS`, OFF today)** If
+   the flag is on, `core/offline/`'s `OfflineEngine.execute()` dispatches
+   through an **ActionRegistry** (v14.8,
+   [docs/adr/ADR-012-registry-based-dispatch.md](docs/adr/ADR-012-registry-based-dispatch.md)):
+   `registry.resolve(intent)` returns that intent's registered
+   `ActionSpec`s in precedence order, the first whose matcher accepts the
+   message runs. All registrations live in
+   `core/offline/registrations.py` — the semantics below are unchanged
+   from when they were an if/elif ladder inside `execute()`:
+   for `IntentResult.intent == QUERY_TASK`,
+   it attempts to match one of
    four read-only task actions (list/today/week/search) or the
    paused-view phrases (v14.7); for `Intent.ADD_TASK`, one of four
    create-task verbs (`add task`/`create task`/`new task`/`todo`); for
@@ -226,7 +234,7 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 | `core/routing/` | v14.1B: Routing Layer — computes a recommended destination (Offline/Legacy/AI Router/Clarify) per `IntentResult`, but `destination` is hard-coded to `LEGACY` on every call (decision-logging only; added v14.1B) | Pure, stateless, same zero-dependency constraints as `core/intent/`. See [docs/adr/ADR-006-intent-aware-routing.md](docs/adr/ADR-006-intent-aware-routing.md) and `DRG-001_Intent_Aware_Routing.md` |
 | `core/storage/` | v14.1C: Storage Facade — domain-grouped (`tasks`/`habits`/`goals`/`projects`, plus `learning` since v14.6) thin delegation to `database.py`. Consumed by `core/offline/`/`core/actions/` since v14.2 | Zero SQL, zero business logic, zero return-value reshaping — a Facade, not a Repository (Phase 0 review, `CHANGELOG.md`'s v14.1C entry) |
 | `core/feature_flags.py` | v14.1C: `OFFLINE_TASKS`/`OFFLINE_HABITS`/`OFFLINE_GOALS`/`OFFLINE_PROJECTS`, all default OFF. `OFFLINE_TASKS` read by `main.py` since v14.2 (still OFF, not enabled) | `.env`-backed, same convention as `BOT_TOKEN`/`OWNER_ID` |
-| `core/offline/` | v14.2: Offline Engine Stage 1 — `OfflineEngine.execute()` dispatches `RequestContext` to a read-only task action, returns `ActionResult`. Storage Facade only, never `database.py` directly (AST-enforced by tests) | Feature-flag gated (`OFFLINE_TASKS`, OFF today). See [docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md) |
+| `core/offline/` | v14.2–v14.8: the Offline Engine — `OfflineEngine.execute()` dispatches `RequestContext` to a registered task action via an `ActionRegistry` (`registry.py` mechanism + `registrations.py` explicit build, v14.8), returns `ActionResult`. Storage Facade only, never `database.py` directly (AST-enforced by tests) | Feature-flag gated (`OFFLINE_TASKS`, OFF today). See [docs/adr/ADR-007-offline-engine-stage1.md](docs/adr/ADR-007-offline-engine-stage1.md), [ADR-012](docs/adr/ADR-012-registry-based-dispatch.md) |
 | `core/actions/` | v14.2: four read-only task actions (`list_tasks`/`today_tasks`/`week_tasks`/`search_tasks`), each `execute(RequestContext, Storage) -> ActionResult`. v14.3 adds `create_task` — two-phase `propose()`/`commit()` with a confirm step. v14.4 adds `update_task` — `start_editing()`/`apply_change()`, applies directly with no confirm step (matches Legacy's real behavior, [ADR-009](docs/adr/ADR-009-offline-task-update.md)). v14.5 adds `delete_task` — two-phase `propose()`/`commit()`, idempotent and self-verifying, **deliberately adds a confirm step Legacy's real `delete_task_cmd()` lacks** ([ADR-010](docs/adr/ADR-010-destructive-operations-policy.md)). v14.6 adds `complete_task` — direct apply matching Legacy's real no-confirm `done_task()`, replicating its learning-log side effects; habits branch away to Legacy. v14.7 adds `lifecycle_task` — pause/resume/snooze/stop-reminders/carry-forward/paused-view, completing the Task domain (archive/restore/hide/unhide/unsnooze verified non-existent in Legacy, not invented) | No Telegram/database.py imports (AST-enforced). Other domains (habits/goals/projects) not implemented. Recurrence updates unsupported — verified Legacy limitation, not an Offline gap. No undo for completion in either path — verified Legacy limitation |
 | `scheduler.py` | Query helpers for due/overdue/followup tasks and quiet-hours checks | The actual timer is PTB's `job_queue`, registered in `main.py` |
 | `conversation_state.py` | In-memory (module-level dict) state machine: idle/gathering/confirming/editing | **Does not survive process restart**, despite its own docstring's "survives reliably" claim — see [DEBUGGING.md](DEBUGGING.md#known-issues) |

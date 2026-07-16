@@ -25,7 +25,7 @@ def _extract_keyword(text: str) -> str:
     # the trailing space the prefixes themselves end in ("search "),
     # causing e.g. exactly "search " to miss the prefix match and be
     # treated as a literal keyword "search" instead of an empty query.
-    # Same class of bug as core/offline/engine.py's _select_action fix.
+    # Same class of bug as core/offline/registrations.py's search-matcher fix.
     left_stripped = text.lstrip()
     low = left_stripped.lower()
     for prefix in _SEARCH_PREFIXES:

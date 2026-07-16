@@ -103,10 +103,16 @@ what actually shipped; the authoritative design doc itself uses Stage
   Release Candidate architecture validation
   ([RC_v14_ARCHITECTURE_VALIDATION.md](RC_v14_ARCHITECTURE_VALIDATION.md)
   — review only, no defects requiring code found; includes the canary
-  deployment plan and the three-phase Legacy removal plan). Next:
-  (1) apply ADR-011's Option A (small change + regression test), then
-  (2) run the canary per the RC plan. There is no more Task-domain code
-  to build ahead of real-traffic validation.
+  deployment plan and the three-phase Legacy removal plan). **v14.8
+  executed the RC's required pre-Habits refactor**: `OfflineEngine`'s
+  if/elif intent ladder replaced by registry-based dispatch
+  ([ADR-012](docs/adr/ADR-012-registry-based-dispatch.md) —
+  `core/offline/registry.py` mechanism + `registrations.py` explicit
+  build; byte-identical behavior verified against the pre-refactor
+  commit; adding an Offline action no longer touches the dispatcher).
+  Next: (1) apply ADR-011's Option A (small change + regression test),
+  then (2) run the canary per the RC plan. There is no more Task-domain
+  code to build ahead of real-traffic validation.
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles
