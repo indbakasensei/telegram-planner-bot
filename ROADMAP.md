@@ -22,9 +22,10 @@ about the old `VERSION.md` roadmap's fixed version labels colliding with
 what actually shipped; the authoritative design doc itself uses Stage
 0–5 for the same reason.
 
-- ☐ **Stage 0** — fix the broken `analytics` package. Prerequisite for
-  Stage 3/4's AI Router health-scoring, *not* for Stage 1 — still open
-  (see Fix-it list below), did not block Stage 1 shipping.
+- ☐ **Stage 0** — AI-call analytics. Reframed by v14.12: the stranded,
+  never-importable source files were deleted in the repository cleanup,
+  so this is now a **build-from-scratch v15 item** (alongside the AI
+  Router, which wants the health data), not a packaging fix.
 - ✅ **Stage 1 — Intent Engine (Shadow Mode).** Shipped v14.0
   (`core/intent/`). Classifies every message deterministically via a
   tiered rule set reusing `date_parser.py`; does not yet affect routing.
@@ -129,9 +130,13 @@ what actually shipped; the authoritative design doc itself uses Stage
   non-existent, never to build: habit update/delete/today/search/
   statistics/archive/restore commands. Callback-driven habit surfaces
   (dashboard card, reminder done-buttons) remain Legacy, like all
-  callbacks. Next overall: (1) apply ADR-011's Option A (small change
-  + regression test), then (2) run the canary per the RC plan — now
-  able to cover both domains.
+  callbacks. **v14.12 (Production Readiness) applied ADR-011 Option A**
+  — the last architecture blocker — plus rich UI (/help, /selftest),
+  the bot-token log-leak fix, provider-agnostic AI config,
+  requirements audit, and repository cleanup. **The only step left
+  before enabling `OFFLINE_TASKS`/`OFFLINE_HABITS` is running the
+  canary per RC_v14_ARCHITECTURE_VALIDATION.md's plan** (plus rotating
+  the two exposed credentials — see DEBUGGING.md).
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles
@@ -160,30 +165,19 @@ These aren't feature requests — they're real gaps between what the code
 does and what earlier docs/comments claimed. Tracked here since there was
 nowhere else to put them. Full detail in [DEBUGGING.md](DEBUGGING.md#known-issues).
 
-- **Analytics package is missing.** `usage_logger.py`, `usage_service.py`,
-  `model_metrics.py`, `token_counter.py`, `performance_tracker.py` are meant
-  to live in an `analytics/` package (per `init.py`'s package-style
-  docstring and relative imports) but currently sit flat at the repo root
-  with no `__init__.py`. Every `import analytics` call site fails silently
-  (`try/except: pass`), so the `ai_usage` table is never created and
-  `/usage`, `/performance`, `/errors`, and real per-model stats in `/models`
-  all run on empty fallback data. Fixing this is a self-contained, low-risk
-  change (add the package wiring; no schema or business-logic changes
-  needed) — good first task.
-- **Hardcoded-looking API key in `ai_helper.py:9`.** Passed as the
-  *argument name* to `os.getenv(...)` instead of the env var name (a bug —
-  the file is also unused dead code). The key string should be removed from
-  source regardless, and the corresponding NVIDIA key should be rotated
-  since it's committed to git history.
-- **Dead code:** `ai_helper.py` and `bot_state.py` are not imported
-  anywhere (superseded by `baka_brain.py` and `conversation_state.py`
-  respectively). Candidates for deletion once confirmed safe.
-- **`token_counter.py`'s `MODEL_COSTS` table has stale model IDs**
-  (`z-ai/glm-5.1`, `flux.1-dev`, `cosmos-1.0-7b-text2world`) that no longer
-  match the models actually in use (`meta/llama-3.3-70b-instruct`,
-  `flux.1-schnell`, `stabilityai/stable-video-diffusion`). Cost/provider
-  lookups for current models fall through to a fuzzy-match fallback or
-  silently return `$0.00`/`"Unknown"`.
+- **Analytics package — RESOLVED differently (v14.12).** The five
+  stranded source files (+ `init.py`) were deleted in the repository
+  cleanup; `/usage`, `/performance`, `/errors` still return empty data.
+  Building analytics is now a clean v15 item (see Stage 0 above).
+- **Hardcoded-looking API key in `ai_helper.py:9` — file deleted
+  (v14.12).** The key remains in git history; **rotating it is the one
+  remaining action**.
+- **Dead code — RESOLVED (v14.12):** `ai_helper.py` and `bot_state.py`
+  deleted in the repository cleanup.
+- **`token_counter.py`'s stale `MODEL_COSTS` table — MOOT (v14.12):**
+  the file was deleted with the rest of the never-assembled analytics
+  code. A future analytics build should source model costs from
+  configuration, not a hardcoded table.
 - **`conversation_state.py`'s docstring claims state "survives across
   messages reliably"** via module-level dicts. True within a running
   process, but it does **not** survive a process restart — contrary to

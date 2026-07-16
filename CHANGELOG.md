@@ -9,7 +9,106 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.11 — Offline Habits Stage 3: Completion (Habit domain complete) (current)
+## v14.12 — Production Readiness & Release Candidate (current)
+
+The final polish sprint before real-world testing. No new features;
+twelve workstreams:
+
+### Part 1 — ADR-011 Option A implemented (the last architecture blocker)
+
+Conversation state now outranks intent-gated Offline dispatch:
+`main.py`'s gate requires `not conversation_state.claims_messages(state)`
+(new helper; dispatch runs only in `idle`). A mid-confirmation
+`"done 5"` re-prompts instead of completing — Legacy's exact semantics,
+in both flag states. Deliberately stricter than the ADR's illustrative
+"idle or editing" (Legacy's editing handler claims all editing-state
+messages; the Offline editing path already has its own state-gated
+entry, ADR-009). ADR-011 flipped to **Accepted**; regression tests in
+`tests/test_conversation_state.py` (13). **With this, both pre-canary
+blockers from the RC are down to one: canary logistics.**
+
+### Parts 2–4 — Rich UI, /help, /selftest
+
+- `fmt.py` gains `spoiler()`, `blockquote()`, `expandable_blockquote()`,
+  `code_block(lang=)` (all auto-escaping; `tests/test_fmt.py`).
+- **/help redesigned**: grouped categories in expandable blockquotes
+  (no walls of text), quick examples, syntax shown, admin section
+  rendered only for the admin (consistent with silent-deny), stale
+  "v11.1 · GLM 5.1" banner replaced by the real version
+  (`BAKA_VERSION`, bumped from a stale "13.2" to "14.12");
+  known-broken analytics commands no longer advertised.
+- **/selftest redesigned** from a manual 72-message checklist (still in
+  `debug_system.SELFTEST_MESSAGES`; live steps now in TESTING.md's smoke
+  checklist) into a real diagnostics report: live checks (DB read +
+  integrity, scheduler, Intent Engine, Routing, Offline registry,
+  Storage Facade, conversation state) each with latency, plus
+  environment (version/Python/provider/models/DB size/peak RSS) and
+  feature-flag panels.
+- New `_reply_rich()` fallback: if Telegram ever rejects an entity, the
+  message is resent stripped of tags instead of crashing the command.
+
+### Parts 5–6 — Token masking + log hygiene (SECURITY)
+
+**Real leak found and fixed**: `log_sanitizer.py`'s token regex required
+`/<digits>:<token>` — but Telegram URLs embed `/bot<digits>:<token>/`,
+so the pattern NEVER matched and httpx's per-request INFO lines wrote
+the full bot token to `bot.log` on every API call. Now
+`/bot…` URLs → `/botxxxxxxxxxxxxxxxx`, bare `<id>:<token>` pairs are
+masked, and Bearer headers, cookies, and secret-bearing URL query
+params (`?api_key=…`) are scrubbed too (`tests/test_log_sanitizer.py`,
+pinned against the exact leaking line format). httpx/httpcore/
+apscheduler loggers raised to WARNING (per-poll noise gone; the leaking
+lines no longer even print). **Action still pending: rotate the old bot
+token** — it's in existing `bot.log` files and the deleted
+`ai_helper.py` key is in git history.
+
+### Part 8 — AI provider preparation (pre-v15)
+
+`baka_brain.py`: provider, endpoint, key, and all six model ids are now
+env-configurable (`AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY` — legacy
+`NVIDIA_API_KEY` still works — `MODEL_MAIN/FAST/REASONING/VISION/
+IMAGE/VIDEO`), defaults = the previous hardcoded NVIDIA values, so an
+unset `.env` is byte-identical. All callers already went through the
+one OpenAI-compatible client; none changed. Media generation remains
+NVIDIA-specific (documented; v15 AI Router scope).
+
+### Part 9 — Requirements audit
+
+`requirements.txt` rebuilt from a dependency-graph audit (installed
+metadata, not guesswork): **25 packages removed**, none reachable from
+any direct dependency — `anthropic`, the entire unused Google/gRPC
+stack (15 packages), `requests`+`charset-normalizer`+`urllib3`,
+`cryptography`+`cffi`+`pycparser`, `tenacity`, `websockets`,
+`docstring_parser`. 27 kept (8 direct + pinned transitives), with the
+`httpx==0.25.2` pin warning inline.
+
+### Part 10 — Repository cleanup (11 files deleted, each verified)
+
+`ai_helper.py` + `bot_state.py` (zero importers, documented dead code
+— removing `ai_helper.py` also removes the hardcoded key from the
+working tree), the never-assembled analytics six (`init.py`,
+`model_metrics.py`, `performance_tracker.py`, `token_counter.py`,
+`usage_logger.py`, `usage_service.py` — relative imports that cannot
+resolve at repo root; only imported each other), `main.py.save`
+(editor backup), `.env.save` (stale placeholder template),
+`"h origin main"` (accidental git-output redirect).
+
+### Parts 7, 11, 12 — README, testing, docs
+
+README rewritten for the v14 reality (offline-first pipeline diagram,
+component table, flags, audited install, screenshots placeholders,
+provider-agnostic AI section, updated file structure and version
+history). Manual smoke checklist added to TESTING.md. CLAUDE.md's
+long-stale "no automated tests exist" corrected. Docs synchronized
+(ARCHITECTURE step ordering now shows the ADR-011 state gate; DEBUGGING/
+ROADMAP/MEMORY entries for the resolved issues updated in place).
+
+Suite: **722 tests, ~20 s** (692 + 30). `core/` pyflakes: 0; `main.py`
+pre-existing findings reduced 49 → 47.
+
+---
+
+## v14.11 — Offline Habits Stage 3: Completion (Habit domain complete)
 
 **The Habit domain now has 100% feature parity with Legacy for
 deterministic message-path operations.** Zero edits to `OfflineEngine`,

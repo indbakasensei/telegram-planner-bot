@@ -22,14 +22,31 @@ import os
 class LogSanitizer(logging.Filter):
     """A logging filter that scrubs secrets from every log record."""
 
-    # /12345:AAAAAAAAAA-BBB..._/ in Telegram API URLs
-    BOT_TOKEN_RE = re.compile(r'/(\d{6,12}):[A-Za-z0-9_-]{25,}/')
+    # v14.12 FIX: the original pattern required a '/' immediately before
+    # the numeric id (r'/(\d{6,12}):...'), which NEVER matched Telegram
+    # API URLs -- they embed the token as '/bot<id>:<token>/method', so
+    # the char before the digits is 't', and httpx's per-request INFO
+    # lines ("HTTP Request: POST https://api.telegram.org/bot.../send...")
+    # leaked the full token into bot.log. Two patterns now: the URL form
+    # (masked whole, per the v14.12 brief), then any bare <id>:<token>
+    # pair anywhere else.
+    BOT_TOKEN_URL_RE = re.compile(r'/bot\d{6,12}:[A-Za-z0-9_-]{25,}')
+    BOT_TOKEN_RE = re.compile(r'\b\d{6,12}:[A-Za-z0-9_-]{25,}\b')
 
     # NVIDIA NIM API keys
     NVAPI_RE = re.compile(r'nvapi-[A-Za-z0-9_-]{20,}')
 
     # OpenAI API keys (also matches sk-ant- for Anthropic)
     OPENAI_KEY_RE = re.compile(r'sk-[A-Za-z0-9_-]{20,}')
+
+    # v14.12: HTTP credential carriers -- Authorization headers, cookies,
+    # and secret-bearing URL query parameters (?api_key=..., &token=...).
+    BEARER_RE = re.compile(r'(Bearer\s+)[A-Za-z0-9._~+/=-]{16,}', re.IGNORECASE)
+    COOKIE_RE = re.compile(r'((?:Set-)?Cookie\s*[=:]\s*)\S+', re.IGNORECASE)
+    URL_SECRET_RE = re.compile(
+        r'([?&](?:api_?key|token|secret|password|auth|key)=)[^&\s]+',
+        re.IGNORECASE,
+    )
 
     # Chat/user id in structured contexts:
     #   "chat_id=793991074", "user_id=793991074", "user 793991074"
@@ -60,12 +77,18 @@ class LogSanitizer(logging.Filter):
     def _scrub(self, text: str) -> str:
         if not isinstance(text, str) or not text:
             return text
-        # 1. Bot tokens → /*************/
-        text = self.BOT_TOKEN_RE.sub(r'/\1:*************/', text)
+        # 1a. Bot tokens in Telegram API URLs → /botxxxxxxxxxxxxxxxx
+        text = self.BOT_TOKEN_URL_RE.sub('/botxxxxxxxxxxxxxxxx', text)
+        # 1b. Bare <id>:<token> pairs anywhere else
+        text = self.BOT_TOKEN_RE.sub('xxxxxxxxxxxxxxxx', text)
         # 2. NVIDIA keys
         text = self.NVAPI_RE.sub('nvapi-*************', text)
         # 3. OpenAI/Anthropic keys
         text = self.OPENAI_KEY_RE.sub('sk-*************', text)
+        # 3b. v14.12: Authorization headers, cookies, URL query secrets
+        text = self.BEARER_RE.sub(r'\1*************', text)
+        text = self.COOKIE_RE.sub(r'\1*************', text)
+        text = self.URL_SECRET_RE.sub(r'\1*************', text)
         # 4. Structured user_id / chat_id references
         def _sub_struct(m):
             return f"{m.group(1)}={self._redact_uid(m.group(2))}"

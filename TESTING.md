@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**692 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**722 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~18 seconds, all 692 tests
+pytest                             # ~20 seconds, all 722 tests
 ```
 
 | File | Tests | Covers |
@@ -36,8 +36,42 @@ pytest                             # ~18 seconds, all 692 tests
 | `tests/test_habit_views.py` | 43 | `core/actions/habit_views.py`'s three read-only Habit views (v14.9, Habit domain Stage 1) + `build_enabled_registry()` (ADR-013): entry matchers (`streak <id>`/`habitlog <id>`/`habit log <id>`, id-less and write-alias phrasings correctly left to Legacy), each view against real temp-DB data (fire-emoji cap, recurrence labels, conditional lines, HTML escaping of hostile titles, the replicated paused-habit "Habit not found or paused." quirk, 14-day 🟩/⬜ grid, missed-days warning + tip thresholds, empty-log-is-success), engine dispatch through the default registry, the **per-domain flag matrix** (all-off = empty registry; tasks-only has no habit specs; habits-only leaves task messages to Legacy; both-on == full catalog), Failure Injection (exception, locked database), **Behavioral Equivalence** (query-count parity with the exact `database.py` call sequence each Legacy handler makes, plus raw-row invariance proving reads mutate nothing), and latency/memory benchmarks. Seed dates are real-clock-relative, never hard-coded (the v14.1C windowing pitfall) (100% coverage of `core/actions/habit_views.py`) |
 | `tests/test_habit_writes.py` | 42 | `core/actions/create_habit.py` + `skip_habit.py`, the v14.10 Habit Stage 2 deterministic writes: entry matchers (3 create prefixes with the args-join whitespace round-trip, 3 skip prefixes incl. `reset streak`, bare/malformed phrasings left to Legacy), creation against real temp-DB data (Health/medium defaults, time+recurrence parsing, the verbatim Legacy title-strip quirk — "every monday at 7 AM" survives into the title — empty-title rejection, **no duplicate detection**, HTML escaping), skip execution (`current_streak` reset with `longest_streak` and `habit_log` untouched, Legacy-matching idempotent repeats, the **self-healing reset** pin: the next completion recomputes and undoes it), engine dispatch with **no ADD_TASK crosstalk** (create_habit vs create_task prefix-gated in one bucket), the update/delete **needs-no-habit-code pins** (v14.4 edit and v14.5 delete flows claim habit rows), Failure Injection (exception, locked DB, no conversation-state markers; cancel documented N/A — nothing pends in a no-confirm flow), **Behavioral Equivalence** (row-for-row vs exact Legacy pipeline replicas across 3 phrasings; skip parity; delete-of-habit orphaning `habit_log` identically in both paths; query-count parity), and latency/memory benchmarks (100% coverage of both modules) |
 | `tests/test_complete_habit.py` | 34 | `core/actions/complete_habit.py`, the v14.11 habit completion (Habit domain complete): its own AST-purity check, streak arithmetic against raw rows (extend, reset-after-gap with `longest_streak` preserved, singular "1 day"), the **already-logged-today pin** (success reply, byte-identical rows — the UNIQUE-trip rollback path), paused-habit completion (Legacy has no paused check — replicated), a **facade-spy test** proving the Intent→Registry→Action→Storage-Facade→database.py path, the **completion flag matrix** (both-on = one shared spec with the habit handler injected; tasks-only preserves v14.6's `habit_not_supported` fall-through; habits-only registers its own `complete_habit` spec — EDIT_TASK only — that declines real tasks to Legacy), failure injection (missing/invalid/non-habit id, locked DB, unexpected exception, integrity rollback), **learning-log absence** and **scheduler invariance** (only the three streak columns change; `done` stays 0; `get_due_tasks()` output stable), conversation-state absence, **Behavioral Equivalence** (rows/streaks/timestamps/`habit_log` field-identical across users; **SQL verb order and query count identical** via traced connections; weekly habits; second-completion parity), and latency/memory benchmarks (100% coverage of `core/actions/complete_habit.py`) |
+| `tests/test_conversation_state.py` | 13 | `conversation_state.py` (first covered v14.12): the ADR-011 Option A dispatch-priority rule (`claims_messages()` truth table — `idle` allows intent-gated Offline dispatch, `confirming`/`gathering`/`editing` block it; the mid-confirmation/"done 5" regression pin), plus the state-machine contracts every Offline write flow relies on (pending-action, gathering, editing round-trips; clear-state; history cap) |
+| `tests/test_fmt.py` | 7 | `fmt.py` (first covered v14.12): the always-escape property for every wrapper (the v7.1 Markdown-corruption lesson), the new rich-UI helpers (spoiler, blockquote, expandable blockquote, language-tagged code blocks), and the explicit `escape=False` opt-in for embedding pre-built HTML |
+| `tests/test_log_sanitizer.py` | 10 | `log_sanitizer.py` (first covered v14.12, with the token-leak fix): masking pinned against the EXACT httpx request-line format that leaked the bot token (`/bot<id>:<token>/` — the old regex never matched it), bare-token masking, NVIDIA/OpenAI keys, Bearer/Cookie headers, URL query secrets, user-id redaction (admin vs. others), never-crash and idempotent-install properties |
 | `tests/test_storage_facade.py` | 18 | `core/storage/`'s Storage Facade (v14.1C): every `TaskStorage`/`HabitStorage`/`GoalStorage`/`ProjectStorage` method delegates to exactly the `database.py` function it wraps, verified by asserting the facade's return value equals calling `database.py` directly (not just "doesn't crash") — proves pure delegation, zero reshaping (100% coverage of `core/storage/`) |
 | `tests/test_feature_flags.py` | 19 | `core/feature_flags.py`'s rollout flags (v14.1C): the `_flag()` helper across truthy/falsy env-var spellings, all four flags defaulting OFF when unset, and — via `importlib.reload()` — that the exported constants actually pick up an environment variable at import time, not just the helper function in isolation (100% coverage of `core/feature_flags.py`) |
+
+## Manual smoke checklist (v14.12 — run live in Telegram before any release)
+
+The automated suite deliberately never touches Telegram, so these must
+be verified in a live session (this replaces the old `/selftest` manual
+checklist, which is now a diagnostics report; the old 72-message list
+still exists in `debug_system.SELFTEST_MESSAGES` if needed):
+
+1. **`/help`** — two messages render with expandable sections; admin
+   section appears only for the admin account; no `BadRequest`.
+2. **`/selftest`** — all live checks ✅; environment/flags blocks show
+   the right version, provider, and models; report renders as HTML.
+3. **Task lifecycle** — `add task Smoke test tomorrow 6pm` → confirm →
+   `list` → `edit <id>` → change time → `done <id>` → `delete <id>` →
+   confirm.
+4. **Habit lifecycle** — `addhabit Smoke habit at 07:00 daily` →
+   `habits` → `done <id>` (streak 1) → `done <id>` again (already
+   logged) → `streak <id>` → `skiphabit <id>` → delete it.
+5. **Offline routing** (only with a flag ON) — the same commands with
+   `OFFLINE_TASKS=true`/`OFFLINE_HABITS=true`: replies arrive, `bot.log`
+   shows `[Offline]` blocks, unknown phrases still reach the AI.
+6. **State priority (ADR-011)** — start `add task X` so BAKA asks to
+   confirm, then send `done 1`: it must RE-PROMPT (not complete task 1),
+   with flags on and off alike.
+7. **Legacy fallback** — `/habits` with all flags OFF behaves exactly as
+   before; `goals`, `dashboard`, AI chat all unaffected.
+8. **Rich formatting** — a task titled `a<b>&c` renders escaped
+   everywhere (list, done, delete preview).
+9. **Logging** — after a few commands, `grep -c 'api.telegram.org/bot'
+   bot.log` shows only `botxxxxxxxxxxxxxxxx` forms; no raw token; no
+   per-request httpx INFO noise.
 
 **Found and fixed 3 real bugs in `date_parser.py` while writing tests**
 (not scope creep — permitted and expected: writing a test against actual

@@ -13,13 +13,15 @@ from datetime import datetime, timedelta
 # Bulletproof .env loading — works regardless of working directory or import order
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 load_dotenv(_env_path)
-_api_key = os.getenv("NVIDIA_API_KEY")
+# v14.12: provider-agnostic key -- AI_API_KEY preferred, NVIDIA_API_KEY
+# kept as the fallback so existing .env files keep working unchanged.
+_api_key = os.getenv("AI_API_KEY") or os.getenv("NVIDIA_API_KEY")
 if not _api_key:
     # Fallback: read .env manually if dotenv failed
     try:
         with open(_env_path) as _f:
             for _line in _f:
-                if _line.startswith("NVIDIA_API_KEY="):
+                if _line.startswith(("AI_API_KEY=", "NVIDIA_API_KEY=")):
                     _api_key = _line.strip().split("=", 1)[1]
     except FileNotFoundError:
         pass
@@ -27,27 +29,44 @@ if not _api_key:
 logger = logging.getLogger(__name__)
 
 # v11.0: Multi-model AI infrastructure
-NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# v14.12: provider preparation (pre-v15 AI Router) -- the provider name,
+# endpoint, and every model id are environment-configurable, with the
+# previous hardcoded NVIDIA NIM values as defaults: an unset .env means
+# byte-identical behavior. The owner intends to move to GLM; that
+# becomes e.g.
+#   AI_PROVIDER=glm
+#   AI_BASE_URL=<GLM OpenAI-compatible endpoint>
+#   AI_API_KEY=<key>
+#   MODEL_MAIN=<glm model id>  MODEL_FAST=...  MODEL_REASONING=...
+# Every caller goes through call_main()/call_fast()/call_think() and the
+# shared OpenAI-compatible `client`, so no caller knows the provider.
+# (Image/video generation still use NVIDIA's genai endpoints directly --
+# see generate_image()/generate_video(); making media provider-agnostic
+# is v15 AI Router scope, not this preparation pass.)
+AI_PROVIDER = os.getenv("AI_PROVIDER", "nvidia-nim")
+NIM_BASE_URL = os.getenv("AI_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 # ─────────────────────────────────────────────────────────────
-# NVIDIA NIM MODELS — verified working as of July 2026
+# Default models: NVIDIA NIM — verified working as of July 2026
 # ─────────────────────────────────────────────────────────────
-# TEXT / VISION: use https://integrate.api.nvidia.com/v1/chat/completions
-# IMAGE / VIDEO: use https://ai.api.nvidia.com/v1/genai/{model}
+# TEXT / VISION: {AI_BASE_URL}/chat/completions
+# IMAGE / VIDEO: https://ai.api.nvidia.com/v1/genai/{model} (NVIDIA-only)
 #
-# History of MODEL_MAIN choices:
+# History of MODEL_MAIN defaults:
 #   z-ai/glm-5.1  — EOL'd by NVIDIA on 2026-07-02 (HTTP 410 Gone)
 #   z-ai/glm-5.2  — released same day, currently DEGRADED (HTTP 400)
-#   meta/llama-3.3-70b-instruct  — 22M uses, most popular, PROVEN STABLE ← in use
+#   meta/llama-3.3-70b-instruct  — 22M uses, most popular, PROVEN STABLE ← default
 # ─────────────────────────────────────────────────────────────
 
-# Primary models
-MODEL_MAIN   = "meta/llama-3.3-70b-instruct"         # Main brain — 22M uses, most stable
-MODEL_FAST   = "meta/llama-3.1-8b-instruct"          # Fast/cheap intent + classification
-MODEL_THINK  = "meta/llama-3.3-70b-instruct"         # Deep reasoning (same architecture family)
-MODEL_VISION = "meta/llama-3.2-90b-vision-instruct"  # Image understanding (chat/completions endpoint)
-MODEL_IMAGE  = "black-forest-labs/flux.1-schnell"    # Image generation (genai endpoint, NOT chat)
-MODEL_VIDEO  = "stabilityai/stable-video-diffusion"  # Video generation (genai endpoint, NOT chat)
+# Primary models (env-overridable; MODEL_REASONING is the public name
+# for what this module historically calls MODEL_THINK)
+MODEL_MAIN   = os.getenv("MODEL_MAIN", "meta/llama-3.3-70b-instruct")
+MODEL_FAST   = os.getenv("MODEL_FAST", "meta/llama-3.1-8b-instruct")
+MODEL_THINK  = os.getenv("MODEL_REASONING", os.getenv("MODEL_THINK",
+                          "meta/llama-3.3-70b-instruct"))
+MODEL_VISION = os.getenv("MODEL_VISION", "meta/llama-3.2-90b-vision-instruct")
+MODEL_IMAGE  = os.getenv("MODEL_IMAGE", "black-forest-labs/flux.1-schnell")
+MODEL_VIDEO  = os.getenv("MODEL_VIDEO", "stabilityai/stable-video-diffusion")
 
 # Feature toggles — v11.2: image/video/vision ALWAYS ON per user request
 ENABLE_FAST_ROUTING = False  # Use Llama 8B for simple intent classification

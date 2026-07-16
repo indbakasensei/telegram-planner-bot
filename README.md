@@ -1,17 +1,14 @@
 # 🤖 BAKA — AI Personal Assistant (Telegram)
 
-**Behavioral Adaptive Knowledge Assistant** — A multi-model AI Telegram bot that manages your tasks, deadlines, habits, goals, and hobby/build projects through natural conversation in **English, Hindi, and Hinglish**.
+**Behavioral Adaptive Knowledge Assistant** — an offline-first AI Telegram bot that manages your tasks, deadlines, habits, goals, and hobby/build projects through natural conversation in **English, Hindi, and Hinglish**.
 
-> BAKA doesn't just remind you — it **owns your tasks until they're done**, learns your patterns, monitors its own AI performance, and gets smarter every day.
+> BAKA doesn't just remind you — it **owns your tasks until they're done**, learns your patterns, and handles its deterministic core without ever calling an AI.
 
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v14.0** (Intent Engine, Shadow Mode — an internal,
-> non-user-visible classification layer; every feature below is unchanged)
-> — see [CHANGELOG.md](CHANGELOG.md). This banner previously said v12.0,
-> several releases out of date; corrected during v14.0's documentation
-> sync.
+> Current version: **v14.12** (Production Readiness) — see
+> [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -20,14 +17,56 @@
 | Feature | Other reminder bots | BAKA |
 |---------|---------------------|------|
 | Language | English only | English + Hindi + Hinglish |
+| Core commands | Round-trip to an AI | **Offline-first**: deterministic engine, zero AI calls, sub-2ms |
 | Reminders | Fires once | Persists until done, escalates |
-| Intelligence | Rule-based | Multi-model AI (GLM 5.1 + Llama 3.1 + Vision) |
+| Intelligence | Rule-based | Configurable AI provider for planning/reasoning |
 | Learning | None | Learns your patterns, active hours, tone |
 | Deadlines | At the time | **Before** — warns 7d/3d/1d/6h/1h ahead |
 | Habits | Not built-in | Full habit engine with streaks + grid |
-| Analytics | None | Tracks every AI call — latency, tokens, cost |
 | Dashboard | None | Interactive hub with inline buttons |
-| Photos | Not supported | Llama 3.2 Vision understands images |
+| Photos | Not supported | Vision model describes images / extracts todos |
+
+---
+
+## 🏗 Architecture (v14 — Autonomous Core)
+
+Every free-text message flows through a staged, feature-flag-gated
+pipeline. With all flags OFF the bot behaves exactly like the pre-v14
+Legacy bot; each flag moves one domain onto the deterministic path.
+
+```
+            Telegram message
+                   │
+                   ▼
+        Conversation State ──── claims it? ──▶ state machine (confirm / gather / edit)
+                   │ idle
+                   ▼
+             Intent Engine        deterministic classifier (no AI, no network)
+                   │
+                   ▼
+             Routing Layer        confidence policy → destination recommendation
+                   │
+                   ▼
+            Offline Engine        ActionRegistry → registered action → Storage Facade
+                   │ unmatched
+                   ▼
+                Legacy            original handlers + AI (NL understanding, planning)
+```
+
+| Component | Where | What it does |
+|---|---|---|
+| Intent Engine | `core/intent/` | Tiered deterministic classification (11 intents) |
+| Routing Layer | `core/routing/` | Confidence policy + decision logging ([DRG-001](DRG-001_Intent_Aware_Routing.md)) |
+| Offline Engine | `core/offline/` | Registry-based dispatch to pure actions ([ADR-012](docs/adr/ADR-012-registry-based-dispatch.md)) |
+| Action Registry | `core/offline/registry.py` | Per-intent ordered specs; per-domain construction ([ADR-013](docs/adr/ADR-013-per-domain-registry-construction.md)) |
+| Actions | `core/actions/` | Task + Habit domains, feature-complete, Legacy-equivalent |
+| Storage Facade | `core/storage/` | Thin, zero-logic delegation to `database.py` |
+| Feature Flags | `core/feature_flags.py` | `OFFLINE_TASKS` / `OFFLINE_HABITS` / `OFFLINE_GOALS` / `OFFLINE_PROJECTS` — all default OFF |
+
+Design decisions live in [docs/adr/](docs/adr/) (ADR-001…013); the
+architecture deep-dive is [ARCHITECTURE.md](ARCHITECTURE.md). Behavioral
+equivalence with Legacy is enforced by a 700+-test suite
+([TESTING.md](TESTING.md)) with query-count and row-level parity checks.
 
 ---
 
@@ -36,7 +75,7 @@
 ### Prerequisites
 - Python 3.12+
 - A Telegram account
-- [NVIDIA NIM API key](https://build.nvidia.com) (free tier: 1,000 calls/month)
+- An OpenAI-compatible AI provider key (default: [NVIDIA NIM](https://build.nvidia.com), free tier)
 
 ### 1. Clone and install
 
@@ -45,7 +84,7 @@ git clone https://github.com/indbakasensei/telegram-planner-bot
 cd telegram-planner-bot
 python3 -m venv venv
 source venv/bin/activate
-pip install python-telegram-bot[job-queue]==20.7 httpx==0.25.2 openai python-dotenv pytz
+pip install -r requirements.txt
 ```
 
 ### 2. Get your tokens
@@ -55,17 +94,26 @@ pip install python-telegram-bot[job-queue]==20.7 httpx==0.25.2 openai python-dot
 Open Telegram → @BotFather → /newbot → copy the token
 ```
 
-**NVIDIA NIM API Key:**
-```
-Go to build.nvidia.com → find z-ai/glm-5.1 → Generate API Key
-```
+**AI provider key:** any OpenAI-compatible endpoint works (NVIDIA NIM,
+GLM, …).
 
 ### 3. Create `.env`
 
 ```bash
 cat > .env << 'EOF'
 BOT_TOKEN=your_telegram_bot_token_here
-NVIDIA_API_KEY=nvapi-your_nvidia_key_here
+
+# AI provider (defaults shown; all optional — unset = NVIDIA NIM)
+AI_PROVIDER=nvidia-nim
+AI_BASE_URL=https://integrate.api.nvidia.com/v1
+AI_API_KEY=your_provider_key_here        # NVIDIA_API_KEY also still works
+# MODEL_MAIN=meta/llama-3.3-70b-instruct
+# MODEL_FAST=meta/llama-3.1-8b-instruct
+# MODEL_REASONING=meta/llama-3.3-70b-instruct
+
+# Offline Engine rollout flags (default OFF — Legacy behavior)
+# OFFLINE_TASKS=true
+# OFFLINE_HABITS=true
 EOF
 ```
 
@@ -78,6 +126,17 @@ python3 main.py
 ### 5. Claim admin (first run)
 
 In Telegram, send `/claimadmin` — this locks admin access permanently to your Telegram ID.
+
+---
+
+## 📸 Screenshots
+
+> *(placeholders — add before public release)*
+
+| | |
+|---|---|
+| ![Dashboard](docs/img/dashboard.png) *Dashboard* | ![Help](docs/img/help.png) *Redesigned /help* |
+| ![Streak grid](docs/img/streak.png) *Habit streaks* | ![Selftest](docs/img/selftest.png) */selftest diagnostics* |
 
 ---
 
@@ -100,186 +159,45 @@ Slash is optional for every command:
 /done 5  =  done 5
 ```
 
----
-
-## 📋 Commands Reference
-
-> This section covers the commands most people use day to day. For the
-> complete, verified-against-code command list — including `overload`,
-> `tag`/`tagged`, `review`, `carryforward`, `proactive`, and the full
-> admin list — see [API.md](API.md#command-reference).
-
-### Tasks
-| Command | What it does |
-|---------|-------------|
-| `list` | All pending tasks |
-| `today` | Today's schedule |
-| `week` | This week's plan |
-| `done <id>` | Mark complete |
-| `edit <id>` | Modify a task |
-| `delete <id>` | Remove a task |
-| `deadline <id>` | Toggle pre-deadline warnings |
-
-### Reminders
-Every reminder has tap-able buttons: ✅ Done · ⏰ 10m · 🕐 1h · 📅 Tomorrow · 🔕 Stop · 🗑 Delete
-
-| Command | What it does |
-|---------|-------------|
-| `snooze <id> <min>` | Custom snooze duration |
-| `pause <id>` | Stop reminders temporarily |
-| `resume <id>` | Restart reminders |
-| `paused` | View all paused tasks |
-
-### Deadlines ⏳
-Say "due by", "submit by", "deliver before", "tak karna hai" and BAKA auto-enables deadline mode — warns you **before** the deadline at:
-
-```
-7 days → 3 days → 1 day → 6 hours → 1 hour before
-```
-
-Each warning has: ✅ Done now · 🔨 Break down · 📅 Plan today · 🔕 Mute
-
-### Habits 🌱
-| Command | What it does |
-|---------|-------------|
-| `habits` | All active habits with streaks |
-| `streak <id>` | 14-day visual grid |
-| `habitlog <id>` | 30-day history |
-| `addhabit <title>` | Quick creation |
-| `skiphabit <id>` | Skip (resets streak) |
-
-### Goals 🎯
-| Command | What it does |
-|---------|-------------|
-| `goals` | Progress dashboard with bars |
-| Say "I want to X" | Auto-detected as goal |
-| ➕/➖ buttons | Adjust progress inline |
-
-### Projects 🛠️ (v12.0)
-Turn any goal into a tracked project with a materials checklist and worklog —
-built for multi-week real-world builds. Full walkthrough:
-[CHANGELOG.md](CHANGELOG.md#v120--project-management-current).
-
-| Command | What it does |
-|---------|-------------|
-| `need`/`materials <id> <items>` | Add comma-separated materials to a project |
-| `got`/`have <name>` | Fuzzy-mark a material acquired |
-| `worklog`/`log <id> <text>` | Log progress (kind auto-detected) |
-| `started <id>` / `finished <id>` | Log work-started / mark done |
-| `project <id>` / `projects` | Full project card / list all active projects |
-| `shopping` | Everything still unacquired, across all projects |
-
-### AI & Planning 🧠
-| Command | What it does |
-|---------|-------------|
-| `think <question>` | Free-form AI reasoning with your data |
-| `plan today` | Time-blocked AI plan (asks to apply) |
-| `plan week` | 7-day schedule with overload warnings |
-| `breakdown <id>` | Split big task into subtasks |
-| `reschedule <id>` | AI picks a conflict-free time |
-| `analyze` | Productivity report |
-| `insights` | What BAKA learned about you |
-| `suggestions` | Daily AI-generated suggestions |
-| `approve <id>` | Apply a suggestion (auto-creates if applicable) |
-
-### Search & Tools 🔍
-| Command | What it does |
-|---------|-------------|
-| `search <keyword>` | Search tasks, memories, habits, goals |
-| `template` | List saved templates |
-| `template <name>` | Create task from template |
-| `savetemplate <name> <id>` | Save task as template |
-| `export` | Full data backup as plain text |
-
-### AI Models 🤖
-| Command | What it does |
-|---------|-------------|
-| `models` | Live status per model (real usage stats currently broken — see below) |
-| `image <prompt>` | Generate an image |
-| `video <prompt>` | Generate a short video |
-| Send a photo | Llama Vision describes it or extracts todos |
-
-### AI Analytics 📊 — ⚠️ usage/performance/errors currently return empty data
-| Command | What it does |
-|---------|-------------|
-| `usage` | Today + lifetime AI call stats *(broken — see [DEBUGGING.md](DEBUGGING.md#known-issues))* |
-| `performance` | p50/p95/p99 latency + trends *(broken — same reason)* |
-| `errors` | Error timeline + breakdown *(broken — same reason)* |
-| `status` | Quick 3-test AI benchmark *(works — live probe, not stored analytics)* |
-| `status full` | Deep 6-test benchmark (graded A+-F) *(works)* |
-
-### Settings ⚙️
-| Command | What it does |
-|---------|-------------|
-| `settings` | View all preferences |
-| `quiethours <start> <end>` | Sleep window (no pings) |
-| `interval <min>` | Reminder frequency |
-| `wellness on/off` | 💧 Water/break/eye nudges |
-| `proactive` | All automatic features panel |
-
-### Debug 🐞
-| Command | What it does |
-|---------|-------------|
-| `debug` | Toggle verbose debug mode |
-| `report <issue>` | File a bug (auto-captures context) |
-| `bugs` | View open bug reports |
-| `trace` | Last AI interaction details |
-| `selftest` | Step-by-step test checklist (72 tests — see [TESTING.md](TESTING.md) for how this relates to `TEST_CHECKLIST.md`) |
-
-### Admin (owner only) 👑
-These commands are invisible to non-admins. Only the account that ran `/claimadmin` can use them.
-
-| Command | What it does |
-|---------|-------------|
-| `admin` | Control panel with data stats |
-| `adminmode` | Toggle verbose debug |
-| `resettasks` | Delete all tasks + reset IDs to 1 |
-| `resetmemory` / `resethabits` / `resetlearning` | Wipe one data category |
-| `resetall` | Nuclear wipe (requires `YES NUKE EVERYTHING`) |
-| `sql <query>` | Read-only SQL for debugging |
-| `misses` / `reviewed` | View / review what AI couldn't handle *(not admin-gated — scoped to your own data)* |
-| `myid` | Your Telegram ID |
+`/help` shows the full grouped command reference in-app. The complete,
+verified-against-code list is in [API.md](API.md#command-reference).
 
 ---
 
-## 🤖 AI Architecture
+## 📋 Command Highlights
 
-BAKA uses NVIDIA NIM for all AI calls. Current model IDs (these have
-changed since NVIDIA retired the originally-chosen model — see
-[docs/ai_system.md](docs/ai_system.md) for the full explanation and the
-`baka_brain.py` constants to check if this list ever goes stale again):
+| Domain | Commands |
+|---|---|
+| 📌 Tasks | `list` · `today` · `week` · `add task <t>` · `done <id>` · `edit <id>` · `delete <id>` · `deadline <id>` |
+| 🔔 Reminders | `snooze <id> <min>` · `pause`/`resume <id>` · `paused` · `overdue` · `carryforward` · `review` |
+| 🌱 Habits | `habits` · `streak <id>` · `habitlog <id>` · `addhabit <t>` · `skiphabit <id>` · `done <id>` |
+| 🎯 Goals & Projects | `goals` · `projects` · `project <id>` · `need` · `got` · `worklog` · `started`/`finished` · `shopping` |
+| 🧠 AI & Planning | `think <q>` · `plan today/week` · `breakdown <id>` · `reschedule <id>` · `analyze` · `insights` |
+| 🖼 Media | `image <prompt>` · `video <prompt>` · send a photo |
+| 🗂 Memory & Tools | `memory` · `forget <key>` · `search <kw>` · `template` · `export` |
+| ⚙️ Settings | `settings` · `quiethours` · `interval` · `wellness on/off` · `dashboard` |
+| 🛠 Diagnostics | `status` · `selftest` · `debug` · `report <issue>` · `bugs` · `trace` |
 
-| Role | Model | Purpose |
-|------|-------|---------|
-| 🧠 Main Brain | `meta/llama-3.3-70b-instruct` | Intent detection, planning, save logic |
-| ⚡ Fast | `meta/llama-3.1-8b-instruct` | Quick classification (currently unused — see below) |
-| 💭 Think | `meta/llama-3.3-70b-instruct` | `/think` free-form reasoning |
-| 👀 Vision | `meta/llama-3.2-90b-vision-instruct` | Image understanding |
-| 🎨 Image | `black-forest-labs/flux.1-schnell` | Image generation |
-| 🎬 Video | `stabilityai/stable-video-diffusion` | Video generation (FLUX frame → SVD animation) |
-
-Feature toggles in `baka_brain.py`:
-```python
-ENABLE_FAST_ROUTING = False  # Llama 8B pre-filter — off, so MODEL_FAST above is currently unused
-ENABLE_VISION       = True   # Image understanding
-ENABLE_IMAGE_GEN    = True   # Image generation — on
-ENABLE_VIDEO_GEN    = True   # Video generation — on
-```
+Admin commands exist but deny silently for non-admins (deliberate
+obscurity) — the admin sees them in `/help`.
 
 ---
 
-## 📊 AI Analytics — ⚠️ currently broken
+## 🤖 AI Configuration
 
-Every AI call is *intended* to be automatically logged to an `ai_usage`
-SQLite table (provider, model, latency, tokens, cost, success/failure,
-fallback activations), queryable via `/usage`, `/performance`, `/errors`,
-and `/models`.
+All chat/reasoning AI goes through one OpenAI-compatible client in
+`baka_brain.py`; the provider, endpoint, key, and every model id are
+environment-configurable (`AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`,
+`MODEL_MAIN`, `MODEL_FAST`, `MODEL_REASONING`, `MODEL_VISION`, …).
+Unset variables fall back to the verified NVIDIA NIM defaults. Image and
+video generation still use NVIDIA's genai endpoints directly — making
+media provider-agnostic is v15 AI Router scope.
 
-**As of the current codebase, this pipeline does not run**: the `analytics`
-package it depends on isn't wired up (the source files exist at the repo
-root but aren't assembled into an importable package), so the `ai_usage`
-table is never created and those four commands return empty data instead
-of real stats. Full detail: [DEBUGGING.md](DEBUGGING.md#known-issues).
+The old stored-analytics commands (`usage`, `performance`, `errors`)
+return empty data — the pipeline behind them was never assembled, and
+its stranded source files were removed in v14.12. `status` /
+`status full` (live benchmarks) work. See
+[DEBUGGING.md](DEBUGGING.md#known-issues).
 
 ---
 
@@ -287,89 +205,48 @@ of real stats. Full detail: [DEBUGGING.md](DEBUGGING.md#known-issues).
 
 ```
 telegram-planner-bot/
-├── main.py              — All handlers, dashboard, state machine, scheduler
-├── baka_brain.py        — Multi-model AI, intent detection, reasoning
-├── database.py          — SQLite CRUD + all migrations
-├── date_parser.py       — Regex date/time parser (EN/Hindi/Hinglish)
-├── scheduler.py         — Reminder engine (snooze/escalation/quiet-hours)
+├── main.py               — Handlers, dashboard, state machine, integration point
+├── core/                 — v14 Autonomous Core
+│   ├── intent/           — Intent Engine (deterministic classifier)
+│   ├── routing/          — Routing Layer (decision logging)
+│   ├── offline/          — Offline Engine + ActionRegistry + registrations
+│   ├── actions/          — Task + Habit action modules (pure, facade-only)
+│   ├── storage/          — Storage Facade
+│   └── feature_flags.py  — Per-domain rollout flags
+├── baka_brain.py         — AI client (provider-agnostic config), reasoning
+├── database.py           — SQLite CRUD + all migrations
+├── date_parser.py        — Regex date/time parser (EN/Hindi/Hinglish)
+├── scheduler.py          — Reminder engine (snooze/escalation/quiet-hours)
 ├── conversation_state.py — State machine (idle/gathering/confirming/editing)
-├── debug_system.py      — Bug tracking, selftest messages
-├── preferences.py       — Behavioral analysis (v6.0 learning)
-├── fmt.py               — HTML formatting helpers
-├── ui.py                — Dashboard card components
-├── usage_logger.py, usage_service.py, model_metrics.py,
-│   token_counter.py, performance_tracker.py, init.py
-│                       — AI usage monitoring code, written for an
-│                         `analytics/` package that doesn't currently
-│                         exist — these sit flat at repo root and are
-│                         not wired up. See DEBUGGING.md known issues.
-├── ai_helper.py, bot_state.py — dead code, not imported anywhere
-├── .env                 — Secrets (gitignored)
-├── admin_id.txt         — Admin lock (gitignored)
-├── planner.db           — Main database (gitignored)
-└── bugs.db              — Bug tracker (gitignored)
+├── log_sanitizer.py      — Secret masking for bot.log
+├── fmt.py                — Telegram HTML helpers
+├── ui.py / debug_system.py / preferences.py / notification_service.py
+├── tests/                — 700+ offline tests
+├── docs/adr/             — ADR-001 … ADR-013
+├── .env                  — Secrets (gitignored)
+└── planner.db            — Main database (gitignored)
 ```
 
 Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 
 ---
 
-## 🗃️ Database Schema
-
-13 active tables in `planner.db` (full column-level detail:
-[docs/database.md](docs/database.md)):
-
-| Table | Purpose |
-|-------|---------|
-| `tasks` | Tasks + habits (streak, snooze, deadline columns added incrementally) |
-| `memories` | Key-value personal facts |
-| `goals` | Goals + projects (progress/target columns; projects extend a goal with materials/worklog) |
-| `habit_log` | Daily habit completion log |
-| `user_preferences` | Quiet hours, interval, wellness settings |
-| `completions_log` | v6.0 — when tasks were completed |
-| `snooze_log` | v6.0 — snooze patterns by category |
-| `interaction_log` | v6.0 — active-hours tracking |
-| `task_templates` | Reusable task patterns |
-| `missed_capabilities` | What AI couldn't handle (feature mining) |
-| `ai_observations` | AI-generated daily suggestions |
-| `project_materials` | v12.0 — materials checklist per project |
-| `project_worklog` | v12.0 — progress log per project |
-
-Note: `ai_usage` (AI call telemetry) is documented in the v11.1 changelog
-entry but is **not currently created** — see
-[DEBUGGING.md](DEBUGGING.md#known-issues).
-
----
-
-## 🔄 Version History
+## 🔄 Version History (recent)
 
 | Version | Highlights |
 |---------|-----------|
-| v1.0 | Debug system, task lifecycle |
-| v1.1 | Snooze/pause/postpone, inline buttons |
-| v1.2 | Overdue detection, deadline warnings, tags |
-| v2.0 | Passive PA — persistent reminders, quiet hours |
-| v3.0 | Vague time (shaam/evening/morning), urgency detection |
-| v4.0 | Smart planning, task breakdown, subtasks |
-| v5.0 | Habit engine, streaks, 14-day grid |
-| v5.1 | JARVIS → BAKA rebrand |
-| v6.0 | Preference learning — learns your patterns |
-| v6.1 | Admin mode — owner-only panel, task ID reset |
-| v7.0 | Follow-up intelligence, repeated-snooze detection |
-| v7.1 | Bug fixes from live logs, HTML formatting |
-| v8.0 | Proactive wellness nudges, slot-crowding hints |
-| v9.0 | Dashboard system — 6 card types, inline navigation |
-| v9.1 | GLM 5.1 AI upgrade, enhanced /status benchmark |
-| v10.0 | Search, templates, weekly report, export |
-| v10.1 | Pre-deadline buffer reminders (7d/3d/1d/6h/1h) |
-| v10.2 | AI autonomy foundation — context, /think, miss log |
-| v11.0 | Multi-model AI — 6 models, vision, image gen, observation engine |
-| v11.1 | AI analytics — every call logged, /usage /performance /errors (packaging incomplete — see known issues) |
-| v11.2 | NIM-only visual generation rebuild, model ID changes |
-| v12.0 | Project Management — materials, worklog, progress tracking, stagnation nudges |
+| v12.0 | Project management — materials, worklog, progress tracking |
+| v13.x | Production hardening, notification service, async bridge, log sanitizer |
+| v14.0–14.1 | Intent Engine (shadow mode), Routing Layer, Storage Facade, feature flags |
+| v14.2–14.7 | Task domain migrated: reads, create, update, delete, complete, lifecycle |
+| v14.8 | Registry-based dispatch (ADR-012) |
+| v14.9–14.11 | Habit domain migrated: views, create/skip, completion |
+| v14.12 | Production readiness: ADR-011 state priority, rich UI, token masking, cleanup |
 
-Full detail per version: [CHANGELOG.md](CHANGELOG.md). Planned work:
-[ROADMAP.md](ROADMAP.md).
+Early history (v1–v11) and full detail per version:
+[CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)
+(next: canary enablement of the offline flags, then v15 — AI Router,
+Goals/Projects domains, plugins).
 
 ---
 
@@ -379,6 +256,7 @@ Full detail per version: [CHANGELOG.md](CHANGELOG.md). Planned work:
 - **All datetime must use IST** — system clock is UTC, never use bare `datetime.now()`
 - **`.env` is gitignored** — never commit it; re-create after cloning
 - **`admin_id.txt` is gitignored** — run `/claimadmin` after fresh deploy
+- **Offline flags default OFF** — flag-off behavior is byte-identical to Legacy
 
 ---
 

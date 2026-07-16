@@ -51,6 +51,33 @@ def pre(text) -> str:
     return f"<pre>{esc(text)}</pre>"
 
 
+def code_block(text, lang=None) -> str:
+    """Preformatted block with optional language tag (v14.12).
+    Telegram renders language-tagged blocks with syntax highlighting:
+    <pre><code class="language-python">...</code></pre>."""
+    if lang:
+        return f'<pre><code class="language-{esc(lang)}">{esc(text)}</code></pre>'
+    return f"<pre><code>{esc(text)}</code></pre>"
+
+
+def spoiler(text) -> str:
+    """Spoiler (tap to reveal). Escapes content automatically (v14.12)."""
+    return f"<tg-spoiler>{esc(text)}</tg-spoiler>"
+
+
+def blockquote(text, escape=True) -> str:
+    """Blockquote (Bot API 7.0+). Pass escape=False when `text` is
+    already-formatted HTML built from these helpers (v14.12)."""
+    return f"<blockquote>{esc(text) if escape else text}</blockquote>"
+
+
+def expandable_blockquote(text, escape=True) -> str:
+    """Collapsed-by-default blockquote (Bot API 7.3+; parsing happens
+    server-side, so PTB 20.7 sends it fine). Pass escape=False for
+    already-formatted HTML content (v14.12)."""
+    return f"<blockquote expandable>{esc(text) if escape else text}</blockquote>"
+
+
 # ── Reusable UI components for consistent message styling ──
 
 DIVIDER = "━━━━━━━━━━━━━━"

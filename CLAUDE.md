@@ -59,10 +59,11 @@ stale or broken during the 2026-07 documentation pass.**
 - **Admin commands deny silently** ("Unknown command", not "access
   denied") — this is deliberate obscurity, not a bug. Keep new admin
   commands consistent with this.
-- **Secrets live in `.env`** (`BOT_TOKEN`, `NVIDIA_API_KEY`, `OWNER_ID`),
-  gitignored. Never hardcode a key in source — `ai_helper.py` did this by
-  accident and it's flagged in [DEBUGGING.md](DEBUGGING.md#known-issues) as
-  something to clean up, not a pattern to repeat.
+- **Secrets live in `.env`** (`BOT_TOKEN`, `AI_API_KEY` — legacy name
+  `NVIDIA_API_KEY` still works — `OWNER_ID`), gitignored. Never hardcode
+  a key in source — the one historical violation (`ai_helper.py`, dead
+  code) was deleted in v14.12, but its key is still in git history and
+  needs rotating (see [DEBUGGING.md](DEBUGGING.md#known-issues)).
 
 ## Working in this repo
 
@@ -70,14 +71,14 @@ stale or broken during the 2026-07 documentation pass.**
   If a doc-only task surfaces a real bug (as this pass did — see
   [DEBUGGING.md](DEBUGGING.md#known-issues)), document it and flag it
   explicitly rather than silently fixing it, unless asked to fix it.
-- **No automated tests exist.** Validate changes against `/selftest`
-  (see [TESTING.md](TESTING.md)) by running the bot and testing live in
-  Telegram — there's no way to verify a change is correct without doing
-  this.
-- **`ai_helper.py` and `bot_state.py` are dead code** (unreferenced).
-  Don't extend them; use `baka_brain.py`/`conversation_state.py`. They're
-  candidates for deletion (see [ROADMAP.md](ROADMAP.md)), not to be
-  confused with actively-used modules of a similar name.
+- **An automated pytest suite exists since v14** (700+ offline tests,
+  `pytest`, ~20s — see [TESTING.md](TESTING.md)). Run it for every
+  change. Live-Telegram behavior (handlers, callbacks, formatting) still
+  needs `/selftest` + the manual smoke checklist in TESTING.md — the
+  suite deliberately never touches Telegram.
+- **`ai_helper.py` and `bot_state.py` were deleted in v14.12** (they
+  were unreferenced dead code). Use `baka_brain.py`/
+  `conversation_state.py`; don't resurrect the old names.
 - **When you learn something surprising about this codebase that doesn't
   fit neatly into one of the permanent docs yet, add it to
   [MEMORY.md](MEMORY.md)** rather than letting it live only in a chat

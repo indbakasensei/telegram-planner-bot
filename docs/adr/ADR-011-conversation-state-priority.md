@@ -1,8 +1,20 @@
 # ADR-011: Conversation State Priority — State Should Outrank Intent-Gated Dispatch
 
-**Status:** Proposed — decision documented, **implementation deliberately
-NOT changed** by the sprint that produced this ADR (v14.7), per that
-sprint's explicit "do not silently change implementation" instruction.
+**Status:** Accepted — implemented in v14.12. `main.py`'s intent-gated
+Offline dispatch now requires `not conversation_state.claims_messages(state)`
+(i.e. runs only in `idle`); `confirming`/`gathering`/`editing` messages
+belong to the state machine, exactly like Legacy. Implementation note:
+this is deliberately *stricter* than this ADR's illustrative
+parenthetical ("`state == "idle" or state == "editing"`") — Legacy's
+editing handler claims ALL editing-state messages, and the Offline
+editing path already has its own state-gated entry
+(`continue_editing()`, ADR-009) that runs before Legacy's, so
+intent-gated dispatch has no business in `editing` either. Regression
+tests: `tests/test_conversation_state.py`.
+*(Original status: Proposed — decision documented, implementation
+deliberately NOT changed by the sprint that produced this ADR (v14.7),
+per that sprint's explicit "do not silently change implementation"
+instruction.)*
 **Part of:** BAKA v14 Autonomous Core, `DRG-001_Intent_Aware_Routing.md`'s
 Sub-stage C.
 **Depends on:** `docs/adr/ADR-009-offline-task-update.md`, `STATE_MACHINE.md`.

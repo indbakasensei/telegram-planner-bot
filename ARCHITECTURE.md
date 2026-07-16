@@ -132,8 +132,13 @@ granular enough to gate individual actions yet).
    "set time to 6pm" reply carries no reliable intent signal on its own.
    On no match, state is left untouched and the message falls through to
    step 6's `editing` branch exactly as if this step didn't exist.
-5. **(v14.2–v14.9, feature-flag gated per domain — `OFFLINE_TASKS` for
-   Task actions, `OFFLINE_HABITS` for Habit views, both OFF today)** If
+5. **(v14.2–v14.12, feature-flag gated per domain — `OFFLINE_TASKS` for
+   Task actions, `OFFLINE_HABITS` for Habit actions, both OFF today —
+   and state-gated since v14.12: ADR-011 Option A means this step runs
+   ONLY when conversation state is `idle`; in
+   `confirming`/`gathering`/`editing` the message belongs to the state
+   machine at step 6, exactly like Legacy —
+   `conversation_state.claims_messages()`)** If
    any domain flag is on, `core/offline/`'s `OfflineEngine.execute()`
    dispatches through an **ActionRegistry** (v14.8,
    [docs/adr/ADR-012-registry-based-dispatch.md](docs/adr/ADR-012-registry-based-dispatch.md)):
@@ -270,10 +275,7 @@ Full command inventory: [API.md](API.md). Full state-machine detail:
 | `fmt.py` | Telegram-HTML formatting helpers (`esc`, `b`, `i`, `code`, `task_line`, `confirm_box`) | All user content passes through `esc()` |
 | `ui.py` | Dashboard card renderers (7 card types) | See [docs/dashboard.md](docs/dashboard.md) |
 | `log_sanitizer.py` | Logging filter that redacts bot tokens, API keys, and Telegram IDs from `bot.log` | Installed in `main.py` at startup |
-| `usage_logger.py`, `usage_service.py`, `model_metrics.py`, `token_counter.py`, `performance_tracker.py` | Intended `analytics` package for AI-call telemetry | **Currently broken** — not wired into an actual package; see [DEBUGGING.md](DEBUGGING.md#known-issues) |
-| `init.py` | Leftover `__init__.py`-style module for the never-assembled `analytics` package | Misleadingly named; not a project setup script |
-| `ai_helper.py` | Legacy AI helper | **Dead code** — not imported anywhere; also has a hardcoded-looking API key, see [DEBUGGING.md](DEBUGGING.md#known-issues) |
-| `bot_state.py` | Legacy state module, predecessor to `conversation_state.py` | **Dead code** — not imported anywhere |
+| *(removed in v14.12)* | `ai_helper.py`, `bot_state.py`, and the five never-assembled analytics files (`usage_logger.py`, `usage_service.py`, `model_metrics.py`, `token_counter.py`, `performance_tracker.py`, plus their stranded `init.py`) were deleted in the v14.12 repository cleanup | All were verified-dead code (zero importers / impossible relative imports); the `/usage`-family commands they were meant to power still return empty data — rebuilding analytics properly is v15 scope |
 | `run.sh` | Crash-loop restarter (`while true; python3 main.py; sleep 5`) | Assumes `~/telegram-planner-bot` and a pre-existing `venv/`. Safe to run redundantly since v13.1 — a second copy just gets blocked by `instance_lock.py` and retries harmlessly, becoming an automatic standby |
 | `instance_lock.py` | Single-instance protection: acquired as the first action in `main()`, before the database or Telegram are touched (added v13.1, Sprint 2B) | `fcntl.flock`-based advisory lock on `bot.pid` — survives crashes automatically (the OS releases the lock when the process dies, for any reason) with no separate staleness heuristic needed; see [CHANGELOG.md](CHANGELOG.md) |
 

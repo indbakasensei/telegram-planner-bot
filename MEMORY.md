@@ -54,20 +54,16 @@ knowing before touching this repo:
   into `CHANGELOG.md`/`ROADMAP.md` (VERSION.md) and `PROJECT.md`/`API.md`
   (feature_list.md). Both old files now carry a pointer notice rather than
   being deleted outright.
-- **The `analytics` package doesn't exist.** This is the single biggest gap
-  found — `/usage`, `/performance`, `/errors` all silently return empty
-  data because `import analytics` fails everywhere it's attempted. Full
-  detail in [DEBUGGING.md](DEBUGGING.md#known-issues). This is a
-  self-contained, low-risk fix (packaging only) if picked up.
-  **Status: documented, not fixed** (out of scope for the doc pass by the
-  repo owner's choice).
-  <!-- update this line to "fixed <date>" once addressed -->
-- **`ai_helper.py:9` has a hardcoded-looking real NVIDIA API key**, written
-  as a broken `os.getenv()` call. Flagged to the repo owner directly;
-  recommended rotating the key since it's committed to git. **Status:
-  flagged, not yet confirmed rotated or removed** — check before assuming
-  this is resolved.
-  <!-- update this line once confirmed -->
+- **The `analytics` package doesn't exist.** `/usage`, `/performance`,
+  `/errors` silently return empty data. **Status: the stranded source
+  files were deleted in v14.12's repository cleanup** — the commands
+  still return empty data; building analytics properly is v15 scope
+  (see [ROADMAP.md](ROADMAP.md)).
+- **`ai_helper.py:9` had a hardcoded-looking real NVIDIA API key.**
+  **Status: file deleted in v14.12** — but the key remains in git
+  history, so **rotation is still pending**; check before assuming this
+  is fully resolved.
+  <!-- update this line once the key is confirmed rotated -->
 - **Model IDs drifted from what comments/README used to say.** `z-ai/glm-5.1`
   was EOL'd by NVIDIA (per `baka_brain.py`'s own comments,
   2026-07-02, HTTP 410). Current models: `meta/llama-3.3-70b-instruct`

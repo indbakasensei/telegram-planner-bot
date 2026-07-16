@@ -1,5 +1,7 @@
 import os
 import re
+import sys
+import time
 import logging
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
@@ -52,19 +54,22 @@ from baka_brain import (
     generate_daily_plan, generate_weekly_plan, benchmark_ai, think_freely,
     call_main, call_fast, call_think, call_vision,
     generate_image, generate_video, benchmark_all_models,
-    MODEL_MAIN, MODEL_FAST, MODEL_VISION, MODEL_IMAGE,
+    MODEL_MAIN, MODEL_FAST, MODEL_THINK, MODEL_VISION, MODEL_IMAGE,
+    AI_PROVIDER,
     ENABLE_VISION, ENABLE_IMAGE_GEN,
     generate_task_breakdown, suggest_reschedule_time,
     generate_structured_plan
 )
-from fmt import HTML, esc, b, i, code, task_line, confirm_box, header, DIVIDER
+from fmt import (HTML, esc, b, i, code, task_line, confirm_box, header,
+                 DIVIDER, blockquote, expandable_blockquote)
+from telegram.error import BadRequest
 import ui as UI
 from conversation_state import (
     get_state, get_context, clear_state, update_context,
     add_history, get_history,
     set_pending_action, get_pending_action,
     set_gathering, get_gathering,
-    set_editing, get_editing_id
+    set_editing, get_editing_id, claims_messages
 )
 from date_parser import parse_all, validate_datetime
 from scheduler import get_due_tasks, get_tasks_needing_followup, auto_carry_forward, is_quiet_hours
@@ -88,6 +93,15 @@ logging.basicConfig(
     handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
+
+# v14.12: production log hygiene. httpx emits one INFO line per Telegram
+# API request -- the exact lines that used to leak the bot token into
+# bot.log (log_sanitizer.py's BOT_TOKEN_URL_RE fix masks them now, but
+# they are also pure per-poll noise at INFO). apscheduler chatters about
+# every job tick. Both keep WARNING+ so real problems still surface;
+# drop these lines to DEBUG-diagnose the transport itself.
+for _noisy in ("httpx", "httpcore", "apscheduler"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 # v14.0 Stage 1: Intent Engine, Shadow Mode only (see core/intent/__init__.py).
 # Stateless, so one process-wide instance is safe to share across requests.
@@ -135,6 +149,20 @@ def set_admin_id(uid):
     with open(ADMIN_FILE, "w") as f:
         f.write(str(uid))
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+async def _reply_rich(message, text, **kwargs):
+    """v14.12: send rich HTML with a graceful degradation path -- if
+    Telegram ever rejects an entity (e.g. an older Bot API server and
+    <blockquote expandable>), resend the same content stripped of tags
+    rather than letting /help or /selftest crash."""
+    try:
+        await message.reply_text(text, parse_mode=HTML, **kwargs)
+    except BadRequest:
+        await message.reply_text(_HTML_TAG_RE.sub("", text), **kwargs)
+
+
 def is_admin(uid):
     admin = get_admin_id()
     return admin is not None and uid == admin
@@ -147,7 +175,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "13.2"
+BAKA_VERSION = "14.12"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -241,167 +269,117 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """v11.1: Full help menu with rich HTML formatting."""
+    """v14.12: redesigned help -- grouped by category, expandable
+    sections instead of walls of text, admin section shown only to the
+    admin (consistent with silent-deny admin commands). Known-broken
+    analytics commands (usage/performance/errors -- DEBUGGING.md's
+    Known Issues) are deliberately not advertised."""
     user_id = update.message.from_user.id
 
-    help1 = (
+    def section(emoji, title, body):
+        return f"{emoji} {b(title)}\n{expandable_blockquote(body, escape=False)}"
+
+    intro = (
         f"🤖 {b('BAKA')} — Behavioral Adaptive Knowledge Assistant\n"
-        f"<i>v11.1 · GLM 5.1 · English / Hindi / Hinglish</i>\n\n"
-        f"{b('Two ways to talk:')}\n"
-        f"  1️⃣ Natural language: {i('say anything')}\n"
-        f"     <i>\"Remind me to submit assignment by Friday 5pm\"</i>\n"
-        f"     <i>\"Kal subah gym yaad dila dena\"</i>\n"
-        f"     <i>\"What should I focus on today?\"</i>\n\n"
-        f"  2️⃣ Commands: slash is optional everywhere\n"
-        f"     {code('/list')} = {code('list')} = {code('show my tasks')}\n\n"
-        f"{DIVIDER}\n"
-        f"📌 {b('TASKS')}\n"
-        f"{DIVIDER}\n"
-        f"{code('list')}              All pending tasks\n"
-        f"{code('today')}             Today\'s schedule\n"
-        f"{code('week')}              This week\'s plan\n"
-        f"{code('done <id>')}         Mark complete\n"
-        f"{code('edit <id>')}         Modify a task\n"
-        f"{code('delete <id>')}       Remove a task\n"
-        f"{code('deadline <id>')}     Toggle deadline mode (pre-warns you)\n\n"
-        f"{DIVIDER}\n"
-        f"🔔 {b('REMINDERS')}\n"
-        f"{DIVIDER}\n"
-        f"Every reminder has tap-able buttons:\n"
-        f"  ✅ Done  ⏰ 10m  🕐 1h  📅 Tomorrow  🔕 Stop  🗑 Delete\n\n"
-        f"{code('snooze <id> <min>')}  Custom snooze\n"
-        f"{code('pause <id>')}         Stop reminders temporarily\n"
-        f"{code('resume <id>')}        Restart reminders\n"
-        f"{code('paused')}             View all paused tasks\n"
+        f"{i('v' + BAKA_VERSION + ' · offline-first · English / Hindi / Hinglish')}\n\n"
+        f"Talk naturally, or use commands — {b('slash is optional')}.\n"
+        + blockquote(
+            f"{i('Remind me to submit assignment by Friday 5pm')}\n"
+            f"{i('Kal subah 8 baje gym yaad dila dena')}\n"
+            f"{code('list')} = {code('/list')} = {code('show my tasks')}",
+            escape=False)
+        + "\n\nTap a section to expand it. ▾"
     )
 
-    help2 = (
-        f"{DIVIDER}\n"
-        f"📅 {b('TRACKING & DEADLINES')}\n"
-        f"{DIVIDER}\n"
-        f"{code('overdue')}            Overdue tasks with days-over count\n"
-        f"{code('deadlines')}          Tasks due in next 3 days\n"
-        f"{code('carryforward')}       Move all overdue to today\n"
-        f"{code('review')}             Stale tasks (3+ days overdue)\n"
-        f"{code('tag <id> <tags>')}    Add tags to a task\n"
-        f"{code('tagged <tag>')}       Find tasks by tag\n\n"
-        f"  ⏳ {b('Deadline mode:')} Say \"due by\" or \"submit by\" and BAKA\n"
-        f"  automatically warns you 7d/3d/1d/6h/1h before the deadline.\n\n"
-        f"{DIVIDER}\n"
-        f"🌱 {b('HABITS')}\n"
-        f"{DIVIDER}\n"
-        f"{code('habits')}             All active habits + streaks\n"
-        f"{code('streak <id>')}        14-day grid view\n"
-        f"{code('habitlog <id>')}      30-day completion history\n"
-        f"{code('addhabit <title>')}   Quick habit creation\n"
-        f"{code('skiphabit <id>')}     Skip a day (resets streak)\n\n"
-        f"{DIVIDER}\n"
-        f"🎯 {b('GOALS')}\n"
-        f"{DIVIDER}\n"
-        f"{code('goals')}              Goals dashboard with progress bars\n"
-        f"Tell BAKA: {i('\"I want to read 12 books this year\"')}\n"
-        f"Then tap ➕/➖ buttons to track progress inline.\n"
-    )
+    tasks = "\n".join([
+        f"{code('list')} · {code('today')} · {code('week')} — task views",
+        f"{code('add task <title>')} — create (also just describe it)",
+        f"{code('done <id>')} — complete   {code('edit <id>')} — modify",
+        f"{code('delete <id>')} — remove (asks to confirm)",
+        f"{code('deadline <id>')} — pre-warns 7d/3d/1d/6h/1h before",
+        f"{code('tag <id> <tags>')} · {code('tagged <tag>')} — organize",
+    ])
+    reminders = "\n".join([
+        "Reminder pings have tap-able buttons:",
+        "✅ Done · ⏰ 10m · 🕐 1h · 📅 Tomorrow · 🔕 Stop · 🗑 Delete",
+        f"{code('snooze <id> <min>')} — custom snooze",
+        f"{code('pause <id>')} / {code('resume <id>')} · {code('paused')} — view",
+        f"{code('overdue')} · {code('deadlines')} · {code('review')} — follow-ups",
+        f"{code('carryforward')} — move all overdue to today",
+    ])
+    habits = "\n".join([
+        f"{code('habits')} — all habits + streaks",
+        f"{code('done <id>')} — log today (builds the streak 🔥)",
+        f"{code('streak <id>')} — 14-day grid   {code('habitlog <id>')} — 30-day log",
+        f"{code('addhabit <title> [at HH:MM] [daily|weekly]')} — create",
+        f"{code('skiphabit <id>')} — intentional skip (resets streak)",
+    ])
+    goals_projects = "\n".join([
+        f"{code('goals')} — dashboard with progress bars",
+        f"{i('I want to read 12 books this year')} — then tap ➕/➖",
+        f"{code('projects')} · {code('project <id>')} — project cards",
+        f"{code('need <id> <items>')} — materials   {code('got <name>')} — acquired",
+        f"{code('started <id>')} · {code('worklog <id> <text>')} · {code('finished <id>')}",
+        f"{code('shopping')} — auto shopping list across projects",
+    ])
+    ai_planning = "\n".join([
+        f"{code('think <question>')} — reasoning over your data",
+        f"{code('plan today')} / {code('plan week')} — time-blocked plans",
+        f"{code('breakdown <id>')} — split into subtasks",
+        f"{code('reschedule <id>')} — pick a conflict-free time",
+        f"{code('analyze')} · {code('insights')} · {code('overload')} — reports",
+        f"{code('suggestions')} · {code('approve <id>')} · {code('dismiss <id>')}",
+    ])
+    media = "\n".join([
+        f"{code('image <prompt>')} — generate an image",
+        f"{code('video <prompt>')} — generate a video (1–3 min)",
+        "📷 send any photo — description or todo extraction",
+    ])
+    memory_search = "\n".join([
+        f"{i('Remember my exam is June 20')} — then ask about it later",
+        f"{code('memory')} — stored memories   {code('forget <key>')} — delete one",
+        f"{code('search <keyword>')} — tasks, memories, habits, goals",
+        f"{code('template')} · {code('savetemplate <name> <id>')} — reusables",
+        f"{code('export')} — full plain-text backup",
+    ])
+    settings_utils = "\n".join([
+        f"{code('settings')} — all preferences",
+        f"{code('quiethours <start> <end>')} — no pings while you sleep",
+        f"{code('interval <min>')} — reminder frequency",
+        f"{code('wellness on/off')} — 💧 water/break/eye nudges",
+        f"{code('dashboard')} — inline-button home view",
+        f"{code('status')} — AI benchmark   {code('selftest')} — diagnostics",
+        f"{code('debug')} · {code('report <issue>')} · {code('bugs')} · {code('trace')}",
+        f"{code('cancel')} — abort any pending question",
+    ])
 
-    help3 = (
-        f"{DIVIDER}\n"
-        f"🧠 {b('AI & PLANNING')}\n"
-        f"{DIVIDER}\n"
-        f"{code('think <question>')}   Free-form AI reasoning with your data\n"
-        f"  → {i('\"think what should I focus on today?\"')}\n"
-        f"  → {i('\"think am I taking on too much?\"')}\n\n"
-        f"{code('plan today')}         Time-blocked AI plan (asks to apply)\n"
-        f"{code('plan week')}          7-day schedule with overload warnings\n"
-        f"{code('breakdown <id>')}     Split big task into subtasks\n"
-        f"{code('reschedule <id>')}    AI picks a conflict-free time\n"
-        f"{code('overload')}           Find overloaded days\n"
-        f"{code('analyze')}            Productivity report\n"
-        f"{code('insights')}           What BAKA learned about you\n"
-        f"{code('suggestions')}        AI-generated suggestions (daily)\n"
-        f"{code('approve <id>')}       Apply an AI suggestion\n"
-        f"{code('dismiss <id>')}       Reject an AI suggestion\n\n"
-        f"{DIVIDER}\n"
-        f"🧠 {b('MEMORY')}\n"
-        f"{DIVIDER}\n"
-        f"Say: {i('\"Remember my exam is June 20\"')}\n"
-        f"Ask: {i('\"When is my exam?\"')}\n\n"
-        f"{code('memory')}             View all stored memories\n"
-        f"{code('forget <key>')}       Delete a memory\n"
-    )
+    msg1 = "\n\n".join([
+        intro,
+        section("📌", "TASKS", tasks),
+        section("🔔", "REMINDERS", reminders),
+        section("🌱", "HABITS", habits),
+    ])
+    msg2_parts = [
+        section("🎯", "GOALS & PROJECTS", goals_projects),
+        section("🧠", "AI & PLANNING", ai_planning),
+        section("🖼", "MEDIA", media),
+        section("🗂", "MEMORY, SEARCH & TEMPLATES", memory_search),
+        section("⚙️", "SETTINGS & UTILITIES", settings_utils),
+    ]
+    if is_admin(user_id):
+        admin = "\n".join([
+            f"{code('admin')} · {code('adminmode')} — admin dashboard",
+            f"{code('resettasks')} · {code('resethabits')} · {code('resetall')} — destructive resets",
+            f"{code('sql <query>')} — raw read-only queries",
+            f"{code('misses')} · {code('reviewed <id>')} — capability gap review",
+        ])
+        msg2_parts.append(section("👑", "ADMIN (visible only to you)", admin))
+    msg2_parts.append(
+        f"💡 {i('Slash is optional for every command. English, Hindi, and Hinglish all work.')}")
+    msg2 = "\n\n".join(msg2_parts)
 
-    help4 = (
-        f"{DIVIDER}\n"
-        f"🔍 {b('SEARCH & TOOLS')}\n"
-        f"{DIVIDER}\n"
-        f"{code('search <keyword>')}   Searches tasks, memories, habits, goals\n"
-        f"{code('template')}           List saved templates\n"
-        f"{code('template <name>')}    Create task from template\n"
-        f"{code('savetemplate <n> <id>')} Save task as reusable template\n"
-        f"{code('export')}             Full data backup as plain text\n\n"
-        f"{DIVIDER}\n"
-        f"📊 {b('PROJECT MANAGEMENT (v12.0)')}\n"
-        f"{DIVIDER}\n"
-        f"{code('projects')}          Active projects with progress bars\n"
-        f"{code('project <id>')}      Full project card\n"
-        f"{code('need <id> <items>')} Add materials (comma-separated)\n"
-        f"{code('got <name>')}        Mark material acquired (fuzzy)\n"
-        f"{code('started <id>')}      Log work started\n"
-        f"{code('worklog <id> <text>')} Log progress entry\n"
-        f"{code('finished <id>')}     Mark project done\n"
-        f"{code('shopping')}          Auto-shopping list across all projects\n\n"
-        f"  💡 Turn any goal into a project by attaching materials.\n"
-        f"  BAKA nudges you if a project stagnates or a deadline nears.\n\n"
-        f"{DIVIDER}\n"
-        f"🤖 {b('AI MODELS (v11.0)')}\n"
-        f"{DIVIDER}\n"
-        f"{code('models')}             All 6 model statuses + real usage\n"
-        f"{code('image <prompt>')}     Generate an image (FLUX · NIM)\n"
-        f"{code('video <prompt>')}     Generate a video (FLUX+SVD · NIM, 1-3 min)\n"
-        f"📷 Send any photo → BAKA describes it or extracts todos\n\n"
-        f"{DIVIDER}\n"
-        f"📊 {b('AI ANALYTICS (v11.1)')}\n"
-        f"{DIVIDER}\n"
-        f"{code('usage')}              Today + lifetime AI request stats\n"
-        f"{code('performance')}        Latency percentiles + trend\n"
-        f"{code('errors')}             Error timeline + breakdown\n"
-        f"{code('status')}             Quick 3-test AI benchmark\n"
-        f"{code('status full')}        Deep 6-test benchmark (graded A+-F)\n"
-    )
-
-    help5 = (
-        f"{DIVIDER}\n"
-        f"⚙️ {b('SETTINGS')}\n"
-        f"{DIVIDER}\n"
-        f"{code('settings')}           View all preferences\n"
-        f"{code('quiethours <s> <e>')} Set sleep window (no pings)\n"
-        f"{code('interval <min>')}     Reminder frequency\n"
-        f"{code('wellness on/off')}    💧 Water/break/eye nudges\n"
-        f"{code('proactive')}          View all proactive features\n\n"
-        f"{DIVIDER}\n"
-        f"🏠 {b('DASHBOARD')}\n"
-        f"{DIVIDER}\n"
-        f"Tap 🏠 in the menu — or say {code('dashboard')}\n"
-        f"Navigate with inline buttons. All views edit in-place.\n"
-        f"  📅 Today · 📋 Tasks · 🎯 Goals · 🌱 Habits · 📊 Stats\n\n"
-        f"{DIVIDER}\n"
-        f"🐞 {b('DEBUG')}\n"
-        f"{DIVIDER}\n"
-        f"{code('debug')}              Toggle verbose debug mode\n"
-        f"{code('report <issue>')}     File a bug (auto-captures context)\n"
-        f"{code('bugs')}               View open bug reports\n"
-        f"{code('trace')}              Last AI interaction details\n"
-        f"{code('selftest')}           Step-by-step test checklist\n\n"
-        f"👑 {b('ADMIN ONLY')} (you only — locked by Telegram ID)\n"
-        f"{code('admin')}  {code('adminmode')}  {code('resettasks')}  {code('resetall')}  {code('sql <query>')}\n"
-        f"{code('misses')}  {code('reviewed <id>')}  {code('usage')}  {code('errors')}\n\n"
-        f"💡 <i>Slash is optional for every command.</i>\n"
-        f"💡 <i>Speak English, Hindi, or Hinglish — all understood.</i>"
-    )
-    await update.message.reply_text(help1, parse_mode=HTML)
-    await update.message.reply_text(help2, parse_mode=HTML)
-    await update.message.reply_text(help3, parse_mode=HTML)
-    await update.message.reply_text(help4, parse_mode=HTML)
-    await update.message.reply_text(help5, parse_mode=HTML, reply_markup=main_menu())
+    await _reply_rich(update.message, msg1)
+    await _reply_rich(update.message, msg2, reply_markup=main_menu())
 
 
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -900,8 +878,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # build_enabled_registry() at startup (ADR-013), so e.g. with only
     # OFFLINE_HABITS on, task messages resolve no spec and fall through
     # to Legacy untouched.
+    # v14.12: ADR-011 Option A applied -- conversation state outranks
+    # intent-gated dispatch. In confirming/gathering/editing the message
+    # belongs to the state machine (handled below, exactly like Legacy);
+    # a mid-confirmation "done 5" re-prompts instead of completing.
+    # (The state-gated editing block above is unaffected: it IS state
+    # machinery, ADR-009.)
     if ((feature_flags.OFFLINE_TASKS or feature_flags.OFFLINE_HABITS)
-            and intent is not None):
+            and intent is not None and not claims_messages(state)):
         try:
             offline_result = offline_engine.execute(RequestContext(
                 user_id=user_id, text=user_input,
@@ -1917,76 +1901,85 @@ async def trace_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """v11.1: Rich HTML selftest checklist with sections and tables."""
-    # Group tests by section prefix
-    sections = {}
-    for test_msg, expected in dbg.SELFTEST_MESSAGES:
-        # Extract section from the comment-like prefix if present
-        # We label them A-O in order
-        sections.setdefault("all", []).append((test_msg, expected))
+    """v14.12: live diagnostics report (replaces the v11.1 manual test
+    checklist, which lives on in debug_system.SELFTEST_MESSAGES and
+    TESTING.md's manual smoke section). Every check runs against the
+    real running process -- no AI calls (that's /status's job)."""
+    import resource
+    import database as _db
 
-    # Send intro
-    intro = (
-        f"🧪 {b('BAKA Self-Test Checklist')} v11.1\n\n"
-        f"<i>{len(dbg.SELFTEST_MESSAGES)} tests across 15 categories.</i>\n\n"
-        f"How to use:\n"
-        f"  1. Enable debug: send {code('debug')}\n"
-        f"  2. Copy a test message and send it\n"
-        f"  3. Check the result matches the expected column\n"
-        f"  4. If wrong: {code('report <test>: <what happened>')}\n\n"
-        f"Tests are grouped A-O. Send them in any order.\n"
-        f"{DIVIDER}"
-    )
-    await update.message.reply_text(intro, parse_mode=HTML)
+    t_start = time.perf_counter()
+    user_id = update.message.from_user.id
+    checks = []          # (ok, label, detail)
 
-    # Build and send one message per section
-    section_defs = [
-        ("A", "📌 Basic Task Creation",     [0,4]),
-        ("B", "🇮🇳 Hindi & Hinglish",        [5,10]),
-        ("C", "⏰ Date & Time Parsing",      [11,17]),
-        ("D", "⏳ Deadline Detection",        [18,21]),
-        ("E", "🔁 Recurring / Habits",       [22,26]),
-        ("F", "🧠 Memory System",             [27,30]),
-        ("G", "🎯 Goals",                    [31,32]),
-        ("H", "📅 View & Planning",          [33,36]),
-        ("I", "📋 Multiple Tasks",           [37,38]),
-        ("J", "🤖 AI Reasoning (v10.2)",     [39,41]),
-        ("K", "🔍 Search & Tools (v10.0)",   [42,44]),
-        ("L", "📊 AI Models & Analytics",    [45,52]),
-        ("M", "🏠 Dashboard (v9.0)",         [53,53]),
-        ("N", "⚙️ Settings & Wellness",      [54,57]),
-        ("O", "🔀 Edge Cases",               [58,62]),
-        ("P", "📊 Project Management (v12.0)", [63,71]),
-    ]
-    all_tests = dbg.SELFTEST_MESSAGES
-
-    for letter, title, (start, end) in section_defs:
-        tests_in_section = all_tests[start:end+1]
-        lines = [f"{b('Section ' + letter + ':')} {title}", ""]
-        for idx, (test_msg, expected) in enumerate(tests_in_section, start=start+1):
-            lines.append(f"{b(str(idx)+'.')} {code(test_msg[:60])}")
-            lines.append(f"     ✓ <i>{esc(expected)}</i>")
-            lines.append("")
+    def check(label, fn):
+        t0 = time.perf_counter()
         try:
-            await update.message.reply_text("\n".join(lines), parse_mode=HTML)
-        except Exception:
-            pass
+            detail = fn()
+            checks.append((True, label, f"{detail} · {(time.perf_counter()-t0)*1000:.0f}ms"))
+        except Exception as exc:
+            checks.append((False, label, f"{type(exc).__name__}: {exc}"))
 
-    footer = (
-        f"{DIVIDER}\n"
-        f"🐞 {b('Reporting bugs:')}\n\n"
-        f"If any test fails, send:\n"
-        f"  {code('report A1: bot saved 01:00 instead of now+1min')}\n\n"
-        f"Then send {code('bugs')} and paste the output.\n\n"
-        f"💡 {b('Speed-run:')}\n"
-        f"Send just these 5 critical ones first:\n"
-        f"  {code('Kal subah 8 baje gym')}  → tomorrow 08:00\n"
-        f"  {code('Meeting this evening')}   → 18:00 (not 15:00)\n"
-        f"  {code('Remind me in 1 min')}     → now+1 (not 01:00)\n"
-        f"  {code('Har Monday gym jana')}    → HABIT (not GOAL)\n"
-        f"  {code('Submit by Friday 5pm')}   → Deadline mode ON"
-    )
-    await update.message.reply_text(footer, parse_mode=HTML, reply_markup=main_menu())
+    # ── live probes ──
+    check("Database read", lambda: f"{len(get_tasks(user_id))} open tasks")
+    check("Database integrity", lambda: (
+        "schema ok" if _db.verify_schema_integrity()["ok"] else "MISSING OBJECTS"))
+    check("Scheduler", lambda: f"{len(get_due_tasks())} due now")
+    check("Intent Engine", lambda: intent_engine.classify(
+        text="add task selftest probe",
+        context=ConversationContext(state="idle", partial_data={},
+                                     now=datetime.now(IST))).intent.name)
+    check("Routing Layer", lambda: routing_layer.route(intent_engine.classify(
+        text="list", context=ConversationContext(
+            state="idle", partial_data={}, now=datetime.now(IST)))
+        ).recommended_destination.name)
+    check("Offline Engine", lambda: (
+        f"{len(build_enabled_registry().intents())} intents registered"))
+    check("Storage Facade", lambda: f"{len(storage.habits.get_all(user_id))} habits")
+    check("Conversation state", lambda: get_state(user_id))
+
+    ok_count = sum(1 for ok, *_ in checks if ok)
+    all_ok = ok_count == len(checks)
+    lines = [f"{'✅' if ok else '❌'} {b(label)} — {esc(detail)}"
+             for ok, label, detail in checks]
+
+    # ── environment / configuration ──
+    try:
+        db_size = f"{os.path.getsize(_db.DB_NAME) / 1024:.0f} KB"
+    except OSError:
+        db_size = "unknown"
+    rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    flags = "\n".join(
+        f"{'🟢' if val else '⚪'} {code(name)} {'ON' if val else 'off'}"
+        for name, val in (
+            ("OFFLINE_TASKS", feature_flags.OFFLINE_TASKS),
+            ("OFFLINE_HABITS", feature_flags.OFFLINE_HABITS),
+            ("OFFLINE_GOALS", feature_flags.OFFLINE_GOALS),
+            ("OFFLINE_PROJECTS", feature_flags.OFFLINE_PROJECTS),
+        ))
+    env = "\n".join([
+        f"BAKA {b('v' + BAKA_VERSION)} · Python {code(sys.version.split()[0])}",
+        f"AI provider: {code(AI_PROVIDER)}",
+        f"Models: main {code(MODEL_MAIN)}",
+        f"       fast {code(MODEL_FAST)}",
+        f"  reasoning {code(MODEL_THINK)}",
+        f"Database: {code(_db.DB_NAME.split('/')[-1])} · {db_size}",
+        f"Memory (peak RSS): {code(f'{rss_mb:.0f} MB')}",
+    ])
+
+    elapsed_ms = (time.perf_counter() - t_start) * 1000
+    verdict = ("✅ ALL SYSTEMS OPERATIONAL" if all_ok
+               else f"⚠️ {len(checks) - ok_count} CHECK(S) FAILED")
+    report = "\n\n".join([
+        f"🧪 {b('BAKA Diagnostics')}",
+        b(verdict),
+        blockquote("\n".join(lines), escape=False),
+        f"⚙️ {b('Environment')}\n" + blockquote(env, escape=False),
+        f"🚩 {b('Feature flags')}\n" + blockquote(flags, escape=False),
+        i(f"{len(checks)} live checks · report generated in {elapsed_ms:.0f}ms · "
+          f"automated suite: 700+ tests, see TESTING.md"),
+    ])
+    await _reply_rich(update.message, report, reply_markup=main_menu())
 
 
 
@@ -4706,8 +4699,6 @@ async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
 
 def main() -> None:
     """v11.1: Main entry point with startup validation for Python 3.14."""
-    import sys
-
     # v13.1: must be the very first thing main() does -- a blocked
     # duplicate instance should exit before touching the database, the
     # Telegram API, or anything else. Raises InstanceAlreadyRunningError,
@@ -4733,7 +4724,7 @@ def main() -> None:
     # documented issue -- see DEBUGGING.md's Known Issues, now resolved by
     # deriving the string instead of hardcoding it).
     logger.info(f"🚀 Starting BAKA v{BAKA_VERSION} on Python {sys.version.split()[0]}")
-    logger.info(f"📡 AI provider: NVIDIA NIM → {MODEL_MAIN}")
+    logger.info(f"📡 AI provider: {AI_PROVIDER} → {MODEL_MAIN}")
     logger.info("🗄️ Initializing database...")
 
     init_db()
@@ -5544,7 +5535,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    import sys
     # Python 3.14: asyncio.run() is the canonical entry point.
     # PTB's run_polling() manages its own event loop internally,
     # so we call main() directly — it calls app.run_polling() which handles async.

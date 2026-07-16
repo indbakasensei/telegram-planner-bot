@@ -65,16 +65,13 @@ names `main.py`/`baka_brain.py`/`database.py` expect
 the query side). No schema or business-logic changes needed — this is
 purely a packaging fix.
 
-### Hardcoded-looking API key in `ai_helper.py`
+### Hardcoded-looking API key in `ai_helper.py` — file removed (v14.12), key rotation still pending
 
-Line 9 passes what looks like a real NVIDIA API key as the **argument
-name** to `os.getenv(...)` instead of passing `"NVIDIA_API_KEY"` as the
-argument and using the key as its value — i.e. it's broken even on its own
-terms, but the key string is still sitting in tracked source. The file is
-dead code (not imported anywhere), which doesn't change the fact that the
-key is committed to git history. **Recommended: rotate that NVIDIA key and
-remove the literal from the file**, independent of the rest of this
-documentation work.
+`ai_helper.py` (dead code) contained what looked like a real NVIDIA API
+key passed as the argument name to `os.getenv(...)`. **v14.12 deleted
+the file** in the repository cleanup, so the literal is gone from the
+working tree — but it remains in git history, so **the key must still be
+rotated** before treating this as closed.
 
 ### In-memory-only state doesn't survive a restart
 
@@ -486,7 +483,14 @@ of every habit code path:
   creates yield two habits in both paths (test-pinned). Contrast with
   task creation, which duplicate-checks in both paths.
 
-### Offline Engine gate runs before the confirming/gathering state branches — now ADR-011 (v14.2+, surfaced by v14.6's review, decided v14.7)
+### Offline Engine gate runs before the confirming/gathering state branches — RESOLVED in v14.12 (ADR-011 Option A applied)
+
+**Resolution (v14.12):** `main.py`'s intent-gated Offline dispatch now
+requires `not conversation_state.claims_messages(state)` — it runs only
+in `idle`, so `confirming`/`gathering`/`editing` messages reach the
+state machine first, exactly like Legacy. Regression tests:
+`tests/test_conversation_state.py`. The historical entry below is kept
+for context.
 
 Found during v14.6's Phase 0 conversation-state verification; applies to
 **every** intent-gated Offline action since v14.2, not just completion.

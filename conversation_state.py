@@ -70,3 +70,25 @@ def set_editing(user_id: int, task_id: int):
 
 def get_editing_id(user_id: int) -> int:
     return get_context(user_id).get("editing_task_id")
+
+
+# ── v14.12: ADR-011 Option A — state outranks intent-gated dispatch ──
+# The three states that claim every incoming message outright (Legacy's
+# handle_message() runs their branches before any command recognition):
+#   confirming — the message is a yes/no/re-prompt answer
+#   gathering  — the message fills a missing field
+#   editing    — the message is the change description
+# Intent-gated Offline dispatch must therefore only run in "idle".
+# NOTE: this is deliberately stricter than ADR-011's illustrative
+# parenthetical ("idle or editing") — Legacy's editing handler claims
+# ALL editing-state messages, and the Offline editing path already has
+# its own state-gated entry (continue_editing, ADR-009) that runs
+# before Legacy's, so intent dispatch has no business in "editing".
+INTERACTIVE_STATES = ("confirming", "gathering", "editing")
+
+
+def claims_messages(state: str) -> bool:
+    """True if this conversation state owns the next message outright,
+    so intent-gated Offline dispatch must not run (ADR-011 Option A).
+    main.py's Offline gate consults this before OfflineEngine.execute()."""
+    return state in INTERACTIVE_STATES
