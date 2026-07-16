@@ -18,10 +18,14 @@ against main.py/database.py rather than assumed:
   either.
 - **Habits branch away before mark_done().** Legacy's done_task() checks
   is_habit() FIRST: a habit gets log_habit_completion() + streak display
-  and never touches mark_done(). Habits are out of this sprint's scope,
-  so execute() returns warnings=["habit_not_supported"] for them --
-  main.py falls through to Legacy, which handles the streak logic
-  exactly as today. Zero habit behavior change in either flag state.
+  and never touches mark_done(). v14.6 shipped that branch as
+  warnings=["habit_not_supported"] (fall through to Legacy); v14.11
+  migrated habit completion, so the branch now delegates to the
+  `habit_handler` the registration layer injects
+  (complete_habit.execute -- wired only when the Habit domain is
+  enabled, ADR-013). With no handler (habits-only-off builds, direct
+  calls), the v14.6 fall-through is preserved verbatim: in that
+  configuration Legacy still owns habit completion.
 - **Completion has learning-log side effects.** Legacy logs to
   completions_log (log_completion(), with a computed minutes-late delay)
   and interaction_log (log_interaction(user_id, "task_done")), both
@@ -80,9 +84,13 @@ def _compute_delay_minutes(due_time: str | None, now: datetime) -> int:
 
 
 def execute(task_id: int, user_id: int, storage: Storage,
-             now: datetime | None) -> ActionResult:
-    """Locate, branch away habits, mark done, replicate learning-log
-    side effects, reply. Direct apply -- see module docstring."""
+             now: datetime | None, habit_handler=None) -> ActionResult:
+    """Locate, branch habits to `habit_handler` (or away, if None),
+    mark done, replicate learning-log side effects, reply. Direct
+    apply -- see module docstring. `habit_handler` receives
+    (task_row, user_id, storage) -- the row is passed along because
+    Legacy's done_task() branches after ONE fetch, and a re-fetch would
+    break query-count equivalence."""
     task = storage.tasks.get_by_id(task_id, user_id)
     if task is None:
         return ActionResult(
@@ -91,8 +99,11 @@ def execute(task_id: int, user_id: int, storage: Storage,
         )
 
     if storage.habits.is_habit(task_id):
-        # Out of scope: Legacy's streak logic owns habit completion.
-        # main.py falls through to Legacy's done_task() on this signal.
+        if habit_handler is not None:
+            # v14.11: habit completion migrated -- see module docstring.
+            return habit_handler(task, user_id, storage)
+        # No handler (Habit domain not enabled, or a direct call):
+        # v14.6's fall-through, preserved -- Legacy owns the streak logic.
         return ActionResult(success=False, message="", warnings=["habit_not_supported"])
 
     if now is None:

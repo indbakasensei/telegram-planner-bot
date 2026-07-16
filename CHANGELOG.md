@@ -9,7 +9,78 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.10 — Offline Habits Stage 2: Deterministic Writes (current)
+## v14.11 — Offline Habits Stage 3: Completion (Habit domain complete) (current)
+
+**The Habit domain now has 100% feature parity with Legacy for
+deterministic message-path operations.** Zero edits to `OfflineEngine`,
+`ActionRegistry` (structural), Storage Facade, Routing, Intent Engine,
+`main.py`, scheduler, and schema. Still gated behind `OFFLINE_HABITS`
+(default OFF, not enabled).
+
+### Phase 0 — Legacy habit completion, re-verified line by line
+
+Habit completion is the habit branch of `done_task()` (message path;
+the reminder-callback `done` path stays Legacy like every callback):
+one fetch → `is_habit()` → `log_habit_completion()` — a single
+connection that INSERTs the `habit_log` row (UNIQUE per day),
+recomputes `current_streak` from log history, and UPDATEs the three
+streak columns. **Already-logged-today is a success reply with zero
+writes** (the UNIQUE trip returns before any UPDATE). **Legacy
+intentionally does NOT**: write `completions_log` or `interaction_log`
+(unlike task completion), call `mark_done()` (done stays 0 — scheduler
+state untouched), refresh notifications, or check `paused` (a paused
+habit completes fine). All mirrored exactly, each pinned by a test.
+
+### Added
+
+- **`core/actions/complete_habit.py`** — `execute(task, ...)` (the
+  shared-spec path: `complete_task.execute()` has already fetched the
+  row and checked `is_habit()`, exactly as Legacy branches after ONE
+  fetch — re-fetching would break query parity) and
+  `execute_by_id(...)` (the habits-only-build path: performs
+  `done_task()`'s own locate + guard sequence, completes habits,
+  declines real tasks to Legacy). 100% coverage.
+- **`tests/test_complete_habit.py`** — 34 tests: AST purity, streak
+  arithmetic (extend/reset-after-gap/longest-preserved, singular
+  "1 day"), already-logged zero-write pin, paused-habit completion,
+  facade-spy (the required Intent→Registry→Action→Facade→database.py
+  path), the full flag matrix, failure injection (missing/invalid/
+  non-habit/locked/unexpected/rollback), learning-log absence,
+  scheduler invariance (column equality + `get_due_tasks()` stability),
+  conversation-state absence, Behavioral Equivalence (rows, streaks,
+  timestamps, `habit_log`, **SQL verb order and query count
+  identical** via traced connections), and latency/memory benchmarks.
+
+### Changed
+
+- **`core/actions/complete_task.py`** — the v14.6 habit branch now
+  takes an optional `habit_handler`; with one injected it delegates
+  (habit completion migrated), with none it preserves the v14.6
+  `habit_not_supported` fall-through verbatim. Which one runs is decided
+  at registry construction:
+- **`core/offline/registrations.py`** (ADR-013, amended for the one
+  action two domains share): both-domains builds register ONE
+  completion spec — Legacy's own one-handler shape — whose runner
+  injects `complete_habit.execute` into the branch point; tasks-only
+  builds keep the v14.6 runner (Legacy still owns habits there —
+  per-domain flags stay honest); habits-only builds register their own
+  `complete_habit` spec (EDIT_TASK only — completion phrasings are
+  Tier 0 prefixes, never UNKNOWN).
+
+### Success-criteria note on "habit_not_supported removed"
+
+Removed from every configuration in which the Habit domain is enabled
+(the canary-relevant ones). Retained solely as the cross-domain guard
+for tasks-without-habits builds and direct calls — deleting it there
+would complete habits offline under a flag that promises not to.
+
+Suite: **692 tests, ~18 s** (658 + 34; the brief's 700+ estimate
+assumed a larger new-module surface — `complete_habit.py` is 22
+statements at 100% coverage). `core/` pyflakes: still 0.
+
+---
+
+## v14.10 — Offline Habits Stage 2: Deterministic Writes
 
 Habit CRUD sprint under a frozen architecture — **zero edits to
 `OfflineEngine`, `ActionRegistry`, Storage Facade, Routing, Intent

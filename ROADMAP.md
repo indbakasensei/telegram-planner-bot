@@ -119,13 +119,19 @@ what actually shipped; the authoritative design doc itself uses Stage
   **v14.10 completed Habit Stage 2** — creation and skip migrated
   (both direct-apply/no-confirm, matching Legacy per ADR-010); habit
   "update"/"delete" verified to need no habit code (task edit/delete
-  flows already cover habit rows — test-pinned). **The only remaining
-  Habit work is completion** (retire v14.6's `habit_not_supported`
-  branch-away; note Legacy's habit completion writes NO learning
-  logs). Verified non-existent, never to build: habit
-  update/delete/today/search/statistics/archive/restore commands.
-  Next overall: (1) apply ADR-011's Option A (small change + regression
-  test), then (2) run the canary per the RC plan.
+  flows already cover habit rows — test-pinned). **v14.11 completed
+  the Habit domain** — completion migrated (the habit branch of
+  `done_task()`: streak log only, NO learning logs — verified and
+  mirrored; v14.6's `habit_not_supported` branch-away retired in every
+  Habit-enabled configuration, retained only as the cross-domain guard
+  for tasks-without-habits builds). **The Habit domain now has 100%
+  deterministic message-path parity with Legacy.** Verified
+  non-existent, never to build: habit update/delete/today/search/
+  statistics/archive/restore commands. Callback-driven habit surfaces
+  (dashboard card, reminder done-buttons) remain Legacy, like all
+  callbacks. Next overall: (1) apply ADR-011's Option A (small change
+  + regression test), then (2) run the canary per the RC plan — now
+  able to cover both domains.
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles

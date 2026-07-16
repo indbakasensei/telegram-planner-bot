@@ -460,8 +460,15 @@ of every habit code path:
 - **Habit completion writes no learning logs.** `done_task()`'s habit
   branch calls `log_habit_completion()` and replies — no
   `completions_log`, no `interaction_log` (unlike the task branch).
-  Relevant for the future habit-completion migration stage; the v14.6
-  branch-away (`habit_not_supported`) remains correct until then.
+  v14.11 migrated it exactly so (`core/actions/complete_habit.py`,
+  learning-log absence test-pinned). Two more verified-and-replicated
+  details from that migration: **already-logged-today is a success
+  reply with zero writes** (the UNIQUE trip returns before any streak
+  UPDATE — "✅ Habit completed!" + "(already logged today)", in both
+  paths), and **a paused habit completes fine** (no paused check
+  anywhere in the pipeline). The v14.6 `habit_not_supported`
+  branch-away survives ONLY in tasks-without-habits builds, where
+  Legacy still owns habit completion (per-domain flags, ADR-013).
 - **`/addhabit` creates immediately with no confirmation** — only the
   AI-driven `HABIT` flow confirms. v14.10 migrated it exactly so
   (direct apply, per `ADR-010`: creation is reversible by delete).

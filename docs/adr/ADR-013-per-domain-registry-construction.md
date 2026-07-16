@@ -83,3 +83,24 @@ startup — a flag flip still requires the same restart it always did.
   next). If that ever feels wrong, the natural evolution is a
   `feature_flags.any_offline_domain()` helper — deliberately not built
   for one term.
+
+## Amendment (v14.11): actions two domains share
+
+Habit completion exposed a case the original decision didn't cover: an
+entry phrase set (`done <id>` etc.) that serves **two** domains, because
+Legacy's `done_task()` is one handler branching on `is_habit()`. A flat
+per-domain spec split can't express this — a second spec under the same
+matcher would be shadowed by the first (first-match-wins), and matchers
+cannot consult storage to tell a habit id from a task id.
+
+Resolution, still entirely at construction time: the registration
+functions take cross-domain hints (`_register_task_domain(...,
+habit_completion=)`, `_register_habit_domain(..., tasks_enabled=)`).
+Both-domains builds register **one** completion spec — Legacy's own
+one-handler shape — whose runner injects `complete_habit.execute` into
+`complete_task.execute()`'s branch point; tasks-only builds keep the
+v14.6 runner (habits branch away to Legacy, `habit_not_supported`);
+habits-only builds register the domain's own `complete_habit` spec,
+which declines real tasks to Legacy. The engine and registry mechanism
+remain untouched; the composition knowledge lives where all
+registration knowledge lives.

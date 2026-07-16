@@ -28,7 +28,11 @@ precedence (registry.py's docstring), so the order below is behavior:
                intents -- entry regexes are disjoint, order kept from
                v14.6/v14.7; UNKNOWN is included for the
                "rename task 5" -> UNKNOWN under-classification ADR-009
-               documents)
+               documents). v14.11: the complete spec serves BOTH
+               domains when both are registered (Legacy's done_task()
+               shape -- one handler, is_habit() branch); a
+               habits-without-tasks build registers its own
+               complete_habit spec instead.
 
 Two builders (v14.9, ADR-013): build_default_registry() is the full
 catalog (tests, benchmarks, engine fallback); build_enabled_registry()
@@ -54,9 +58,9 @@ from __future__ import annotations
 
 import core.feature_flags as feature_flags
 from core.actions import (
-    complete_task, create_habit, create_task, delete_task, habit_views,
-    lifecycle_task, list_tasks, search_tasks, skip_habit, today_tasks,
-    update_task, week_tasks,
+    complete_habit, complete_task, create_habit, create_task, delete_task,
+    habit_views, lifecycle_task, list_tasks, search_tasks, skip_habit,
+    today_tasks, update_task, week_tasks,
 )
 from core.intent.intent_types import Intent
 from core.offline.registry import ActionRegistry, ActionSpec
@@ -147,7 +151,26 @@ def _match_complete(context):
 
 
 def _run_complete(context, storage, task_id):
+    # Task-domain-only completion: habits branch away to Legacy
+    # (habit_not_supported), v14.6 behavior -- used when the Habit
+    # domain is NOT enabled alongside Tasks.
     return complete_task.execute(task_id, context.user_id, storage, context.now)
+
+
+def _habit_completion_handler(task, user_id, storage):
+    # Late-bound through the module attribute like every other runner.
+    return complete_habit.execute(task, user_id, storage)
+
+
+def _run_complete_with_habits(context, storage, task_id):
+    # v14.11: both domains enabled -- Legacy's done_task() handles tasks
+    # AND habits in one handler, branching on is_habit() after a single
+    # fetch; this runner mirrors that exactly by injecting the habit
+    # handler into complete_task.execute()'s branch point (ADR-013's
+    # construction-time composition, extended to the one action two
+    # domains share).
+    return complete_task.execute(task_id, context.user_id, storage, context.now,
+                                  habit_handler=_habit_completion_handler)
 
 
 def _match_lifecycle(context):
@@ -241,6 +264,20 @@ def _run_skip_habit(context, storage, habit_id):
     return skip_habit.execute(habit_id, context, storage)
 
 
+def _match_complete_habit(context):
+    # Habits-only builds (v14.11): completion phrases are the SAME as
+    # the Task domain's ("done <id>" etc. -- Legacy's done_task()
+    # serves both, branching on is_habit()). When the Task domain is
+    # registered, its completion spec owns these phrases and carries
+    # the habit handler; this spec exists ONLY in a habits-without-
+    # tasks build, where nothing else claims them.
+    return complete_task.match_entry_command(context.text)
+
+
+def _run_complete_habit(context, storage, task_id):
+    return complete_habit.execute_by_id(task_id, context.user_id, storage)
+
+
 # ── Pending commits (ADR-008's confirm-step second half) ─────────────────
 
 def _commit_add(pending_data, user_id, storage):
@@ -251,16 +288,18 @@ def _commit_delete(pending_data, user_id, storage):
     return delete_task.commit(pending_data, user_id, storage)
 
 
-_EDIT_SPECS = (
-    ActionSpec("complete_task", _match_complete, _run_complete),
-    ActionSpec("lifecycle_task", _match_lifecycle, _run_lifecycle),
-    ActionSpec("update_task", _match_update, _run_update),
-)
-
-
-def _register_task_domain(registry: ActionRegistry) -> None:
+def _register_task_domain(registry: ActionRegistry, *,
+                           habit_completion: bool = False) -> None:
     """Every Task-domain action shipped v14.2-v14.7, in the exact
-    precedence order the pre-v14.8 ladder encoded."""
+    precedence order the pre-v14.8 ladder encoded.
+
+    `habit_completion` (v14.11): completion phrases serve two domains,
+    exactly as Legacy's one done_task() handler does. When the Habit
+    domain is registered alongside Tasks, the completion runner carries
+    the habit handler (complete_task's is_habit() branch delegates to
+    complete_habit.execute); when Tasks run alone, the runner is the
+    v14.6 one and habits still branch away to Legacy
+    (habit_not_supported) -- per-domain flags stay honest (ADR-013)."""
     registry.register(Intent.QUERY_TASK, ActionSpec("search_tasks", _match_search, _run_search))
     registry.register(Intent.QUERY_TASK, ActionSpec("today_tasks", _match_today, _run_today))
     registry.register(Intent.QUERY_TASK, ActionSpec("week_tasks", _match_week, _run_week))
@@ -269,7 +308,13 @@ def _register_task_domain(registry: ActionRegistry) -> None:
 
     registry.register(Intent.ADD_TASK, ActionSpec("create_task", _match_add, _run_add))
 
-    for spec in _EDIT_SPECS:
+    run_complete = _run_complete_with_habits if habit_completion else _run_complete
+    edit_specs = (
+        ActionSpec("complete_task", _match_complete, run_complete),
+        ActionSpec("lifecycle_task", _match_lifecycle, _run_lifecycle),
+        ActionSpec("update_task", _match_update, _run_update),
+    )
+    for spec in edit_specs:
         registry.register(Intent.EDIT_TASK, spec)
         registry.register(Intent.UNKNOWN, spec)
 
@@ -279,22 +324,31 @@ def _register_task_domain(registry: ActionRegistry) -> None:
     registry.register_pending("offline_delete_task", _commit_delete)
 
 
-def _register_habit_domain(registry: ActionRegistry) -> None:
+def _register_habit_domain(registry: ActionRegistry, *,
+                            tasks_enabled: bool = True) -> None:
     """Habit-domain Stage 1 (v14.9, the three read-only views) +
-    Stage 2 (v14.10, the two deterministic writes: create + skip;
-    habit "update" and "delete" need no habit code -- habits are task
-    rows, so v14.4's edit flow and v14.5's delete flow already cover
-    them, verified + test-pinned). Habit matchers are disjoint from
-    every Task matcher ("habits" phrases vs. task phrase sets;
-    "streak "/"habitlog "/"addhabit "/"skiphabit " prefixes vs. task
-    verb regexes/prefixes), so registration order across domains is not
-    load-bearing -- appended after Task specs for stable, readable
-    resolve() output."""
+    Stage 2 (v14.10, create + skip) + Stage 3 (v14.11, completion --
+    the domain is now feature-complete; habit "update" and "delete"
+    need no habit code: habits are task rows, so v14.4's edit flow and
+    v14.5's delete flow already cover them, verified + test-pinned).
+    Habit matchers are disjoint from every Task matcher, so
+    registration order across domains is not load-bearing -- appended
+    after Task specs for stable, readable resolve() output.
+
+    `tasks_enabled` (v14.11): habit completion shares the Task domain's
+    entry phrases ("done <id>" etc.). With Tasks registered, the shared
+    completion spec carries the habit handler (see
+    _register_task_domain); in a habits-WITHOUT-tasks build, this
+    registers the domain's own completion spec instead, whose runner
+    completes habits and declines real tasks to Legacy."""
     registry.register(Intent.QUERY_TASK, ActionSpec("habits_list", _match_habits_list, _run_habits_list))
     registry.register(Intent.QUERY_TASK, ActionSpec("streak_view", _match_streak, _run_streak))
     registry.register(Intent.EDIT_TASK, ActionSpec("habitlog_view", _match_habitlog, _run_habitlog))
     registry.register(Intent.ADD_TASK, ActionSpec("create_habit", _match_create_habit, _run_create_habit))
     registry.register(Intent.EDIT_TASK, ActionSpec("skip_habit", _match_skip_habit, _run_skip_habit))
+    if not tasks_enabled:
+        registry.register(Intent.EDIT_TASK,
+                          ActionSpec("complete_habit", _match_complete_habit, _run_complete_habit))
 
 
 def build_default_registry() -> ActionRegistry:
@@ -304,8 +358,8 @@ def build_default_registry() -> ActionRegistry:
     (main.py) injects build_enabled_registry() instead, which is the
     flag-aware subset -- see ADR-013."""
     registry = ActionRegistry()
-    _register_task_domain(registry)
-    _register_habit_domain(registry)
+    _register_task_domain(registry, habit_completion=True)
+    _register_habit_domain(registry, tasks_enabled=True)
     return registry
 
 
@@ -318,10 +372,13 @@ def build_enabled_registry() -> ActionRegistry:
     main.py's flag-OR gate short-circuits before even calling in that
     case. Per-domain gating lives HERE, at construction time, rather
     than in the engine or per-message checks -- see ADR-013 for the
-    alternatives considered."""
+    alternatives considered (amended v14.11 for the one action two
+    domains share: completion)."""
     registry = ActionRegistry()
-    if feature_flags.OFFLINE_TASKS:
-        _register_task_domain(registry)
-    if feature_flags.OFFLINE_HABITS:
-        _register_habit_domain(registry)
+    tasks_on = feature_flags.OFFLINE_TASKS
+    habits_on = feature_flags.OFFLINE_HABITS
+    if tasks_on:
+        _register_task_domain(registry, habit_completion=habits_on)
+    if habits_on:
+        _register_habit_domain(registry, tasks_enabled=tasks_on)
     return registry
