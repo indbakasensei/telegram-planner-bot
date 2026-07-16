@@ -110,9 +110,21 @@ what actually shipped; the authoritative design doc itself uses Stage
   `core/offline/registry.py` mechanism + `registrations.py` explicit
   build; byte-identical behavior verified against the pre-refactor
   commit; adding an Offline action no longer touches the dispatcher).
-  Next: (1) apply ADR-011's Option A (small change + regression test),
-  then (2) run the canary per the RC plan. There is no more Task-domain
-  code to build ahead of real-traffic validation.
+  **v14.9 began the second domain — Offline Habits Stage 1** (the three
+  read-only views: habits list, streak detail, habit log), the
+  registry's proof sprint: shipped with zero engine/registry edits.
+  Per-domain flags now gate at registry construction
+  ([ADR-013](docs/adr/ADR-013-per-domain-registry-construction.md));
+  `OFFLINE_HABITS` is consumed for the first time (still OFF).
+  **Remaining Habit stages** (per the v14.9 Phase 0 audit; each needs
+  its own sprint): creation (`addhabit` — immediate, no confirm in
+  Legacy's command path), skip (`skiphabit`/`reset streak` —
+  no-confirm, self-healing reset), completion (retire v14.6's
+  `habit_not_supported` branch-away; note Legacy's habit completion
+  writes NO learning logs). Verified non-existent, never to build:
+  habit update/delete/today/search/statistics/archive/restore.
+  Next overall: (1) apply ADR-011's Option A (small change + regression
+  test), then (2) run the canary per the RC plan.
 
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles

@@ -14,14 +14,22 @@ action function expects. Registration order within an intent is match
 precedence (registry.py's docstring), so the order below is behavior:
 
   QUERY_TASK   search -> today -> week -> list -> paused
+               -> habits_list -> streak_view (v14.9)
                (search prefixes first, exactly like the old
-               _select_action(); the four exact-phrase sets are
+               _select_action(); the exact-phrase sets are
                disjoint so their relative order is for clarity)
-  EDIT_TASK /  complete -> lifecycle -> update
-  UNKNOWN      (same three specs registered under both intents --
-               entry regexes are disjoint, order kept from v14.6/v14.7;
-               UNKNOWN is included for the "rename task 5" -> UNKNOWN
-               under-classification ADR-009 documents)
+  EDIT_TASK /  complete -> lifecycle -> update -> habitlog_view (v14.9,
+  UNKNOWN      EDIT_TASK only) (the three task specs are registered
+               under both intents -- entry regexes are disjoint, order
+               kept from v14.6/v14.7; UNKNOWN is included for the
+               "rename task 5" -> UNKNOWN under-classification ADR-009
+               documents)
+
+Two builders (v14.9, ADR-013): build_default_registry() is the full
+catalog (tests, benchmarks, engine fallback); build_enabled_registry()
+is the production build -- it registers each domain only if its
+feature flag is ON, which is how per-domain flags gate dispatch without
+the engine or registry knowing flags exist.
 
 Action-dispatch caveat, unchanged from engine.py's original note:
 Intent.QUERY_TASK is coarser than the actions here (it also covers
@@ -39,9 +47,10 @@ binding preserves both.
 """
 from __future__ import annotations
 
+import core.feature_flags as feature_flags
 from core.actions import (
-    complete_task, create_task, delete_task, lifecycle_task, list_tasks,
-    search_tasks, today_tasks, update_task, week_tasks,
+    complete_task, create_task, delete_task, habit_views, lifecycle_task,
+    list_tasks, search_tasks, today_tasks, update_task, week_tasks,
 )
 from core.intent.intent_types import Intent
 from core.offline.registry import ActionRegistry, ActionSpec
@@ -169,6 +178,40 @@ def _run_delete(context, storage, task_id):
     return delete_task.propose(task_id, context.user_id, storage)
 
 
+# ── Habit domain (v14.9, Stage 1: read-only views) ───────────────────────
+
+def _match_habits_list(context):
+    # Mirrors core/intent/rules.py's ("habits", "show habits",
+    # "my habits", "list habits") QUERY_TASK exact group.
+    return context.text.strip().lower() in habit_views.HABITS_VIEW_PHRASES or None
+
+
+def _run_habits_list(context, storage, match):
+    return habit_views.habits_list(context, storage)
+
+
+def _match_streak(context):
+    # "streak <id>" -> QUERY_TASK (Tier 0 prefix group). Id-less
+    # "streak" falls through to Legacy's usage reply.
+    return habit_views.match_streak_command(context.text)
+
+
+def _run_streak(context, storage, habit_id):
+    return habit_views.streak_detail(habit_id, context, storage)
+
+
+def _match_habitlog(context):
+    # "habitlog <id>" / "habit log <id>" -> EDIT_TASK (Tier 0 groups it
+    # there despite being read-only; registered under EDIT_TASK only --
+    # both phrasings are Tier 0 prefixes, so unlike "rename task" they
+    # can never classify UNKNOWN).
+    return habit_views.match_habitlog_command(context.text)
+
+
+def _run_habitlog(context, storage, habit_id):
+    return habit_views.habit_log_view(habit_id, context, storage)
+
+
 # ── Pending commits (ADR-008's confirm-step second half) ─────────────────
 
 def _commit_add(pending_data, user_id, storage):
@@ -186,13 +229,9 @@ _EDIT_SPECS = (
 )
 
 
-def build_default_registry() -> ActionRegistry:
-    """The production registry: every Offline action shipped through
-    v14.7, registered in the exact precedence order the old ladder
-    encoded. OfflineEngine.__init__ calls this when no registry is
-    injected; tests inject their own to exercise dispatch in isolation."""
-    registry = ActionRegistry()
-
+def _register_task_domain(registry: ActionRegistry) -> None:
+    """Every Task-domain action shipped v14.2-v14.7, in the exact
+    precedence order the pre-v14.8 ladder encoded."""
     registry.register(Intent.QUERY_TASK, ActionSpec("search_tasks", _match_search, _run_search))
     registry.register(Intent.QUERY_TASK, ActionSpec("today_tasks", _match_today, _run_today))
     registry.register(Intent.QUERY_TASK, ActionSpec("week_tasks", _match_week, _run_week))
@@ -210,4 +249,44 @@ def build_default_registry() -> ActionRegistry:
     registry.register_pending("offline_add_task", _commit_add)
     registry.register_pending("offline_delete_task", _commit_delete)
 
+
+def _register_habit_domain(registry: ActionRegistry) -> None:
+    """Habit-domain Stage 1 (v14.9): the three read-only views. Habit
+    matchers are disjoint from every Task matcher ("habits" phrases vs.
+    task phrase sets; "streak "/"habitlog " prefixes vs. task verb
+    regexes), so registration order across domains is not
+    load-bearing -- appended after Task specs for stable, readable
+    resolve() output."""
+    registry.register(Intent.QUERY_TASK, ActionSpec("habits_list", _match_habits_list, _run_habits_list))
+    registry.register(Intent.QUERY_TASK, ActionSpec("streak_view", _match_streak, _run_streak))
+    registry.register(Intent.EDIT_TASK, ActionSpec("habitlog_view", _match_habitlog, _run_habitlog))
+
+
+def build_default_registry() -> ActionRegistry:
+    """The full action catalog -- every Offline action in every domain,
+    regardless of feature flags. OfflineEngine.__init__ falls back to
+    this when no registry is injected (tests, benchmarks); production
+    (main.py) injects build_enabled_registry() instead, which is the
+    flag-aware subset -- see ADR-013."""
+    registry = ActionRegistry()
+    _register_task_domain(registry)
+    _register_habit_domain(registry)
+    return registry
+
+
+def build_enabled_registry() -> ActionRegistry:
+    """The production registry: only the domains whose feature flags
+    are ON (env-read-once at import, core/feature_flags.py -- so this
+    reflects the process's startup environment, same semantics as every
+    other flag use). With all flags OFF this returns an empty registry,
+    and every message resolves to unsupported_intent -> Legacy;
+    main.py's flag-OR gate short-circuits before even calling in that
+    case. Per-domain gating lives HERE, at construction time, rather
+    than in the engine or per-message checks -- see ADR-013 for the
+    alternatives considered."""
+    registry = ActionRegistry()
+    if feature_flags.OFFLINE_TASKS:
+        _register_task_domain(registry)
+    if feature_flags.OFFLINE_HABITS:
+        _register_habit_domain(registry)
     return registry

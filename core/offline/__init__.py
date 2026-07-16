@@ -11,11 +11,12 @@ ActionRegistry, ActionSpec, RegistryError, build_default_registry.
 """
 from core.offline.action_result import ActionResult
 from core.offline.engine import OfflineEngine
-from core.offline.registrations import build_default_registry
+from core.offline.registrations import build_default_registry, build_enabled_registry
 from core.offline.registry import ActionRegistry, ActionSpec, RegistryError
 from core.offline.request_context import RequestContext
 
 __all__ = [
     "RequestContext", "ActionResult", "OfflineEngine",
-    "ActionRegistry", "ActionSpec", "RegistryError", "build_default_registry",
+    "ActionRegistry", "ActionSpec", "RegistryError",
+    "build_default_registry", "build_enabled_registry",
 ]

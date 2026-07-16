@@ -173,18 +173,22 @@ def test_default_registry_intents():
 def test_default_query_task_order_search_first():
     # Search MUST be checked before the exact-phrase sets (prefix match
     # vs whole-message match); the rest are disjoint but the order is
-    # pinned anyway -- reordering should be a deliberate act.
+    # pinned anyway -- reordering should be a deliberate act. Habit
+    # specs (v14.9) append after the Task domain's.
     names = [s.name for s in build_default_registry().resolve(Intent.QUERY_TASK)]
     assert names == ["search_tasks", "today_tasks", "week_tasks",
-                     "list_tasks", "paused_list"]
+                     "list_tasks", "paused_list", "habits_list", "streak_view"]
 
 
 def test_default_edit_task_order_complete_lifecycle_update():
     registry = build_default_registry()
     names = [s.name for s in registry.resolve(Intent.EDIT_TASK)]
-    assert names == ["complete_task", "lifecycle_task", "update_task"]
-    # UNKNOWN shares the same spec objects, same order (ADR-009).
-    assert registry.resolve(Intent.UNKNOWN) == registry.resolve(Intent.EDIT_TASK)
+    assert names == ["complete_task", "lifecycle_task", "update_task",
+                     "habitlog_view"]
+    # UNKNOWN shares the three Task spec objects, same order (ADR-009);
+    # habitlog_view is EDIT_TASK-only (its phrasings are Tier 0
+    # prefixes, so they can never classify UNKNOWN).
+    assert registry.resolve(Intent.UNKNOWN) == registry.resolve(Intent.EDIT_TASK)[:3]
 
 
 def test_default_delete_matcher_reads_entities_not_text():
@@ -286,10 +290,11 @@ def test_engine_execute_pending_unknown_type():
 
 
 def test_engine_defaults_to_default_registry():
-    # No registry injected -> build_default_registry(); "habits" is
+    # No registry injected -> build_default_registry(); "goals" is
     # QUERY_TASK but matches no spec -> unsupported_action, identical
-    # to pre-v14.8 behavior.
+    # to pre-registry behavior. ("habits" served here until v14.9 made
+    # it a real Offline view.)
     engine = OfflineEngine(Storage())
-    result = engine.execute(ctx("habits"))
+    result = engine.execute(ctx("goals"))
     assert result.success is False
     assert "unsupported_action" in result.warnings

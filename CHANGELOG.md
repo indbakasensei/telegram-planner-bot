@@ -9,7 +9,101 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.8 — Offline Engine Infrastructure Refactor: Registry-Based Dispatch (current)
+## v14.9 — Offline Habits Stage 1: Read-Only Views (second domain) (current)
+
+The first non-Task Offline domain, and the registry architecture's
+proof sprint: Habit Stage 1 shipped with **zero edits to
+`core/offline/engine.py` and `core/offline/registry.py`** — new actions
+arrived purely by registration, exactly as ADR-012 promised. Gated
+behind `OFFLINE_HABITS` (defined since v14.1C, consumed for the first
+time here; default OFF, not enabled).
+
+### Phase 0 — Legacy Habit audit (verified by reading code, per the brief's "do NOT assume anything")
+
+Habits are **task rows** (`is_habit=1` + `habit_start_date`/
+`current_streak`/`longest_streak`/`last_completed` columns) plus a
+`habit_log` table (UNIQUE one row per habit per day). **Commands that
+exist**: `/habits` (+ 4 slashless exact phrases), `/streak <id>`,
+`/habitlog <id>` (2 slashless prefixes), `/addhabit` (3 prefixes,
+creates immediately, NO confirmation), `/skiphabit` (3 prefixes,
+resets streak, NO confirmation), `/resethabits` (admin), plus habit
+completion inside `done_task()`'s habit branch (streak log, **no
+learning-log writes** — unlike task completion) and the AI-driven
+`HABIT` creation flow (the only confirming habit path). **Verified to
+NOT exist** (documented, not invented): habit-specific update, delete,
+today view, search, statistics, archive/restore. **Scheduler:** zero
+habit involvement — reminders ride the tasks table's recurrence; missed
+days never auto-reset a streak (streaks recompute only at the next
+completion, which also makes `/skiphabit`'s "reset" self-healing — the
+next completion recomputes from the full log). **Rendering:** all five
+habit handlers still send Markdown with unescaped titles — never
+migrated in v7.1's HTML switch (see DEBUGGING.md).
+
+### Added
+
+- **`core/actions/habit_views.py`** — the three read-only views in one
+  module (same shared-skeleton grouping precedent as
+  `lifecycle_task.py`): `habits_list` (habits_cmd equivalent — fire-emoji
+  cap at 5, recurrence labels, conditional last-done line, paused/done
+  excluded by the query), `streak_detail` (streak_cmd equivalent
+  including its verified quirks: the double lookup, and "Habit not found
+  or paused." for a paused habit; 14-day 🟩/⬜ grid built from
+  `context.now`), `habit_log_view` (habitlog_cmd equivalent — empty log
+  is a success reply, ✅/❌ rows capped at 30). Entry matchers:
+  `HABITS_VIEW_PHRASES` mirror of rules.py's exact group,
+  `"streak <id>"`, `"habitlog <id>"/"habit log <id>"` regexes; id-less/
+  malformed phrasings fall through to Legacy's usage replies (v14.7
+  discipline).
+- **`build_enabled_registry()`** (`core/offline/registrations.py`) +
+  **[docs/adr/ADR-013-per-domain-registry-construction.md](docs/adr/ADR-013-per-domain-registry-construction.md)**
+  — per-domain flags now gate at registry construction:
+  `_register_task_domain()` / `_register_habit_domain()` split,
+  `build_default_registry()` = full catalog (tests/benchmarks/fallback),
+  `build_enabled_registry()` = flag-aware production build injected by
+  `main.py`. Resolves the "per-domain gate needs generalizing" bottleneck
+  v14.8's Scalability Assessment flagged, without touching engine or
+  registry.
+- **`tests/test_habit_views.py`** — 43 tests: matchers, every view
+  against real temp-DB data (HTML escaping of hostile titles included),
+  engine dispatch, the ADR-013 flag-combination matrix (tasks-only has
+  no habit specs; habits-only leaves task messages to Legacy; both-on ==
+  full catalog), Failure Injection (exception, locked DB), Behavioral
+  Equivalence (query-count parity with Legacy's exact per-handler call
+  sequences + read-invariance on raw rows), latency/memory benchmarks.
+  Seed dates are real-clock-relative, never hard-coded (the v14.1C
+  windowing pitfall).
+
+### Changed
+
+- **`main.py`** (3 small edits): import `build_enabled_registry`, inject
+  it at engine construction, and widen the offline gate to
+  `OFFLINE_TASKS or OFFLINE_HABITS` (a short-circuit only — domain
+  membership is decided by what got registered).
+- **Registry pins updated** (expected maintenance, same class as
+  v14.5's/v14.8's): QUERY_TASK order gains `habits_list`, `streak_view`;
+  EDIT_TASK gains `habitlog_view` (EDIT_TASK only — its phrasings are
+  Tier 0 prefixes and can never classify UNKNOWN); `"habits"` retired as
+  the canonical unmatched-QUERY_TASK example in 3 tests (`"goals"` now
+  serves — same promotion that retired DELETE_TASK in v14.5).
+
+### Unavoidable differences (documented, deliberate)
+
+- **Reply markup**: Legacy habit replies are Markdown with unescaped
+  titles (a latent corruption bug for titles containing `*`/`_`);
+  Offline renders the same content as HTML via `fmt.py` per project
+  convention. Content-equivalent, byte-different — and the Offline
+  path escapes correctly where Legacy corrupts.
+- **Error paths reply via Legacy**: not-a-habit/paused replies return
+  `success=False`, so main.py falls through and Legacy produces its
+  identical reply — same UX, one path of record (the pattern every
+  Task action already follows).
+
+Suite: **616 tests, ~17 s** (573 + 43). `core/` pyflakes: still 0.
+`OFFLINE_HABITS` remains OFF; nothing is enabled by this release.
+
+---
+
+## v14.8 — Offline Engine Infrastructure Refactor: Registry-Based Dispatch
 
 Pure infrastructure refactor, zero user-visible behavior change —
 executes the dispatch-table refactor the v14.7.1 RC audit required

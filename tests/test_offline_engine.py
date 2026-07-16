@@ -100,10 +100,12 @@ def test_non_query_task_intent_is_unsupported(engine, uid):
 
 
 def test_query_task_intent_with_unrecognized_text_is_unsupported(engine, uid):
-    # "/habits" is also classified QUERY_TASK today (core/intent/rules.py)
-    # but isn't one of this Stage's four actions -- must fall through
-    # gracefully, not crash or silently misroute.
-    result = engine.execute(ctx("habits", uid, intent=Intent.QUERY_TASK))
+    # "goals" is also classified QUERY_TASK today (core/intent/rules.py)
+    # but has no Offline action -- must fall through gracefully, not
+    # crash or silently misroute. (This test used "habits" until v14.9
+    # made that a real Offline view -- the same promotion that retired
+    # DELETE_TASK as this suite's "unsupported intent" example in v14.5.)
+    result = engine.execute(ctx("goals", uid, intent=Intent.QUERY_TASK))
     assert result.success is False
     assert "unsupported_action" in result.warnings
 
@@ -138,7 +140,7 @@ def test_query_dispatch_selects_correct_action(text, expected_spec):
 
 
 def test_query_dispatch_matches_nothing_for_unrecognized_text():
-    assert _first_matching_spec("habits") is None
+    assert _first_matching_spec("goals") is None
     assert _first_matching_spec("random gibberish") is None
 
 

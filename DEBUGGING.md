@@ -422,6 +422,51 @@ Same discipline as the v14.3–v14.6 entries:
   via reminder buttons (`handle_callback`), not the text-message path
   the Offline Engine integrates with. Out of scope, unchanged.
 
+### Legacy habit surfaces: verified findings (v14.9)
+
+Same discipline as the v14.3–v14.7 entries, from v14.9's Phase 0 audit
+of every habit code path:
+
+- **All five habit handlers still reply in Markdown with unescaped
+  titles** (`habits_cmd`, `streak_cmd`, `habitlog_cmd`, `addhabit_cmd`,
+  `skiphabit_cmd` — all `parse_mode="Markdown"`). They were never
+  migrated in v7.1's HTML switch, so a habit title containing `*`, `_`,
+  or `[` corrupts or breaks the reply in Legacy **today**. The Offline
+  habit views (`core/actions/habit_views.py`) render the same content
+  as HTML through `fmt.py` per project convention — a documented,
+  deliberate format divergence, and the one place the Offline reply is
+  *more* correct than Legacy's. If a user reports a garbled habit
+  title, check which path replied.
+- **Habit-specific update, delete, today view, search, statistics, and
+  archive/restore do not exist in Legacy** — verified; not invented.
+  "Deleting a habit" is just `delete task <id>` on the habit's task
+  row, which **orphans its `habit_log` rows** (no cascading cleanup —
+  consistent with v14.5's verified single-table DELETE).
+- **Missed days never auto-reset a streak.** No scheduler involvement
+  in habits at all (zero habit references in `scheduler.py`); a streak
+  only changes when `log_habit_completion()` recomputes it from the log
+  at the next completion. Corollary: `/skiphabit`'s `reset_streak()`
+  (sets `current_streak=0`) is **self-healing** — the next completion
+  recomputes the streak from the full log history, overwriting the
+  reset. It is therefore *not* irreversible under `ADR-010`'s test, and
+  Legacy's no-confirm behavior is the right thing to match when a later
+  stage migrates it.
+- **`streak_cmd`'s paused-habit quirk, replicated**: it locates via
+  `get_task_by_id` + `is_habit`, then re-fetches through `get_habits()`
+  (which filters `paused=0`) — so a paused habit passes the first check
+  and dies at the second with "Habit not found or paused."
+  `streak_detail()` mirrors this exactly (warning:
+  `habit_not_visible`).
+- **Habit completion writes no learning logs.** `done_task()`'s habit
+  branch calls `log_habit_completion()` and replies — no
+  `completions_log`, no `interaction_log` (unlike the task branch).
+  Relevant for the future habit-completion migration stage; the v14.6
+  branch-away (`habit_not_supported`) remains correct until then.
+- **`/addhabit` creates immediately with no confirmation** — only the
+  AI-driven `HABIT` flow confirms. Relevant for the future creation
+  stage: per `ADR-010`, the deterministic command path should match
+  Legacy (no confirm) since creation is reversible by delete.
+
 ### Offline Engine gate runs before the confirming/gathering state branches — now ADR-011 (v14.2+, surfaced by v14.6's review, decided v14.7)
 
 Found during v14.6's Phase 0 conversation-state verification; applies to

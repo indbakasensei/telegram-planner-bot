@@ -76,7 +76,7 @@ from notification_service import TelegramSender, safe_edit_message_text, safe_an
 import instance_lock
 from core.intent import IntentEngine, ConversationContext, Intent
 from core.routing import RoutingLayer
-from core.offline import OfflineEngine, RequestContext
+from core.offline import OfflineEngine, RequestContext, build_enabled_registry
 from core.actions.create_task import format_summary as _offline_format_summary
 from core.actions.delete_task import format_preview as _offline_format_delete_preview
 from core.storage import Storage
@@ -100,8 +100,12 @@ routing_layer = RoutingLayer()
 # v14.1C/v14.2: Storage Facade + Offline Engine (see core/storage/__init__.py,
 # core/offline/__init__.py). Stateless. Gated entirely by core/feature_flags.py
 # (all OFF today) -- see the integration point in handle_message() below.
+# v14.9: the registry is built per-domain from the feature flags
+# (build_enabled_registry, ADR-013) -- a domain whose flag is OFF has no
+# specs registered at all, so its messages resolve to unsupported_intent/
+# unsupported_action and fall through to Legacy exactly as before.
 storage = Storage()
-offline_engine = OfflineEngine(storage)
+offline_engine = OfflineEngine(storage, registry=build_enabled_registry())
 
 # v12.1: Install log sanitizer BEFORE anything else logs.
 # Redacts bot tokens, API keys, and user IDs (admin → "admin", others → "user_***XXX").
@@ -891,7 +895,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 logger.exception("Offline Engine update failed -- falling through to Legacy")
 
-    if feature_flags.OFFLINE_TASKS and intent is not None:
+    # v14.9: the gate is now flag-OR across domains -- which domain's
+    # actions actually exist inside offline_engine is decided by
+    # build_enabled_registry() at startup (ADR-013), so e.g. with only
+    # OFFLINE_HABITS on, task messages resolve no spec and fall through
+    # to Legacy untouched.
+    if ((feature_flags.OFFLINE_TASKS or feature_flags.OFFLINE_HABITS)
+            and intent is not None):
         try:
             offline_result = offline_engine.execute(RequestContext(
                 user_id=user_id, text=user_input,
