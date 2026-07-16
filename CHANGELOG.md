@@ -9,7 +9,85 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.9 — Offline Habits Stage 1: Read-Only Views (second domain) (current)
+## v14.10 — Offline Habits Stage 2: Deterministic Writes (current)
+
+Habit CRUD sprint under a frozen architecture — **zero edits to
+`OfflineEngine`, `ActionRegistry`, Storage Facade, Routing, Intent
+Engine, and (this time) `main.py`**. Still gated behind
+`OFFLINE_HABITS` (default OFF, not enabled).
+
+### Phase 0 — the brief's four CRUD targets vs. verified Legacy reality
+
+Only **two** needed habit code:
+
+- **Add Habit** — `/addhabit` + 3 slashless prefixes → `ADD_TASK`.
+  Direct apply, **no confirmation** (only the AI HABIT flow confirms;
+  per ADR-010, creation is reversible and Legacy's command path doesn't
+  confirm — the opposite answer from task creation, same policy).
+  **No duplicate detection** (verified: `addhabit_cmd()` never checks —
+  two identical creates yield two habits). **No learning logs, no
+  scheduler code** (the row's recurrence columns *are* the scheduler
+  integration, identical by construction through `add_habit()`).
+- **Skip Habit** — `/skiphabit` + 3 prefixes (incl. `reset streak`) →
+  `EDIT_TASK`. Direct apply, no confirmation (the reset is
+  self-healing — v14.9's DEBUGGING.md finding, now test-pinned:
+  the next completion recomputes the streak from `habit_log` and
+  undoes it; `longest_streak` untouched). Guardless UPDATE → idempotent
+  repeat replies, replicated.
+- **Update Habit** — **does not exist in Legacy** (v14.9 finding,
+  re-verified); habits are task rows, so v14.4's edit flow already
+  covers them. Documented + dispatch-pinned, not invented.
+- **Delete Habit** — **no dedicated Legacy command**; v14.5's task
+  delete already covers habit rows, orphaned `habit_log` rows and all
+  (equivalence-pinned: Legacy `delete_task()` and Offline
+  propose+commit orphan identically).
+
+### Added
+
+- **`core/actions/create_habit.py`** — `addhabit_cmd()`'s exact
+  pipeline: `parse_all()` for time/recurrence, Legacy's verbatim
+  title-strip regex (quirks replicated and pinned: `at 7 AM` (no colon)
+  and `every monday` survive into the title even though the parser
+  extracts them), empty-title → Legacy's "Tell me what the habit is."
+  via fall-through, `HabitStorage.add()` with Legacy's Health/medium
+  defaults.
+- **`core/actions/skip_habit.py`** — locate → `is_habit` guard →
+  `reset_streak()` → reply; not-a-habit falls through to Legacy's
+  identical reply.
+- **`tests/test_habit_writes.py`** — 42 tests: matchers, execution,
+  no-crosstalk dispatch (create_habit vs create_task in the shared
+  ADD_TASK bucket), the update/delete needs-no-habit-code pins,
+  Failure Injection (exception, locked DB; "cancel" documented N/A —
+  nothing pends in a no-confirm flow), Behavioral Equivalence
+  (row-for-row vs Legacy pipeline replicas across 3 phrasings; skip +
+  delete-orphan parity; query-count parity), benchmarks.
+
+### Changed
+
+- **`core/actions/create_task.py`** — new public
+  `matches_entry_command()`; the registry's ADD_TASK matcher for
+  create_task is now **prefix-gated instead of match-everything**
+  (`registrations.py`). A catch-all matcher shadows any spec registered
+  after it in the bucket, and the bucket now holds `create_habit`. Zero
+  behavior change for every input — `propose()` applied the identical
+  prefix check internally and returned the same
+  `success=False/unsupported_action` for non-matching text (verified
+  before changing; the narrowing only moves the check earlier).
+- **`core/offline/registrations.py`** — habit domain gains
+  `create_habit` (ADD_TASK) and `skip_habit` (EDIT_TASK, never UNKNOWN
+  — Tier 0 prefixes).
+- **Registry pins updated** (expected maintenance): ADD_TASK bucket
+  test now pins two prefix-gated specs; EDIT_TASK order gains
+  `skip_habit`; v14.9's "`skiphabit 5` is unclaimed" pin retired (it's
+  migrated — the pin did exactly its job).
+
+Suite: **658 tests, ~20 s** (616 + 42). `core/` pyflakes: still 0.
+No new ADR — no architectural decision changed (ADR-010/012/013 all
+applied as written).
+
+---
+
+## v14.9 — Offline Habits Stage 1: Read-Only Views (second domain)
 
 The first non-Task Offline domain, and the registry architecture's
 proof sprint: Habit Stage 1 shipped with **zero edits to

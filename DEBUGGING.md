@@ -463,9 +463,21 @@ of every habit code path:
   Relevant for the future habit-completion migration stage; the v14.6
   branch-away (`habit_not_supported`) remains correct until then.
 - **`/addhabit` creates immediately with no confirmation** — only the
-  AI-driven `HABIT` flow confirms. Relevant for the future creation
-  stage: per `ADR-010`, the deterministic command path should match
-  Legacy (no confirm) since creation is reversible by delete.
+  AI-driven `HABIT` flow confirms. v14.10 migrated it exactly so
+  (direct apply, per `ADR-010`: creation is reversible by delete).
+- **(v14.10) `addhabit`'s title stripping is quirky — replicated
+  verbatim, not fixed.** The strip regex removes only `at HH:MM`
+  (colon form) and the literal words daily/every day/every week/
+  weekly/monthly. So "gym every monday at 7 AM" produces a **weekly,
+  weekday-0, 07:00 habit titled "gym every monday at 7 AM"** — the
+  parser extracts what the title keeps. Both paths behave identically
+  (`test_create_weekly_habit_title_quirk_replicated`); if a user
+  reports redundant words in habit titles, this is Legacy-inherited,
+  not an Offline regression.
+- **(v14.10) `addhabit` has no duplicate detection** — verified, no
+  `task_exists()` or equivalent anywhere in the pipeline; two identical
+  creates yield two habits in both paths (test-pinned). Contrast with
+  task creation, which duplicate-checks in both paths.
 
 ### Offline Engine gate runs before the confirming/gathering state branches — now ADR-011 (v14.2+, surfaced by v14.6's review, decided v14.7)
 

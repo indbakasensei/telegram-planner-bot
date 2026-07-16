@@ -18,10 +18,15 @@ precedence (registry.py's docstring), so the order below is behavior:
                (search prefixes first, exactly like the old
                _select_action(); the exact-phrase sets are
                disjoint so their relative order is for clarity)
-  EDIT_TASK /  complete -> lifecycle -> update -> habitlog_view (v14.9,
-  UNKNOWN      EDIT_TASK only) (the three task specs are registered
-               under both intents -- entry regexes are disjoint, order
-               kept from v14.6/v14.7; UNKNOWN is included for the
+  ADD_TASK     create_task -> create_habit (v14.10; both prefix-gated
+               on disjoint prefix sets, so order is for clarity --
+               create_task's matcher stopped being a catch-all in
+               v14.10 precisely so this bucket could hold two specs)
+  EDIT_TASK /  complete -> lifecycle -> update -> habitlog_view (v14.9)
+  UNKNOWN      -> skip_habit (v14.10) (habit specs EDIT_TASK only;
+               the three task specs are registered under both
+               intents -- entry regexes are disjoint, order kept from
+               v14.6/v14.7; UNKNOWN is included for the
                "rename task 5" -> UNKNOWN under-classification ADR-009
                documents)
 
@@ -49,8 +54,9 @@ from __future__ import annotations
 
 import core.feature_flags as feature_flags
 from core.actions import (
-    complete_task, create_task, delete_task, habit_views, lifecycle_task,
-    list_tasks, search_tasks, today_tasks, update_task, week_tasks,
+    complete_task, create_habit, create_task, delete_task, habit_views,
+    lifecycle_task, list_tasks, search_tasks, skip_habit, today_tasks,
+    update_task, week_tasks,
 )
 from core.intent.intent_types import Intent
 from core.offline.registry import ActionRegistry, ActionSpec
@@ -122,11 +128,12 @@ def _run_paused(context, storage, match):
 # ── ADD_TASK: creation proposal (commit is a pending registration) ───────
 
 def _match_add(context):
-    # Every ADD_TASK message goes to propose() -- the old ladder had no
-    # text pre-filter here (create_task.propose itself rejects
-    # non-matching prefixes with not_a_create_command), so this matcher
-    # always matches.
-    return True
+    # v14.10: prefix-gated (was match-everything through v14.9 --
+    # harmless alone, but a catch-all shadows any later ADD_TASK spec,
+    # and the bucket now also holds create_habit). Same check
+    # propose() itself applies, so results are unchanged for every
+    # input -- see create_task.matches_entry_command's docstring.
+    return create_task.matches_entry_command(context.text) or None
 
 
 def _run_add(context, storage, match):
@@ -212,6 +219,28 @@ def _run_habitlog(context, storage, habit_id):
     return habit_views.habit_log_view(habit_id, context, storage)
 
 
+def _match_create_habit(context):
+    # "addhabit <desc>" / "add habit <desc>" / "new habit <desc>" ->
+    # ADD_TASK (Tier 0 prefix group). Prefixes are disjoint from
+    # create_task's, and create_task's matcher is prefix-gated
+    # (v14.10), so bucket order between the two is not load-bearing.
+    return create_habit.match_entry_command(context.text)
+
+
+def _run_create_habit(context, storage, description):
+    return create_habit.execute(description, context, storage)
+
+
+def _match_skip_habit(context):
+    # "skiphabit <id>" / "skip habit <id>" / "reset streak <id>" ->
+    # EDIT_TASK (Tier 0 prefix group; always -- never UNKNOWN).
+    return skip_habit.match_entry_command(context.text)
+
+
+def _run_skip_habit(context, storage, habit_id):
+    return skip_habit.execute(habit_id, context, storage)
+
+
 # ── Pending commits (ADR-008's confirm-step second half) ─────────────────
 
 def _commit_add(pending_data, user_id, storage):
@@ -251,15 +280,21 @@ def _register_task_domain(registry: ActionRegistry) -> None:
 
 
 def _register_habit_domain(registry: ActionRegistry) -> None:
-    """Habit-domain Stage 1 (v14.9): the three read-only views. Habit
-    matchers are disjoint from every Task matcher ("habits" phrases vs.
-    task phrase sets; "streak "/"habitlog " prefixes vs. task verb
-    regexes), so registration order across domains is not
+    """Habit-domain Stage 1 (v14.9, the three read-only views) +
+    Stage 2 (v14.10, the two deterministic writes: create + skip;
+    habit "update" and "delete" need no habit code -- habits are task
+    rows, so v14.4's edit flow and v14.5's delete flow already cover
+    them, verified + test-pinned). Habit matchers are disjoint from
+    every Task matcher ("habits" phrases vs. task phrase sets;
+    "streak "/"habitlog "/"addhabit "/"skiphabit " prefixes vs. task
+    verb regexes/prefixes), so registration order across domains is not
     load-bearing -- appended after Task specs for stable, readable
     resolve() output."""
     registry.register(Intent.QUERY_TASK, ActionSpec("habits_list", _match_habits_list, _run_habits_list))
     registry.register(Intent.QUERY_TASK, ActionSpec("streak_view", _match_streak, _run_streak))
     registry.register(Intent.EDIT_TASK, ActionSpec("habitlog_view", _match_habitlog, _run_habitlog))
+    registry.register(Intent.ADD_TASK, ActionSpec("create_habit", _match_create_habit, _run_create_habit))
+    registry.register(Intent.EDIT_TASK, ActionSpec("skip_habit", _match_skip_habit, _run_skip_habit))
 
 
 def build_default_registry() -> ActionRegistry:

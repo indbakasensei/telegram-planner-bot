@@ -295,11 +295,12 @@ def test_engine_dispatches_streak_and_habitlog(storage, engine):
 
 
 def test_engine_idless_and_write_phrases_fall_through(storage, engine):
-    # "streak" bare -> Legacy usage reply; "skiphabit 5" is a write
-    # (reset_streak) -- later stage, must not be claimed by any spec.
+    # "streak" bare / "skiphabit" bare -> Legacy usage replies, no spec
+    # claims them. ("skiphabit 5" was also unclaimed when this test was
+    # written; v14.10 migrated it -- see tests/test_habit_writes.py.)
     result = engine.execute(ctx("streak"))
     assert result.success is False and "unsupported_action" in result.warnings
-    result = engine.execute(ctx("skiphabit 5", intent=Intent.EDIT_TASK))
+    result = engine.execute(ctx("skiphabit", intent=Intent.EDIT_TASK))
     assert result.success is False and "unsupported_action" in result.warnings
 
 
@@ -347,10 +348,14 @@ def test_enabled_registry_habits_only_leaves_tasks_to_legacy(temp_db, monkeypatc
     result = engine.execute(ctx("habits"))
     assert result.success is True
     # ...but task phrases resolve nothing and fall through to Legacy.
+    # (v14.10: ADD_TASK is no longer empty in a habits-only build --
+    # create_habit lives there -- so "todo ..." is unsupported_action,
+    # a registered intent whose specs all declined, not
+    # unsupported_intent.)
     result = engine.execute(ctx("list"))
     assert result.success is False and "unsupported_action" in result.warnings
     result = engine.execute(ctx("todo Buy milk", intent=Intent.ADD_TASK))
-    assert result.success is False and "unsupported_intent" in result.warnings
+    assert result.success is False and "unsupported_action" in result.warnings
 
 
 def test_enabled_registry_both_on_equals_default_catalog(monkeypatch):

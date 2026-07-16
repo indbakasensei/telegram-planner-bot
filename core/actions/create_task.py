@@ -65,6 +65,21 @@ def _match_prefix_and_title(text: str) -> str | None:
     return None
 
 
+def matches_entry_command(text: str) -> bool:
+    """True if the text starts a create-task command -- the registry's
+    ADD_TASK matcher (v14.10). Until v14.10 the registered matcher
+    accepted every ADD_TASK message and relied on propose()'s own
+    prefix check to reject non-create text; that was harmless alone,
+    but a catch-all matcher shadows any spec registered after it, and
+    the ADD_TASK bucket now also holds create_habit. Delegating to the
+    same _match_prefix_and_title() propose() uses keeps the two checks
+    identical by construction -- for prefix-matching text nothing
+    changes, and non-matching text yields the same
+    success=False/unsupported_action result it always did (propose()
+    returned exactly that warning itself)."""
+    return _match_prefix_and_title(text) is not None
+
+
 def _map_recurrence(recurrence: dict[str, Any] | None):
     """Mirrors main.py's execute_task_action() recurrence mapping exactly
     (main.py:665-676), including monthly's day-of-month default of 1."""

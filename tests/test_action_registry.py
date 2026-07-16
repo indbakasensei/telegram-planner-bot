@@ -184,9 +184,9 @@ def test_default_edit_task_order_complete_lifecycle_update():
     registry = build_default_registry()
     names = [s.name for s in registry.resolve(Intent.EDIT_TASK)]
     assert names == ["complete_task", "lifecycle_task", "update_task",
-                     "habitlog_view"]
+                     "habitlog_view", "skip_habit"]
     # UNKNOWN shares the three Task spec objects, same order (ADR-009);
-    # habitlog_view is EDIT_TASK-only (its phrasings are Tier 0
+    # the habit specs are EDIT_TASK-only (their phrasings are Tier 0
     # prefixes, so they can never classify UNKNOWN).
     assert registry.resolve(Intent.UNKNOWN) == registry.resolve(Intent.EDIT_TASK)[:3]
 
@@ -198,13 +198,21 @@ def test_default_delete_matcher_reads_entities_not_text():
     assert spec.match(ctx("delete this", Intent.DELETE_TASK)) is None
 
 
-def test_default_add_matcher_always_matches():
-    # No text pre-filter on ADD_TASK -- create_task.propose() itself
-    # rejects non-create phrasings (not_a_create_command), same as the
-    # old ladder.
+def test_default_add_task_bucket_is_prefix_gated():
+    # v14.10: two prefix-gated specs on disjoint prefix sets.
+    # (create_task's matcher was a catch-all through v14.9 -- narrowed
+    # so the bucket could hold create_habit; propose() applied the same
+    # prefix check internally, so results are unchanged for every input.)
     registry = build_default_registry()
-    (spec,) = registry.resolve(Intent.ADD_TASK)
-    assert spec.match(ctx("anything at all", Intent.ADD_TASK)) is not None
+    task_spec, habit_spec = registry.resolve(Intent.ADD_TASK)
+    assert [task_spec.name, habit_spec.name] == ["create_task", "create_habit"]
+    assert task_spec.match(ctx("todo Buy milk", Intent.ADD_TASK)) is not None
+    assert task_spec.match(ctx("add habit Run", Intent.ADD_TASK)) is None
+    assert habit_spec.match(ctx("add habit Run", Intent.ADD_TASK)) == "Run"
+    assert habit_spec.match(ctx("todo Buy milk", Intent.ADD_TASK)) is None
+    # Neither claims arbitrary ADD_TASK text -- it falls to Legacy/AI.
+    assert task_spec.match(ctx("anything at all", Intent.ADD_TASK)) is None
+    assert habit_spec.match(ctx("anything at all", Intent.ADD_TASK)) is None
 
 
 # ── OfflineEngine as thin dispatcher (injected registry) ─────────────────

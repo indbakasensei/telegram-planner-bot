@@ -116,13 +116,14 @@ what actually shipped; the authoritative design doc itself uses Stage
   Per-domain flags now gate at registry construction
   ([ADR-013](docs/adr/ADR-013-per-domain-registry-construction.md));
   `OFFLINE_HABITS` is consumed for the first time (still OFF).
-  **Remaining Habit stages** (per the v14.9 Phase 0 audit; each needs
-  its own sprint): creation (`addhabit` — immediate, no confirm in
-  Legacy's command path), skip (`skiphabit`/`reset streak` —
-  no-confirm, self-healing reset), completion (retire v14.6's
-  `habit_not_supported` branch-away; note Legacy's habit completion
-  writes NO learning logs). Verified non-existent, never to build:
-  habit update/delete/today/search/statistics/archive/restore.
+  **v14.10 completed Habit Stage 2** — creation and skip migrated
+  (both direct-apply/no-confirm, matching Legacy per ADR-010); habit
+  "update"/"delete" verified to need no habit code (task edit/delete
+  flows already cover habit rows — test-pinned). **The only remaining
+  Habit work is completion** (retire v14.6's `habit_not_supported`
+  branch-away; note Legacy's habit completion writes NO learning
+  logs). Verified non-existent, never to build: habit
+  update/delete/today/search/statistics/archive/restore commands.
   Next overall: (1) apply ADR-011's Option A (small change + regression
   test), then (2) run the canary per the RC plan.
 
