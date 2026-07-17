@@ -9,7 +9,42 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.14 — UI Overhaul Phase 1: Cards Migrated to the Component Library (current)
+## v14.15 — UI Overhaul Phase 2: Dashboard Redesign (current)
+
+`ui.dashboard_card()` redesigned as the primary navigation hub
+(UI_SPEC_v1.md §15 Phase 2) — presentation only, one function changed,
+zero diff everywhere else (`main.py`'s `dashboard_cmd`/
+`route_dashboard_callback` untouched; refresh keeps editing in place).
+
+**Layout** (all from `ui_components`, no custom formatting): header
+with the "Today's productivity overview · <date>" caption → **status
+card** (level = worst-wins: ⚠️ n overdue / ℹ️ n due today / ✅ All
+clear; body = the 2×2 counter grid + goals/habits lines, every
+pre-redesign field in its exact previous format) → **productivity
+card** (`render_statistics_card` with the completion bar + a
+deterministic motivational caption in four tiers) → keyboard: Quick
+row (📅 Today · 🎯 Goals · 🌱 Habits), Management row (📋 Tasks ·
+📊 Statistics — §7 canonical label, was "📊 Stats"), §2.5 root nav
+(🔄 Refresh only).
+
+**Constraint resolution, documented**: the Phase 2 brief's prescribed
+➕ Add Task / 🤖 AI / ⚙ Settings / ❓ Help / 🏠 Home buttons have **no
+existing callbacks** (verified against every `callback_data` in
+`main.py`), and the same brief forbids new callbacks and handler
+changes — so those slots are deferred to the phases that build their
+destinations (3, 5, 8; Home is redundant on the root page per §2.5).
+The callback set is **provably identical** to the pre-redesign six
+(`test_dashboard_card_callback_set_identical_to_pre_redesign`).
+
+Characterization discipline: the pre-redesign dashboard was already
+pinned (v14.14's tests, green before this change); field pins survive
+the redesign unmodified, button-grid pins updated to the new layout,
+plus new pins for the caption, status tiers, and motivation tiers.
+Suite: **785 tests** (781 + 4 net). pyflakes: 0.
+
+---
+
+## v14.14 — UI Overhaul Phase 1: Cards Migrated to the Component Library
 
 `ui.py`'s eight dashboard cards now render through `ui_components.py`
 (UI_SPEC_v1.md §15 Phase 1). **Characterization tests were written

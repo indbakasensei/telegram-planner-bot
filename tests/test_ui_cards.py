@@ -65,29 +65,72 @@ def test_section_shape():
     assert ui.section("Plain") == "<b>Plain</b>"
 
 
-# ── Dashboard card ───────────────────────────────────────────────────────
+# ── Dashboard card (redesigned in Phase 2; field + callback continuity
+#    pinned against the pre-redesign card) ─────────────────────────────────
 
-def test_dashboard_card_fields_and_buttons():
-    data = {
-        "date_str": "Fri 17 Jul", "today_count": 4, "overdue": 3,
-        "pending": 9, "done_today": 2, "goals": [1, 2],
-        "habits": [1, 2, 3], "streak_best": 12, "completion_rate": 0.5,
-    }
-    text, kb = ui.dashboard_card(data)
+# The pre-Phase-2 dashboard exposed exactly these six destinations; the
+# redesign may not add or remove any ("no callback changes").
+PRE_PHASE2_DASH_CALLBACKS = {
+    "dash:today", "dash:tasks", "dash:goals",
+    "dash:habits", "dash:stats", "dash:home",
+}
+
+DASH_DATA = {
+    "date_str": "Fri 17 Jul", "today_count": 4, "overdue": 3,
+    "pending": 9, "done_today": 2, "goals": [1, 2],
+    "habits": [1, 2, 3], "streak_best": 12, "completion_rate": 0.5,
+}
+
+
+def test_dashboard_card_fields_survive_redesign():
+    text, _ = ui.dashboard_card(DASH_DATA)
     first = text.splitlines()[0]
     assert first.startswith("🏠") and "baka dashboard" in first.lower()
-    assert "<i>Fri 17 Jul</i>" in text
-    assert "📅 Today: <b>4</b>" in text
-    assert "⚠️ Overdue: <b>3</b>" in text
+    assert "Fri 17 Jul" in text                       # date still visible
+    assert "📅 Today: <b>4</b>" in text               # every pre-redesign
+    assert "⚠️ Overdue: <b>3</b>" in text             # field, same format
     assert "📋 Pending: <b>9</b>" in text
     assert "✅ Done today: <b>2</b>" in text
     assert "2 active" in text and "3 active" in text
     assert "🔥 best streak 12" in text
     assert "▓▓▓▓▓░░░░░ 50%" in text
-    assert _texts(kb) == [["📅 Today", "📋 Tasks"], ["🎯 Goals", "🌱 Habits"],
-                          ["📊 Stats", "🔄 Refresh"]]
-    assert _cbs(kb) == [["dash:today", "dash:tasks"], ["dash:goals", "dash:habits"],
-                        ["dash:stats", "dash:home"]]
+
+
+def test_dashboard_card_callback_set_identical_to_pre_redesign():
+    _, kb = ui.dashboard_card(DASH_DATA)
+    flat = {btn.callback_data for row in kb.inline_keyboard for btn in row}
+    assert flat == PRE_PHASE2_DASH_CALLBACKS
+
+
+def test_dashboard_card_phase2_layout():
+    text, kb = ui.dashboard_card(DASH_DATA)
+    assert "<i>Today's productivity overview · Fri 17 Jul</i>" in text
+    assert "⚠️ 3 overdue" in text                     # status headline (worst level)
+    assert "Completion: <b>50%</b>" in text           # statistics card metric
+    assert "<i>Good pace — keep going.</i>" in text   # motivation tier 50–79
+    assert _texts(kb) == [["📅 Today", "🎯 Goals", "🌱 Habits"],
+                          ["📋 Tasks", "📊 Statistics"],
+                          ["🔄 Refresh"]]
+    assert _cbs(kb) == [["dash:today", "dash:goals", "dash:habits"],
+                        ["dash:tasks", "dash:stats"],
+                        ["dash:home"]]
+
+
+def test_dashboard_status_level_tiers():
+    text, _ = ui.dashboard_card({"today_count": 4, "overdue": 0})
+    assert "ℹ️ 4 due today" in text                   # no overdue -> info
+    text, _ = ui.dashboard_card({"today_count": 0, "overdue": 0,
+                                  "pending": 1})
+    assert "✅ All clear" in text                     # nothing pressing
+
+
+def test_dashboard_motivation_tiers():
+    assert "Crushing it" in ui.dashboard_card({"completion_rate": 0.9,
+                                                "pending": 1})[0]
+    assert "Warming up" in ui.dashboard_card({"completion_rate": 0.2,
+                                               "pending": 1})[0]
+    assert "Fresh start" in ui.dashboard_card({"completion_rate": 0,
+                                                "pending": 1})[0]
 
 
 def test_dashboard_card_empty_copy():

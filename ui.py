@@ -52,49 +52,103 @@ def section(title, emoji=""):
 
 # ── Cards ─────────────────────────────────────────────
 
+def _dashboard_status_level(data: dict):
+    """Status-card level + headline, deterministic from the counters
+    (UI_SPEC_v1.md §5.4: one status level per message, worst wins)."""
+    overdue = data.get("overdue")
+    today_count = data.get("today_count")
+    if overdue:
+        return "warning", f"{overdue} overdue"
+    if today_count:
+        return "info", f"{today_count} due today"
+    return "success", "All clear"
+
+
+def _dashboard_motivation(pct: float) -> str:
+    """Short motivational status for the productivity card (Phase 2
+    brief) — deterministic tiers, presentation only."""
+    if pct >= 80:
+        return "Crushing it — keep the streak alive!"
+    if pct >= 50:
+        return "Good pace — keep going."
+    if pct > 0:
+        return "Warming up — one task at a time."
+    return "Fresh start — pick one task."
+
+
 def dashboard_card(data: dict):
     """
-    Central hub. `data` keys (all optional, dashboard adapts to what exists):
-      date_str, pending, overdue, upcoming, today_count, done_today,
-      goals, habits, completion_rate, streak_best
+    Central hub, redesigned in UI Phase 2 (UI_SPEC_v1.md §15) as the
+    primary navigation hub. `data` keys (all optional, dashboard adapts
+    to what exists): date_str, pending, overdue, upcoming, today_count,
+    done_today, goals, habits, completion_rate, streak_best.
     Returns (text, InlineKeyboardMarkup).
+
+    Phase 2 constraints honored (tests/test_ui_cards.py pins them):
+    every pre-redesign field renders in the same format; the callback
+    set is EXACTLY the pre-redesign six (dash:today/tasks/goals/habits/
+    stats/home) — the brief's prescribed ➕ Add Task / 🤖 AI /
+    ⚙ Settings / ❓ Help buttons have no existing callbacks, and new
+    callbacks/handler branches are forbidden this phase, so those slots
+    are deferred to Phases 3/5/8 (documented in CHANGELOG). Labels are
+    §7-canonical ("📊 Statistics"); the root page carries Refresh-only
+    navigation per §2.5.
     """
-    header = uic.render_header("home", "BAKA Dashboard",
-                                caption_text=data.get("date_str"))
+    date_str = data.get("date_str")
+    cap = ("Today's productivity overview"
+           + (f" · {date_str}" if date_str else ""))
+    header = uic.render_header("home", "BAKA Dashboard", caption_text=cap)
 
-    lines = []
-    snapshot = []
+    blocks = []
+
+    # ── Status card: 2×2 counters + goals/habits lines ──
+    row_top, row_bottom = [], []
     if data.get("today_count") is not None:
-        snapshot.append(f"📅 Today: {b(data['today_count'])}")
+        row_top.append(f"📅 Today: {b(data['today_count'])}")
     if data.get("overdue") is not None:
-        snapshot.append(f"⚠️ Overdue: {b(data['overdue'])}")
+        row_top.append(f"⚠️ Overdue: {b(data['overdue'])}")
     if data.get("pending") is not None:
-        snapshot.append(f"📋 Pending: {b(data['pending'])}")
+        row_bottom.append(f"📋 Pending: {b(data['pending'])}")
     if data.get("done_today") is not None:
-        snapshot.append(f"✅ Done today: {b(data['done_today'])}")
-    if snapshot:
-        lines.append("  ·  ".join(snapshot))
-        lines.append("")
+        row_bottom.append(f"✅ Done today: {b(data['done_today'])}")
 
+    status_lines = []
+    if row_top:
+        status_lines.append("  ·  ".join(row_top))
+    if row_bottom:
+        status_lines.append("  ·  ".join(row_bottom))
     if data.get("goals"):
-        lines.append(f"🎯 {b('Goals')}: {len(data['goals'])} active")
+        status_lines.append(f"🎯 {b('Goals')}: {len(data['goals'])} active")
     if data.get("habits"):
         best = data.get("streak_best", 0)
-        lines.append(f"🌱 {b('Habits')}: {len(data['habits'])} active"
-                     + (f" · 🔥 best streak {best}" if best else ""))
+        status_lines.append(f"🌱 {b('Habits')}: {len(data['habits'])} active"
+                            + (f" · 🔥 best streak {best}" if best else ""))
+
+    if status_lines:
+        level, headline = _dashboard_status_level(data)
+        blocks.append(uic.render_status_card(level, headline,
+                                              "\n".join(status_lines)))
+    else:
+        blocks.append(i("Nothing tracked yet. Add a task to get started!"))
+
+    # ── Productivity card ──
     if data.get("completion_rate") is not None:
         rate = data["completion_rate"]
-        lines.append(f"📊 Completion: {progress_bar(rate*100 if rate <= 1 else rate)}")
+        pct = rate * 100 if rate <= 1 else rate
+        card = uic.render_statistics_card(
+            "Productivity", [("Completion", f"{int(pct)}%")],
+            progress_percent=pct)
+        blocks.append(f"{card}\n{uic.caption(_dashboard_motivation(pct))}")
 
-    if not snapshot and not data.get("goals") and not data.get("habits"):
-        lines.append(i("Nothing tracked yet. Add a task to get started!"))
-
-    text = uic.render_page(header, "\n".join(lines).rstrip())
+    text = uic.render_page(header, *blocks)
 
     keyboard = uic.keyboard(
-        uic.action_row(("📅 Today", "dash:today"), ("📋 Tasks", "dash:tasks")),
-        uic.action_row(("🎯 Goals", "dash:goals"), ("🌱 Habits", "dash:habits")),
-        uic.action_row(("📊 Stats", "dash:stats"), ("🔄 Refresh", "dash:home")),
+        uic.action_row(("📅 Today", "dash:today"),
+                        ("🎯 Goals", "dash:goals"),
+                        ("🌱 Habits", "dash:habits")),
+        uic.action_row(("📋 Tasks", "dash:tasks"),
+                        ("📊 Statistics", "dash:stats")),
+        uic.nav_row(refresh_cb="dash:home"),
     )
     return text, keyboard
 
