@@ -9,7 +9,46 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.20 — UI Overhaul Phase 6: Release Candidate RC1 (current)
+## v14.21 — Maintenance & Developer Experience (current)
+
+Developer tooling and hygiene only; zero user-feature change; frozen
+files (core/, database, scheduler, conversation state, fmt,
+ui_components) diff-empty.
+
+- **Independent debug ids (Task 1)**: bug ids now display as
+  `DBG-0018` in `/report`, `/bugs`, and `/resolve` replies — they were
+  always an independent `bugs.db` AUTOINCREMENT sequence (verified),
+  never task ids; the prefix ends the visual confusion.
+  `debug_system.format_bug_id()`/`parse_bug_id()` are the single
+  owners; `/resolve` accepts `18`, `#18`, or `DBG-0018`. Storage,
+  schema, callbacks: untouched.
+- **Canonical release-verification guide (Task 2)**: TESTING.md's smoke
+  section rebuilt as the full guide — every domain (dashboard, tasks,
+  goals/projects, habits, templates/memory/search/export, AI, settings,
+  reminders & notification callbacks, debug/bugs, admin incl.
+  silent-deny checks, logging/security) with **[O] Offline** vs
+  **[L] Requires Live Telegram** markers, expected known-issues called
+  out so they don't fail a release by surprise.
+- **Repository cleanup audit (Task 3)**: `REPOSITORY_CLEANUP.md` —
+  every candidate classified (generated/legacy/historical/unknown) with
+  risk + recommendation. **Deletions: none** — nothing met all five
+  criteria; regenerable caches are handled by the reset script instead.
+- **Debug logging (Task 4)**: new rotating, gitignored, lazily-created
+  `debugbot.log` (DEBUG tier — Intent/Routing/Offline decision traces,
+  i.e. the canary diagnostics) alongside an UNCHANGED INFO `bot.log`
+  (retirement assessed, declined). Sanitizer covers both. Root logger
+  DEBUG with production handlers pinned INFO.
+- **Developer reset (Task 5)**: `dev_reset.sh` — explicit-execution
+  removal of `__pycache__`, `.pytest_cache`, `.coverage`, and
+  `debugbot.log*`; never touches source, docs, git, venv, secrets, or
+  any user database (test DBs live in system temp and self-clean).
+
+Suite: **826 tests** (814 + 12). pyflakes: 0 on all touched files +
+`core/` (`main.py` 40 pre-existing).
+
+---
+
+## v14.20 — UI Overhaul Phase 6: Release Candidate RC1
 
 **The UI overhaul is complete.** Final consistency pass; presentation
 only; zero callback/routing/logic/schema change (frozen files verified

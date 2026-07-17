@@ -53,9 +53,10 @@ def test_bugs_card_empty_and_populated():
             (4, "user_report", "saved wrong time", None)]
     text = ui.bugs_card(bugs)
     assert "<i>2 open</i>" in text
-    assert "💥 <b>#3</b> — IndexError in parser" in text       # auto icon
+    # v14.21: DBG-prefixed independent bug ids.
+    assert "💥 <b>DBG-0003</b> — IndexError in parser" in text  # auto icon
     assert "<i>on: kal subah gym</i>" in text
-    assert "📝 <b>#4</b> — saved wrong time" in text            # report icon
+    assert "📝 <b>DBG-0004</b> — saved wrong time" in text       # report icon
     assert "Use resolve &lt;id&gt; to close one." in text
 
 

@@ -14,6 +14,8 @@ bugs.db
 
 # Logs
 bot.log
+debugbot.log
+debugbot.log.*
 *.logbot.log
 
 # Runtime state

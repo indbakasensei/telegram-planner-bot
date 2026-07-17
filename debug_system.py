@@ -160,6 +160,32 @@ def get_bug_detail(bug_id: int) -> tuple:
     conn.close()
     return bug
 
+def format_bug_id(bug_id: int) -> str:
+    """v14.21: the canonical display form for a bug id -- DBG-0018.
+
+    Bug ids were ALWAYS independent of production task ids (bugs live
+    in bugs.db with their own AUTOINCREMENT; planner.db's tasks never
+    share the sequence) -- but the old bare '#18' presentation made
+    them look like task ids. Every surface that shows a bug id renders
+    it through this function now; nothing about storage changed."""
+    return f"DBG-{int(bug_id):04d}"
+
+
+def parse_bug_id(text: str):
+    """v14.21: accept '18', '#18', 'DBG-0018', 'dbg18' etc. -- returns
+    the numeric id or None. Lets /resolve take either the old numeric
+    form or the new display form."""
+    if text is None:
+        return None
+    cleaned = str(text).strip().lstrip("#")
+    if cleaned.upper().startswith("DBG"):
+        cleaned = cleaned[3:].lstrip("-")
+    try:
+        return int(cleaned)
+    except ValueError:
+        return None
+
+
 def resolve_bug(bug_id: int) -> bool:
     conn = sqlite3.connect(BUGS_DB)
     c = conn.cursor()

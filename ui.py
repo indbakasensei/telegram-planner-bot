@@ -487,10 +487,14 @@ def bugs_card(bugs):
         return uic.render_page(
             header,
             uic.empty_dev("bugs list is empty — nothing reported since last review"))
+    from debug_system import format_bug_id
     lines = []
     for bug in bugs:
         icon = "💥" if bug[1] == "auto_exception" else "📝"
-        lines.append(f"{icon} {b('#' + str(bug[0]))} — {esc(bug[2][:60])}")
+        # v14.21: DBG-prefixed ids -- bug numbering was always
+        # independent of task ids (separate bugs.db sequence); the
+        # prefix makes that visible.
+        lines.append(f"{icon} {b(format_bug_id(bug[0]))} — {esc(bug[2][:60])}")
         if bug[3]:
             lines.append(f"   {uic.caption('on: ' + bug[3][:50])}")
     footer = uic.render_footer("Use resolve <id> to close one.")

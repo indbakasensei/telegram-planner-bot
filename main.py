@@ -3,6 +3,7 @@ import re
 import sys
 import time
 import logging
+import logging.handlers
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -92,6 +93,28 @@ logging.basicConfig(
     level=logging.INFO,
     handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
+
+# v14.21: dedicated developer debug log. Production logging is
+# UNCHANGED -- bot.log and the console stay INFO-filtered (their
+# handlers are pinned to INFO below); debugbot.log additionally
+# captures DEBUG records (the Intent/Routing/Offline decision blocks,
+# [Offline]/[Offline Commit] traces, etc.) in a rotating, gitignored,
+# safe-to-delete file. Created lazily on first DEBUG record; the
+# log sanitizer attaches to it like every other root handler (it is
+# registered before install_log_sanitizer() runs below). Delete it
+# any time -- dev_reset.sh does. See DEBUGGING.md "Debug logging
+# workflow".
+for _h in logging.getLogger().handlers:
+    _h.setLevel(logging.INFO)
+_debug_handler = logging.handlers.RotatingFileHandler(
+    "debugbot.log", maxBytes=2_000_000, backupCount=3, delay=True,
+    encoding="utf-8")
+_debug_handler.setLevel(logging.DEBUG)
+_debug_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logging.getLogger().addHandler(_debug_handler)
+logging.getLogger().setLevel(logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 # v14.12: production log hygiene. httpx emits one INFO line per Telegram
@@ -1702,8 +1725,9 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     desc = " ".join(context.args)
     bug_id = dbg.report_bug(user_id, desc)
+    # v14.21: DBG-prefixed display id (independent bug numbering).
     await update.message.reply_text(
-        f"✅ Bug #{bug_id} saved with full context!\n"
+        f"✅ Bug {dbg.format_bug_id(bug_id)} saved with full context!\n"
         f"I captured your last message and what I understood from it.\n"
         f"Use /bugs to see all reports.",
         reply_markup=main_menu()
@@ -1720,14 +1744,17 @@ async def resolve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /resolve <bug_id>")
         return
-    try:
-        bug_id = int(context.args[0])
-        if dbg.resolve_bug(bug_id):
-            await update.message.reply_text(f"✅ Bug #{bug_id} marked resolved!", reply_markup=main_menu())
-        else:
-            await update.message.reply_text(f"❌ Bug #{bug_id} not found.")
-    except ValueError:
+    # v14.21: accepts '18', '#18', or 'DBG-0018' (parse_bug_id).
+    bug_id = dbg.parse_bug_id(context.args[0])
+    if bug_id is None:
         await update.message.reply_text("Usage: /resolve <number>")
+        return
+    if dbg.resolve_bug(bug_id):
+        await update.message.reply_text(
+            f"✅ Bug {dbg.format_bug_id(bug_id)} marked resolved!",
+            reply_markup=main_menu())
+    else:
+        await update.message.reply_text(f"❌ Bug {dbg.format_bug_id(bug_id)} not found.")
 
 async def trace_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v14.18 (Phase 5R): presentation extracted to ui.trace_card().

@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**814 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**826 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~15-40 seconds, all 814 tests
+pytest                             # ~15-40 seconds, all 826 tests
 ```
 
 | File | Tests | Covers |
@@ -42,48 +42,115 @@ pytest                             # ~15-40 seconds, all 814 tests
 | `tests/test_ui_cards.py` | 36 | Characterization tests for `ui.py`'s eight dashboard cards (UI Phase 1's mandatory first task — written against the pre-migration output, kept green through it): every field byte-exact (ids, titles, dates, streaks, percentages, insight lines, empty-state copy verbatim), every button label and callback_data byte-exact (reminder-ping buttons regression-critical), progress-bar/priority-dot/recurrence-icon exact formats, strikethrough on completed, dict-and-tuple task inputs, hostile-title escaping across cards; headings pinned case-insensitively (§5.1 uppercase H1 is the one permitted visible delta) |
 | `tests/test_ui_utility_cards.py` | 18 | The utility-screen builders (extracted in Phase 5R, redesigned onto the component library in Phase 5 / v14.19 — these pins are the after-picture): settings (quiet-hours variants), debug toggle, bugs (empty/populated, auto-vs-report icons), trace (none/populated), insights (not-enough-data + full render), admin panel (stats + mode states), proactive (wellness toggle), help (structure, version, expandable sections, **admin-only section visibility**, broken-analytics commands unadvertised), AI status (error trio; success fields, escaped errors, quick-vs-full hint, the one extracted keyboard's `dash:home` Re-run callback pinned), models (online/offline/skipped + with/without analytics stats), selftest report (ok/failed verdicts, environment/flag blocks). Handlers are thin wrappers now — their calling lines still need the live smoke checklist |
 | `tests/test_ui_components.py` | 38 | `ui_components.py`, the UI Phase 0 component library (UI_SPEC_v1.md §12): HTML generation with hostile input for every builder (headers, breadcrumbs, sections, pages, cards, states, confirmation dialogs), the §14 canonical empty-state copy pinned verbatim, button/keyboard generation, and every mechanical spec enforcement's raise path (closed icon vocabulary §5.5, canonical labels §7, status-never-without-words §6.3, 8-row card cap §5.3, 4,000-char page budget §6.1, 64-byte callbacks §5.7, 3-per-row / 12-per-message button caps §6.2, fixed Back·Refresh·Home nav order and no-empty-keyboard rule §2.5, safe-left confirmations §8, 3-segment breadcrumb depth §2.4), plus `fmt.link()` escaping |
+| `tests/test_debug_ids.py` | 12 | `debug_system`'s independent bug-id presentation (v14.21): `DBG-0018` formatting (zero-padded, grows past 4 digits), tolerant parsing of every display form (`18`/`#18`/`DBG-0018`/`dbg18`/whitespace), rejection of malformed input, and format↔parse round-trip — pure helpers, never touches `bugs.db` |
 | `tests/test_storage_facade.py` | 18 | `core/storage/`'s Storage Facade (v14.1C): every `TaskStorage`/`HabitStorage`/`GoalStorage`/`ProjectStorage` method delegates to exactly the `database.py` function it wraps, verified by asserting the facade's return value equals calling `database.py` directly (not just "doesn't crash") — proves pure delegation, zero reshaping (100% coverage of `core/storage/`) |
 | `tests/test_feature_flags.py` | 19 | `core/feature_flags.py`'s rollout flags (v14.1C): the `_flag()` helper across truthy/falsy env-var spellings, all four flags defaulting OFF when unset, and — via `importlib.reload()` — that the exported constants actually pick up an environment variable at import time, not just the helper function in isolation (100% coverage of `core/feature_flags.py`) |
 
-## Manual smoke checklist (v14.12, extended through UI RC1 v14.20 — run live in Telegram before any release)
+## Release Verification Guide (v14.21 — the canonical checklist)
 
-**RC1 additions** — beyond the numbered steps below, verify in the same
-session: every redesigned screen renders as HTML with no `<b>`-style
-raw tags visible (`dashboard`, `list`/`today`/task detail, `habits`/
-`streak <id>`/`habitlog <id>`/`addhabit`/`skiphabit <id>`, `goals`,
-`settings`, `insights`, `proactive`, `admin`, `debug`/`bugs`/`trace`,
-`status`, `models`, `help`, `selftest`); a habit titled `a*b_c` renders
-un-corrupted (the closed v7.1 bug); every dashboard button navigates
-by editing in place; the AI-status Re-run button returns Home.
+Two layers: **[O] Offline** = covered by the automated pytest suite
+(run `pytest`; green = verified). **[L] Requires Live Telegram** = must
+be exercised in a real session (handlers, callbacks, rendered HTML,
+scheduler pings — the suite deliberately never touches Telegram).
+Before ANY release: run the suite, then walk every [L] block below in
+one live session. The legacy 72-message parser checklist survives in
+`debug_system.SELFTEST_MESSAGES` for deep date-parser regressions.
 
-The automated suite deliberately never touches Telegram, so these must
-be verified in a live session (this replaces the old `/selftest` manual
-checklist, which is now a diagnostics report; the old 72-message list
-still exists in `debug_system.SELFTEST_MESSAGES` if needed):
+### Core engines & plumbing
+- [O] Intent Engine classification (all tiers) — `test_intent_engine`
+- [O] Routing Layer decisions — `test_routing_layer`
+- [O] Offline Engine dispatch, registry, all Task+Habit actions —
+  `test_offline_engine`, `test_action_registry`, per-action suites
+- [O] Storage Facade delegation — `test_storage_facade`
+- [O] Conversation state + ADR-011 gate predicate —
+  `test_conversation_state`
+- [O] Scheduler internals (quiet hours, due/followup/carry-forward) —
+  `test_scheduler`
+- [O] Database CRUD/migrations/integrity — `test_database`
+- [O] Log sanitizer masking — `test_log_sanitizer`
+- [O] All UI builders/components — `test_ui_*`
+- [L] Offline Engine end-to-end (only with `OFFLINE_TASKS`/`OFFLINE_HABITS`
+  ON): task+habit commands answer from the offline path; `debugbot.log`
+  shows `[Offline]` blocks; unknown phrases still reach the AI;
+  mid-confirmation `done 1` re-prompts (ADR-011) in both flag states.
 
-1. **`/help`** — two messages render with expandable sections; admin
-   section appears only for the admin account; no `BadRequest`.
-2. **`/selftest`** — all live checks ✅; environment/flags blocks show
-   the right version, provider, and models; report renders as HTML.
-3. **Task lifecycle** — `add task Smoke test tomorrow 6pm` → confirm →
-   `list` → `edit <id>` → change time → `done <id>` → `delete <id>` →
-   confirm.
-4. **Habit lifecycle** — `addhabit Smoke habit at 07:00 daily` →
-   `habits` → `done <id>` (streak 1) → `done <id>` again (already
-   logged) → `streak <id>` → `skiphabit <id>` → delete it.
-5. **Offline routing** (only with a flag ON) — the same commands with
-   `OFFLINE_TASKS=true`/`OFFLINE_HABITS=true`: replies arrive, `bot.log`
-   shows `[Offline]` blocks, unknown phrases still reach the AI.
-6. **State priority (ADR-011)** — start `add task X` so BAKA asks to
-   confirm, then send `done 1`: it must RE-PROMPT (not complete task 1),
-   with flags on and off alike.
-7. **Legacy fallback** — `/habits` with all flags OFF behaves exactly as
-   before; `goals`, `dashboard`, AI chat all unaffected.
-8. **Rich formatting** — a task titled `a<b>&c` renders escaped
-   everywhere (list, done, delete preview).
-9. **Logging** — after a few commands, `grep -c 'api.telegram.org/bot'
-   bot.log` shows only `botxxxxxxxxxxxxxxxx` forms; no raw token; no
-   per-request httpx INFO noise.
+### Dashboard [L]
+`dashboard` → home renders (status card, productivity card) → every
+button edits in place: `dash:today`, `dash:tasks` (+ per-task open →
+task detail buttons Done/Snooze/Tomorrow/Edit/Delete/Back),
+`dash:goals` (➕/➖ adjust progress inline), `dash:habits` (✅ Did
+check-in), `dash:stats`, `🔄 Refresh`. Known dead-ends (documented, do
+not fail the release on them): `dash:models_view/perf_view/errors_view`
+from the `usage` keyboard.
+
+### Tasks [L]
+`add task Smoke test tomorrow 6pm` → confirm card → yes · `list` /
+`today` / `week` / `overdue` / `search smoke` · `edit <id>` → change
+time → applied · `done <id>` · `delete <id>` → confirm · `deadline
+<id>` toggle · `snooze/pause/resume/paused/carryforward` · tags:
+`tag <id> x` + `tagged x` · hostile title `a<b>&c` renders escaped
+everywhere. Recurring-task detail via `dash:task:<id>`: EXPECTED BUG —
+renders as completed (documented, v15).
+
+### Habits [L]
+`addhabit Smoke habit at 07:00 daily` (HTML card) · `habits` ·
+`done <id>` (streak 1) · `done <id>` again (already logged) ·
+`streak <id>` (grid) · `habitlog <id>` · `skiphabit <id>` · habit
+titled `a*b_c` renders un-corrupted (closed v7.1 bug) · delete the
+habit (task-delete path).
+
+### Goals & Projects [L]
+Say "I want to read 12 books this year" → goal created · `goals` +
+➕/➖ buttons · `need <id> item1,item2` · `got item1` · `started <id>` ·
+`worklog <id> note` · `project <id>` · `projects` · `shopping` ·
+`finished <id>`.
+
+### Templates, Memory, Search, Export [L]
+`savetemplate name <id>` · `template` · `template name` · "Remember my
+exam is June 20" → `memory` → ask "when is my exam?" · `forget <key>` ·
+`search <keyword>` (tasks+memories+habits+goals) · `export`.
+
+### AI [L]
+Free-text chat reply · `think <question>` · `plan today` → Apply
+confirm flow · `plan week` · `breakdown <id>` · `reschedule <id>` ·
+`analyze` · `insights` (HTML card) · `suggestions`/`approve`/`dismiss` ·
+`status` + `status full` (benchmark card, Re-run button → Home) ·
+`models` · `image <prompt>` · `video <prompt>` · send a photo.
+KNOWN EMPTY (documented): `usage`, `performance`, `errors`.
+
+### Settings & Utilities [L]
+`settings` (HTML card) · `quiethours 22:00 07:00` → re-check settings ·
+`interval 15` · `wellness on` / `off` · `proactive` · `help` (2
+messages, expandable sections; admin section only for admin) ·
+`cancel` escapes any pending state.
+
+### Reminders & notifications [L]
+Create a task due in ~2 min → reminder ping arrives with buttons →
+test each: ✅ Done · ⏰ 10m · 🕐 1h · 📅 Tomorrow · 🔕 Stop · 🗑 Delete
+(re-create between tests) · follow-up prompt after due time passes ·
+quiet hours suppress pings · end-of-day summary at 21:00 (or verify
+job scheduled in logs).
+
+### Debug & bug reporting [L]
+`debug` toggle ON (intent shown after messages) and OFF · `report test
+issue` → reply shows `DBG-xxxx` id · `bugs` (DBG-prefixed list) ·
+`resolve DBG-xxxx` and `resolve <n>` both work · `trace` (JSON entities
+code block) · `selftest` (all checks ✅; version/provider/flags
+correct).
+
+### Admin [L] (admin account + one non-admin account)
+Non-admin: `admin`, `sql`, `resettasks`, `debug`-era admin cmds →
+silent "Unknown command" · `help` shows no admin section. Admin:
+`admin` panel (stats card) · `adminmode` toggle · `myid` · destructive
+resets ONLY on a disposable database: `resettasks` → YES RESET flow ·
+`resolve`/`misses`/`reviewed`.
+
+### Logging & security [L]
+After the session: `grep -c 'api.telegram.org/bot' bot.log` → only
+`botxxxxxxxxxxxxxxxx` masked forms, zero raw tokens · no httpx
+per-request INFO noise · `debugbot.log` exists, contains DEBUG decision
+traces, ids/keys sanitized · delete `debugbot.log` → recreated on next
+DEBUG record.
 
 **Found and fixed 3 real bugs in `date_parser.py` while writing tests**
 (not scope creep — permitted and expected: writing a test against actual

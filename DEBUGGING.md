@@ -513,6 +513,31 @@ formatting (help/selftest are already rich-HTML; the older ones —
 settings, models, insights, proactive, admin, the three dash views —
 remain pre-overhaul).
 
+### Debug logging workflow (v14.21)
+
+Two log files, two jobs:
+
+- **`bot.log`** — the production record, unchanged: INFO-level, sanitized
+  (`log_sanitizer.py`), the file to read for incidents. **Retirement
+  assessed and declined** (v14.21 Task 4): it stays the operational
+  diagnostic record; `debugbot.log` supplements, never replaces it.
+- **`debugbot.log`** — developer debugging only (v14.21): a rotating
+  (2 MB × 3), gitignored, lazily-created DEBUG-level file that
+  additionally captures everything the DEBUG tier emits — the Intent
+  Engine classifications, RoutingDecisions, `[Offline]`/`[Offline
+  Commit]`/`[Offline Update]` blocks — i.e. exactly the canary
+  diagnostics, without flipping production to DEBUG. Same sanitizer
+  applies (the handler registers before `install_log_sanitizer()`).
+  Delete it any time; `./dev_reset.sh` does. Implementation: root
+  logger at DEBUG, the bot.log/console handlers pinned to INFO, the
+  rotating handler at DEBUG (`main.py`, logging block).
+
+Also v14.21: bug ids display as `DBG-0018` everywhere (`/report`
+confirmation, `/bugs`, `/resolve` replies) — they were always a
+separate `bugs.db` sequence, never task ids; the prefix makes that
+visible. `/resolve` accepts `18`, `#18`, or `DBG-0018`
+(`debug_system.parse_bug_id`).
+
 ### Remaining Markdown reply sites in main.py — presentation debt inventory (UI RC1, v14.20)
 
 After RC1, **91 `parse_mode="Markdown"` sites remain in `main.py`** —
