@@ -9,7 +9,41 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.15 — UI Overhaul Phase 2: Dashboard Redesign (current)
+## v14.16 — UI Overhaul Phase 3: Task Workflow (current)
+
+Task List, Today, and Task Details redesigned on the component library
+(UI_SPEC_v1.md §15 Phase 3) — presentation only, `ui.py` alone changed,
+every callback_data byte-identical (pinned).
+
+- **Task Details** (`task_card`): `📌 TASK <id>` header + title line
+  (priority dot/recurrence preserved) + labeled
+  `render_information_card` (Due/Time/Category/Priority). Button grid
+  unchanged.
+- **Task List**: count caption (`1 task` / `10 of 12 tasks`), §14
+  canonical empty state (`empty_tasks()` — the approved wording
+  replaces "No tasks here. Add one anytime!"). The 10-item slice is
+  preserved; §6.2 pagination *buttons* would need new `pg:` callbacks —
+  forbidden this phase, deferred.
+- **Today**: grouping/ordering/counters untouched; §14 empty state
+  (`empty_today()`).
+- **Loading states**: none exist on these screens and none were added —
+  §11.3 forbids loading UI for deterministic DB reads (documented, not
+  an omission).
+
+**Real bug found during Phase 3, preserved + pinned, NOT fixed**
+(DEBUGGING.md): `get_task_by_id()` returns 7 columns but `task_card`
+reads `done` at index 6 — production's recurring-task detail view shows
+✅ with no action buttons ("daily" is truthy there). Presentation-only
+phase replicates it; the one-line fix needs Board sign-off (it is a
+behavior change). Same 7-column row is why the brief's richer detail
+fields (tags/subtasks/reminder state) are deferred — rendering them
+requires a wider database read.
+
+Suite: **787 tests** (785 + 2 net). pyflakes: 0.
+
+---
+
+## v14.15 — UI Overhaul Phase 2: Dashboard Redesign
 
 `ui.dashboard_card()` redesigned as the primary navigation hub
 (UI_SPEC_v1.md §15 Phase 2) — presentation only, one function changed,

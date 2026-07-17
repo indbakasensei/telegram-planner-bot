@@ -138,13 +138,16 @@ def test_dashboard_card_empty_copy():
     assert "Nothing tracked yet. Add a task to get started!" in text
 
 
-# ── Task card ────────────────────────────────────────────────────────────
+# ── Task card (detail — redesigned in Phase 3; fields + callbacks
+#    pinned across the redesign) ──────────────────────────────────────────
 
 def test_task_card_fields_and_buttons():
     text, kb = ui.task_card(TASK)
+    first = text.splitlines()[0]
+    assert first.startswith("📌") and "task 17" in first.lower()
     assert "🔴 <b>Submit report</b> 🔁" in text
-    assert "📅 2026-07-18" in text and "⏰ 17:00" in text
-    assert "🏷 College" in text and "🔴 high" in text
+    assert "📅 Due: 2026-07-18" in text and "⏰ Time: 17:00" in text
+    assert "🏷 Category: College" in text and "🔴 Priority: high" in text
     assert _texts(kb) == [["✅ Done", "⏰ Snooze", "📅 Tomorrow"],
                           ["✏️ Edit", "🗑 Delete", "« Back"]]
     assert _cbs(kb) == [["done:17", "snooze:17:30", "postpone:17"],
@@ -153,13 +156,31 @@ def test_task_card_fields_and_buttons():
 
 def test_task_card_done_has_check_and_no_keyboard():
     text, kb = ui.task_card(TASK_DONE)
-    assert text.startswith("✅ <b>Old chore</b>")
+    assert "✅ <b>Old chore</b>" in text
     assert kb is None
 
 
 def test_task_card_accepts_dicts():
     text, _ = ui.task_card({"id": 5, "title": "Dict task", "priority": "low"})
     assert "🟢 <b>Dict task</b>" in text
+
+
+def test_task_detail_seven_tuple_recurring_quirk_preserved():
+    # KNOWN QUIRK, deliberately pinned (found in Phase 3, DEBUGGING.md):
+    # the real dash:task caller passes get_task_by_id()'s 7-tuple, whose
+    # index 6 is recurrence_type -- so a RECURRING task's detail renders
+    # as completed (✅, no keyboard) in production. Phase 3 replicates,
+    # never "fixes", presentation-only. If this test fails, someone
+    # changed behavior -- take it to the Board first.
+    seven = (21, "Water plants", "2026-07-18", "07:00", "Health", "low", "daily")
+    text, kb = ui.task_card(seven)
+    assert "✅ <b>Water plants</b>" in text
+    assert kb is None
+    # Non-recurring 7-tuples are unaffected (index 6 is None).
+    seven_plain = (22, "One-off", None, None, "General", "low", None)
+    text, kb = ui.task_card(seven_plain)
+    assert "🟢 <b>One-off</b>" in text
+    assert kb is not None
 
 
 # ── Today card ───────────────────────────────────────────────────────────
@@ -184,9 +205,10 @@ def test_today_card_groups_and_fields():
     assert _texts(kb) == [["🔄 Refresh", "🏠 Home"]]
 
 
-def test_today_card_empty_copy():
+def test_today_card_empty_uses_canonical_copy():
+    # Phase 3: §14's approved empty-state wording via empty_today().
     text, _ = ui.today_card({})
-    assert "Nothing scheduled today. Enjoy! 🌟" in text
+    assert "Nothing due today." in text
 
 
 # ── Task list card ───────────────────────────────────────────────────────
@@ -204,9 +226,21 @@ def test_task_list_card_rows_and_buttons():
     assert _texts(kb)[-1] == ["🔄 Refresh", "🏠 Home"]
 
 
-def test_task_list_card_empty_copy():
+def test_task_list_card_empty_uses_canonical_copy():
+    # Phase 3: §14's approved empty-state wording via empty_tasks().
     text, _ = ui.task_list_card([])
-    assert "No tasks here. Add one anytime!" in text
+    assert "No tasks — you're all caught up." in text
+    assert "add task Read chapter 4 tomorrow 6pm" in text
+
+
+def test_task_list_card_count_caption():
+    text, _ = ui.task_list_card([TASK])
+    assert "<i>1 task</i>" in text
+    many = [(k, f"T{k}", None, None, "G", "low", 0, None) for k in range(1, 13)]
+    text, kb = ui.task_list_card(many)
+    assert "<i>10 of 12 tasks</i>" in text
+    # Pre-existing slice preserved: 10 task rows + nav row.
+    assert len(kb.inline_keyboard) == 11
 
 
 # ── Goal card ────────────────────────────────────────────────────────────

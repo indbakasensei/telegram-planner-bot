@@ -178,21 +178,31 @@ def task_card(task, show_actions=True):
         done = task[6] if len(task) > 6 else 0
         recurrence = task[7] if len(task) > 7 else None
 
+    # KNOWN QUIRK, preserved (v9.0, found + documented in Phase 3 --
+    # DEBUGGING.md): the real caller (dash:task -> get_task_by_id)
+    # passes a 7-tuple whose index 6 is recurrence_type, not `done` --
+    # so a RECURRING task's detail view renders as completed (✅, no
+    # action buttons) in production. Phase 3 is presentation-only and
+    # replicates it; the fix (widening get_task_by_id or reindexing)
+    # is a behavior change deferred to the Board.
     dot = "✅" if done else priority_dot(priority)
     rec = recurrence_icon(recurrence)
     rec_s = f" {rec}" if rec else ""
 
-    lines = [f"{dot} {b(title)}{rec_s}"]
-    # meta is escaped ONCE, by caption() -- items must stay raw here.
-    meta = []
+    header = uic.render_header("task", f"Task {tid}")
+    title_line = f"{dot} {b(title)}{rec_s}"
+    info_rows = []
     if ddate:
-        meta.append(f"📅 {ddate}")
+        info_rows.append(("📅 Due", ddate))
     if dtime:
-        meta.append(f"⏰ {dtime}")
-    meta.append(f"🏷 {category}")
-    meta.append(f"{priority_dot(priority)} {priority}")
-    lines.append(uic.caption(" · ".join(meta)))
-    text = "\n".join(lines)
+        info_rows.append(("⏰ Time", dtime))
+    info_rows.append(("🏷 Category", category))
+    info_rows.append((f"{priority_dot(priority)} Priority", priority))
+    body = f"{title_line}\n{uic.render_information_card('Details', info_rows)}"
+    # Richer detail fields (tags, subtasks, reminder/deadline state) are
+    # NOT in the 7-column row the handler passes; rendering them would
+    # need a wider database read -- deferred, documented in CHANGELOG.
+    text = uic.render_page(header, body)
 
     if not show_actions or done:
         return text, None
@@ -241,7 +251,8 @@ def today_card(groups: dict, date_str=""):
 
     total = sum(len(groups.get(k, [])) for k in ("overdue", "high", "upcoming"))
     if total == 0 and not done:
-        lines.append(i("Nothing scheduled today. Enjoy! 🌟"))
+        # Phase 3: the §14 canonical empty state (approved wording).
+        lines.append(uic.empty_today())
 
     text = uic.render_page(header, "\n".join(lines).rstrip())
     keyboard = uic.keyboard(
@@ -250,12 +261,18 @@ def today_card(groups: dict, date_str=""):
 
 
 def task_list_card(tasks, title="Your Tasks", page_cb="dash:tasks"):
-    """List of tasks, each tappable to open its task_card."""
-    header = uic.render_header("list", title)
+    """List of tasks, each tappable to open its task_card. Shows the
+    first 10 (pre-existing slice; §6.2 pagination buttons would need
+    new pg: callbacks -- forbidden this phase, deferred)."""
+    shown = min(len(tasks), 10)
+    cap = (f"{shown} of {len(tasks)} tasks" if len(tasks) > 10
+           else f"{len(tasks)} task{'s' if len(tasks) != 1 else ''}") if tasks else None
+    header = uic.render_header("list", title, caption_text=cap)
     lines = []
     rows = []
     if not tasks:
-        lines.append(i("No tasks here. Add one anytime!"))
+        # Phase 3: the §14 canonical empty state (approved wording).
+        lines.append(uic.empty_tasks())
     else:
         for t in tasks[:10]:
             dot = priority_dot(t[5] if len(t) > 5 else "medium")

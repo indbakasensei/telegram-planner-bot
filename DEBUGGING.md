@@ -483,6 +483,22 @@ of every habit code path:
   creates yield two habits in both paths (test-pinned). Contrast with
   task creation, which duplicate-checks in both paths.
 
+### Recurring tasks render as "completed" in the dashboard task-detail view (v9.0, found during UI Phase 3)
+
+`get_task_by_id()` returns a **7-column** row ending in
+`recurrence_type`, but `ui.task_card()` reads `done = task[6]` (its
+documented 8-tuple shape puts `done` there). For the real
+`dash:task:<id>` caller this means **a recurring task's detail screen
+shows ✅ and no action buttons** — `"daily"` at index 6 is truthy — and
+its recurrence icon is missing (read from absent index 7). Non-recurring
+tasks are unaffected (index 6 is `None`). Pre-existing since v9.0;
+UI Phase 3 (presentation-only) **replicates and pins it**
+(`test_task_detail_seven_tuple_recurring_quirk_preserved`) rather than
+fixing it — the fix (widen `get_task_by_id`'s SELECT or reindex the
+card) is a small behavior change needing Board sign-off. Also blocks
+richer detail fields (tags/subtasks/deadline state): they aren't in the
+7-column row, so rendering them awaits the same widened read.
+
 ### Offline Engine gate runs before the confirming/gathering state branches — RESOLVED in v14.12 (ADR-011 Option A applied)
 
 **Resolution (v14.12):** `main.py`'s intent-gated Offline dispatch now

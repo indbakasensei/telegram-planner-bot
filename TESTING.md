@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**785 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**787 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~20 seconds, all 785 tests
+pytest                             # ~20 seconds, all 787 tests
 ```
 
 | File | Tests | Covers |
@@ -39,7 +39,7 @@ pytest                             # ~20 seconds, all 785 tests
 | `tests/test_conversation_state.py` | 13 | `conversation_state.py` (first covered v14.12): the ADR-011 Option A dispatch-priority rule (`claims_messages()` truth table — `idle` allows intent-gated Offline dispatch, `confirming`/`gathering`/`editing` block it; the mid-confirmation/"done 5" regression pin), plus the state-machine contracts every Offline write flow relies on (pending-action, gathering, editing round-trips; clear-state; history cap) |
 | `tests/test_fmt.py` | 7 | `fmt.py` (first covered v14.12): the always-escape property for every wrapper (the v7.1 Markdown-corruption lesson), the new rich-UI helpers (spoiler, blockquote, expandable blockquote, language-tagged code blocks), and the explicit `escape=False` opt-in for embedding pre-built HTML |
 | `tests/test_log_sanitizer.py` | 10 | `log_sanitizer.py` (first covered v14.12, with the token-leak fix): masking pinned against the EXACT httpx request-line format that leaked the bot token (`/bot<id>:<token>/` — the old regex never matched it), bare-token masking, NVIDIA/OpenAI keys, Bearer/Cookie headers, URL query secrets, user-id redaction (admin vs. others), never-crash and idempotent-install properties |
-| `tests/test_ui_cards.py` | 25 | Characterization tests for `ui.py`'s eight dashboard cards (UI Phase 1's mandatory first task — written against the pre-migration output, kept green through it): every field byte-exact (ids, titles, dates, streaks, percentages, insight lines, empty-state copy verbatim), every button label and callback_data byte-exact (reminder-ping buttons regression-critical), progress-bar/priority-dot/recurrence-icon exact formats, strikethrough on completed, dict-and-tuple task inputs, hostile-title escaping across cards; headings pinned case-insensitively (§5.1 uppercase H1 is the one permitted visible delta) |
+| `tests/test_ui_cards.py` | 27 | Characterization tests for `ui.py`'s eight dashboard cards (UI Phase 1's mandatory first task — written against the pre-migration output, kept green through it): every field byte-exact (ids, titles, dates, streaks, percentages, insight lines, empty-state copy verbatim), every button label and callback_data byte-exact (reminder-ping buttons regression-critical), progress-bar/priority-dot/recurrence-icon exact formats, strikethrough on completed, dict-and-tuple task inputs, hostile-title escaping across cards; headings pinned case-insensitively (§5.1 uppercase H1 is the one permitted visible delta) |
 | `tests/test_ui_components.py` | 38 | `ui_components.py`, the UI Phase 0 component library (UI_SPEC_v1.md §12): HTML generation with hostile input for every builder (headers, breadcrumbs, sections, pages, cards, states, confirmation dialogs), the §14 canonical empty-state copy pinned verbatim, button/keyboard generation, and every mechanical spec enforcement's raise path (closed icon vocabulary §5.5, canonical labels §7, status-never-without-words §6.3, 8-row card cap §5.3, 4,000-char page budget §6.1, 64-byte callbacks §5.7, 3-per-row / 12-per-message button caps §6.2, fixed Back·Refresh·Home nav order and no-empty-keyboard rule §2.5, safe-left confirmations §8, 3-segment breadcrumb depth §2.4), plus `fmt.link()` escaping |
 | `tests/test_storage_facade.py` | 18 | `core/storage/`'s Storage Facade (v14.1C): every `TaskStorage`/`HabitStorage`/`GoalStorage`/`ProjectStorage` method delegates to exactly the `database.py` function it wraps, verified by asserting the facade's return value equals calling `database.py` directly (not just "doesn't crash") — proves pure delegation, zero reshaping (100% coverage of `core/storage/`) |
 | `tests/test_feature_flags.py` | 19 | `core/feature_flags.py`'s rollout flags (v14.1C): the `_flag()` helper across truthy/falsy env-var spellings, all four flags defaulting OFF when unset, and — via `importlib.reload()` — that the exported constants actually pick up an environment variable at import time, not just the helper function in isolation (100% coverage of `core/feature_flags.py`) |
