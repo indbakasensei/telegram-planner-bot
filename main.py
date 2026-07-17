@@ -2712,33 +2712,13 @@ async def overload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── v5.0: Habit Engine Commands ───────────────────────
 async def habits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all habits with streak summary."""
+    """List all habits with streak summary. v14.20 (RC1): HTML via
+    ui.habits_overview_card() -- closes the documented Markdown
+    title-corruption bug on this surface."""
     user_id = update.message.from_user.id
     habits = get_habits(user_id)
-    if not habits:
-        await update.message.reply_text(
-            "🌱 *No habits yet!*\n\n"
-            "Start one with:\n"
-            "_'I want to run every day at 6 AM'_\n"
-            "_'addhabit Drink water hourly'_\n"
-            "_'gym every monday at 7 AM'_",
-            parse_mode="Markdown", reply_markup=main_menu()
-        )
-        return
-    msg = f"🌱 *Your Habits ({len(habits)})*\n\n"
-    for h in habits:
-        hid, title, dtime, rec, weekday, streak, longest, last_done, start = h
-        streak = streak or 0
-        fire = "🔥" * min(streak, 5) if streak > 0 else "○"
-        rec_label = "daily" if rec == "daily" else f"weekly (day {weekday})" if rec == "weekly" else rec or "—"
-        msg += f"*[{hid}]* {title}\n"
-        msg += f"   {fire} Streak: *{streak}* | Best: {longest or 0}\n"
-        msg += f"   ⏰ {dtime or 'flexible'} • {rec_label}\n"
-        if last_done:
-            msg += f"   Last done: {last_done}\n"
-        msg += "\n"
-    msg += "_Mark done daily to build streaks!_\nUse /streak <id> for details."
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(UI.habits_overview_card(habits),
+                                    parse_mode=HTML, reply_markup=main_menu())
 
 
 async def streak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2766,35 +2746,10 @@ async def streak_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not habits:
         await update.message.reply_text("Habit not found or paused.")
         return
-    h = habits[0]
-    _, title, dtime, rec, weekday, streak, longest, last_done, start = h
-    streak = streak or 0
-    longest = longest or 0
-
-    msg = f"🌱 *{title}*\n\n"
-    msg += f"🔥 Current streak: *{streak} day{'s' if streak != 1 else ''}*\n"
-    msg += f"🏆 Longest streak: *{longest} day{'s' if longest != 1 else ''}*\n"
-    msg += f"📅 Started: {start or '?'}\n"
-    if last_done:
-        msg += f"✅ Last done: {last_done}\n"
-    msg += f"\n*Last 14 days:*\n"
-
-    # Visual 14-day grid
-    from datetime import date as _d
-    today = datetime.now(IST).date()
-    logged_dates = {row[0] for row in log if row[1]}
-    bar = ""
-    for i in range(13, -1, -1):
-        day = today - timedelta(days=i)
-        bar += "🟩" if day.strftime("%Y-%m-%d") in logged_dates else "⬜"
-    msg += bar + "\n"
-
-    if missed:
-        msg += f"\n⚠️ Missed {len(missed)} day(s) in this window."
-        if len(missed) >= 3:
-            msg += "\n💡 _Tip: try changing the time or making it easier._"
-
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+    # v14.20 (RC1): HTML via ui.habit_streak_card().
+    await update.message.reply_text(
+        UI.habit_streak_card(habits[0], log, missed, datetime.now(IST).date()),
+        parse_mode=HTML, reply_markup=main_menu())
 
 
 async def habitlog_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2814,29 +2769,22 @@ async def habitlog_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     log = get_habit_log(hid, user_id, days=30)
+    # v14.20 (RC1): HTML via ui.habit_log_card() (handles the empty-log
+    # variant; keyboard presence preserved per variant).
     if not log:
-        await update.message.reply_text(f"No log entries yet for *{task[1]}*.",
-                                        parse_mode="Markdown")
+        await update.message.reply_text(UI.habit_log_card(task[1], log),
+                                        parse_mode=HTML)
         return
-    msg = f"📊 *Log for {task[1]}* (last 30 days)\n\n"
-    for d, completed in log[:30]:
-        emoji = "✅" if completed else "❌"
-        msg += f"{emoji} {d}\n"
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(UI.habit_log_card(task[1], log),
+                                    parse_mode=HTML, reply_markup=main_menu())
 
 
 async def addhabit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Quick habit creation from a single command."""
     user_id = update.message.from_user.id
     if not context.args:
-        await update.message.reply_text(
-            "🌱 *Add a habit*\n\n"
-            "Usage: /addhabit <habit name> [at HH:MM] [daily|weekly]\n"
-            "Example: /addhabit Drink water at 09:00 daily\n\n"
-            "Or just say it naturally:\n"
-            "_'I want to run every day at 6 AM'_",
-            parse_mode="Markdown"
-        )
+        # v14.20 (RC1): HTML via ui.habit_usage_card().
+        await update.message.reply_text(UI.habit_usage_card(), parse_mode=HTML)
         return
     text = " ".join(context.args)
     # Use parser to extract time + recurrence from the natural description
@@ -2857,14 +2805,10 @@ async def addhabit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     hid = add_habit(user_id, title, time=time_val,
                     recurrence=rec_type, recurrence_weekday=rec_weekday)
+    # v14.20 (RC1): HTML via ui.habit_created_card().
     await update.message.reply_text(
-        f"🌱 *Habit created!*\n\n"
-        f"📌 *{title}*\n"
-        f"🔄 {rec_type}{' (day ' + str(rec_weekday) + ')' if rec_weekday is not None else ''}\n"
-        f"⏰ {time_val or 'flexible'}\n\n"
-        f"Mark it done every time you do it — I'll track your streak!\n"
-        f"Use /habits to see all habits.",
-        parse_mode="Markdown", reply_markup=main_menu()
+        UI.habit_created_card(title, rec_type, rec_weekday, time_val),
+        parse_mode=HTML, reply_markup=main_menu()
     )
 
 
@@ -2884,9 +2828,10 @@ async def skiphabit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("That's not a habit.")
         return
     reset_streak(hid)
+    # v14.20 (RC1): HTML via ui.habit_streak_reset_card().
     await update.message.reply_text(
-        f"🔄 Streak reset for *{task[1]}*. No worries — start fresh tomorrow!",
-        parse_mode="Markdown", reply_markup=main_menu()
+        UI.habit_streak_reset_card(task[1]),
+        parse_mode=HTML, reply_markup=main_menu()
     )
 
 

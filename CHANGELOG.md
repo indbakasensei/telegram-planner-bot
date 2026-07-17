@@ -9,7 +9,47 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.19 — UI Overhaul Phase 5: Utility Screens (current)
+## v14.20 — UI Overhaul Phase 6: Release Candidate RC1 (current)
+
+**The UI overhaul is complete.** Final consistency pass; presentation
+only; zero callback/routing/logic/schema change (frozen files verified
+diff-empty).
+
+- **The five Legacy habit command surfaces converted to component
+  HTML** (`habits_overview_card`, `habit_streak_card`,
+  `habit_log_card`, `habit_usage_card`, `habit_created_card`,
+  `habit_streak_reset_card` in `ui.py`; handlers now thin wrappers) —
+  closing the **documented since-v7.1 Markdown title-corruption bug**
+  on the message path, completing the Phase 4 deferral, and making
+  Legacy and Offline habit replies format-consistent for the first
+  time. Empty state uses §14's canonical habit copy; the streak grid,
+  fire caps, and all values render identically in meaning.
+- **Consistency audit results**: every primary screen (dashboard,
+  tasks, habits, goals, settings, AI, help, selftest, debug/bugs/trace,
+  admin, insights, proactive) now uses one header/caption/card/footer
+  language, §5.4 status hierarchy, §14 empty states, and component
+  keyboards; no manual footers or section separators remain in `ui.py`;
+  typography exclusively via `fmt`/component helpers.
+- **Honest acceptance-criteria note**: "No Markdown remains" is met for
+  every primary screen but NOT globally — **91 Markdown reply sites
+  remain** in Legacy conversational/secondary flows (was 99 pre-RC).
+  Bulk-converting them without per-flow characterization would be the
+  kind of risk a stabilization sprint exists to avoid; inventoried in
+  DEBUGGING.md as the UI track's one remaining debt item, ticketed for
+  v15. `main.py` pyflakes 43 → 40 (pre-existing category).
+- 5 new pins (habit command surfaces incl. hostile-title escaping and
+  the streak grid); suite **814 tests**.
+- **Live smoke checklist: pending your run** — the RC's only open gate.
+  TESTING.md's checklist now covers the RC surfaces; run it in a live
+  session before tagging RC1 → release.
+
+Next milestone: **v15** (feature work — analytics rebuild, dashboard
+callback completion, richer task details, recurring-detail fix, the 91
+Markdown conversions, Duplicate Task).
+
+---
+
+## v14.19 — UI Overhaul Phase 5: Utility Screens
 
 The utility screens redesigned onto the component library
 (UI_SPEC_v1.md §15 Phase 5), building directly on 5R's pure builders.

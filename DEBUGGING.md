@@ -424,16 +424,14 @@ Same discipline as the v14.3–v14.6 entries:
 Same discipline as the v14.3–v14.7 entries, from v14.9's Phase 0 audit
 of every habit code path:
 
-- **All five habit handlers still reply in Markdown with unescaped
-  titles** (`habits_cmd`, `streak_cmd`, `habitlog_cmd`, `addhabit_cmd`,
-  `skiphabit_cmd` — all `parse_mode="Markdown"`). They were never
-  migrated in v7.1's HTML switch, so a habit title containing `*`, `_`,
-  or `[` corrupts or breaks the reply in Legacy **today**. The Offline
-  habit views (`core/actions/habit_views.py`) render the same content
-  as HTML through `fmt.py` per project convention — a documented,
-  deliberate format divergence, and the one place the Offline reply is
-  *more* correct than Legacy's. If a user reports a garbled habit
-  title, check which path replied.
+- **All five habit handlers replied in Markdown with unescaped
+  titles — RESOLVED in v14.20 (UI RC1)**: `habits_cmd`, `streak_cmd`,
+  `habitlog_cmd`, `addhabit_cmd`, `skiphabit_cmd` now render HTML via
+  `ui.py` builders (`habits_overview_card` etc.) with component
+  escaping — a hostile habit title no longer corrupts the reply, and
+  Legacy/Offline replies are format-consistent for the first time.
+  (Historically: never migrated in v7.1's HTML switch; the Offline
+  habit views were HTML from birth in v14.9.)
 - **Habit-specific update, delete, today view, search, statistics, and
   archive/restore do not exist in Legacy** — verified; not invented.
   "Deleting a habit" is just `delete task <id>` on the habit's task
@@ -514,6 +512,24 @@ compatibility for appearance," these screens keep their v14.12
 formatting (help/selftest are already rich-HTML; the older ones —
 settings, models, insights, proactive, admin, the three dash views —
 remain pre-overhaul).
+
+### Remaining Markdown reply sites in main.py — presentation debt inventory (UI RC1, v14.20)
+
+After RC1, **91 `parse_mode="Markdown"` sites remain in `main.py`** —
+all in Legacy conversational and secondary flows (AI-mediated replies,
+task-creation dialog turns, memory/goals/wellness/template/project
+responses, admin reset prompts, misc one-liners). Every *primary
+screen* (dashboard, tasks, habits incl. the five command surfaces,
+goals cards, settings, AI, help, selftest, debug/bugs/trace, admin
+panel, insights, proactive) is HTML via the component library. The 91
+were deliberately **not** converted in the RC: they sit inside complex
+handlers (many mid-conversation-state), have no offline
+characterization possible, and per-flow live verification would be
+required for each — bulk-converting them in a stabilization sprint is
+exactly the kind of risk RC1 exists to avoid. This is the UI track's
+one remaining debt item, ticketed for **v15** alongside the other
+approved architectural work. Grep to re-audit:
+`grep -c 'parse_mode="Markdown"' main.py`.
 
 ### `dash:models_view` / `dash:perf_view` / `dash:errors_view` buttons dead-end (v11.1, confirmed during Phase 5R)
 

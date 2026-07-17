@@ -836,3 +836,123 @@ def selftest_report(version, python_version, provider, model_main,
         i(f"{len(checks)} live checks · report generated in {elapsed_ms:.0f}ms · "
           f"automated suite: 700+ tests, see TESTING.md"),
     ])
+
+
+# ── Habit command surfaces (RC1 / Phase 6) ────────────────────────────────
+# The five Legacy habit command screens, extracted from main.py and
+# converted from pre-v7.1 Markdown to component HTML -- this closes the
+# documented "habit handlers still send Markdown with unescaped titles"
+# corruption bug (DEBUGGING.md) for the message path, and completes the
+# Phase 4 deferral now that main.py presentation is unfrozen. Content
+# mirrors the Offline path's core/actions renderings (habit_views/
+# create_habit/skip_habit) in meaning; styling follows the RC component
+# language. Handlers keep: data gathering, guards, plain-text usage
+# replies, parse_mode, reply keyboards.
+
+def habits_overview_card(habits):
+    """/habits list (RC1: HTML via components; §14 empty state).
+    Inputs: get_habits() rows. Returns text."""
+    cap = (f"{len(habits)} active habit{'s' if len(habits) != 1 else ''}"
+           if habits else None)
+    header = uic.render_header("habit", "Your Habits", caption_text=cap)
+    if not habits:
+        return uic.render_page(header, uic.empty_habits())
+    lines = []
+    for h in habits:
+        hid, title, dtime, rec, weekday, streak, longest, last_done, start = h
+        streak = streak or 0
+        fire = "🔥" * min(streak, 5) if streak > 0 else "○"
+        rec_label = ("daily" if rec == "daily"
+                     else f"weekly (day {weekday})" if rec == "weekly"
+                     else rec or "—")
+        lines.append(f"{b(f'[{hid}]')} {esc(title)}")
+        lines.append(f"   {fire} Streak: {b(str(streak))} · Best: {longest or 0}")
+        lines.append(f"   ⏰ {esc(dtime or 'flexible')} · {esc(rec_label)}")
+        if last_done:
+            lines.append(f"   {uic.caption('Last done: ' + str(last_done))}")
+        lines.append("")
+    footer = uic.render_footer(
+        "Mark done daily to build streaks! Use streak <id> for details.")
+    return uic.render_page(header, "\n".join(lines).rstrip(), footer=footer)
+
+
+def habit_streak_card(habit_row, log, missed, today):
+    """/streak <id> detail (RC1: HTML via components). Inputs: one
+    get_habits() row, get_habit_log(14) rows, get_missed_days(14) list,
+    today as a date (caller supplies IST — no clock here)."""
+    from datetime import timedelta as _td
+    _, title, dtime, rec, weekday, streak, longest, last_done, start = habit_row
+    streak = streak or 0
+    longest = longest or 0
+    header = uic.render_header("habit", "Streak", caption_text=title)
+    rows = [("🔥 Current streak", f"{streak} day{'s' if streak != 1 else ''}"),
+            ("🏆 Longest streak", f"{longest} day{'s' if longest != 1 else ''}"),
+            ("📅 Started", start or "?")]
+    if last_done:
+        rows.append(("✅ Last done", last_done))
+    info = uic.render_information_card("Progress", rows)
+
+    logged_dates = {row[0] for row in log if row[1]}
+    bar = "".join(
+        "🟩" if (today - _td(days=offset)).strftime("%Y-%m-%d") in logged_dates
+        else "⬜"
+        for offset in range(13, -1, -1))
+    grid = uic.render_section("Last 14 days", bar)
+
+    blocks = [info, grid]
+    if missed:
+        detail = ("Tip: try changing the time or making it easier."
+                  if len(missed) >= 3 else None)
+        blocks.append(uic.render_warning(
+            f"Missed {len(missed)} day(s) in this window", detail))
+    return uic.render_page(header, *blocks)
+
+
+def habit_log_card(title, log):
+    """/habitlog <id> history (RC1: HTML via components), including the
+    empty-log variant (a real answer in Legacy — kept). Inputs: habit
+    title, get_habit_log(30) rows."""
+    header = uic.render_header("calendar", "Habit Log",
+                                caption_text=f"{title} · last 30 days")
+    if not log:
+        return uic.render_page(
+            header, uic.render_info("No log entries yet",
+                                     f"for {title} — mark it done to start"))
+    lines = [f"{'✅' if completed else '❌'} {esc(log_date)}"
+             for log_date, completed in log[:30]]
+    return uic.render_page(header, "\n".join(lines))
+
+
+def habit_usage_card():
+    """/addhabit usage screen (RC1: HTML via components)."""
+    header = uic.render_header("habit", "Add a Habit")
+    body = "\n".join([
+        f"Usage: {code('addhabit <habit name> [at HH:MM] [daily|weekly]')}",
+        f"Example: {code('addhabit Drink water at 09:00 daily')}",
+    ])
+    footer = uic.render_footer(
+        "Or just say it naturally: 'I want to run every day at 6 AM'")
+    return uic.render_page(header, body, footer=footer)
+
+
+def habit_created_card(title, rec_type, rec_weekday, time_val):
+    """/addhabit success (RC1: HTML via components; content mirrors the
+    Offline create_habit reply)."""
+    day_suffix = f" (day {rec_weekday})" if rec_weekday is not None else ""
+    info = uic.render_information_card("Habit", [
+        ("📌 Title", title),
+        ("🔄 Repeats", f"{rec_type}{day_suffix}"),
+        ("⏰ Time", time_val or "flexible"),
+    ])
+    footer = uic.render_footer(
+        "Mark it done every time you do it — I'll track your streak! "
+        "Use habits to see all habits.")
+    return uic.render_page(uic.render_success("Habit created!"), info,
+                            footer=footer)
+
+
+def habit_streak_reset_card(title):
+    """/skiphabit success (RC1: HTML; content mirrors the Offline
+    skip_habit reply)."""
+    return (f"🔄 Streak reset for {b(title)}. "
+            "No worries — start fresh tomorrow!")

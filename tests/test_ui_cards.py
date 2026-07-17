@@ -327,6 +327,71 @@ def test_habit_card_button_title_truncated_to_20():
     assert kb.inline_keyboard[0][0].text == f"✅ Did '{long_title[:20]}'"
 
 
+# ── Habit command surfaces (RC1 / Phase 6 — the five Legacy habit
+#    screens, Markdown → component HTML; corruption bug closed) ──────────
+
+from datetime import date as _date
+
+HABIT_ROW = (7, "Meditate", "07:00", "daily", None, 3, 5,
+             "2026-07-16", "2026-07-01")
+
+
+def test_habits_overview_card_fields_and_escaping():
+    text = ui.habits_overview_card([HABIT_ROW])
+    first = text.splitlines()[0]
+    assert first.startswith("🌱") and "your habits" in first.lower()
+    assert "<i>1 active habit</i>" in text
+    assert "<b>[7]</b> Meditate" in text
+    assert "🔥🔥🔥 Streak: <b>3</b> · Best: 5" in text
+    assert "⏰ 07:00 · daily" in text
+    assert "<i>Last done: 2026-07-16</i>" in text
+    assert "Use streak &lt;id&gt; for details." in text        # footer
+    hostile = ui.habits_overview_card([(1, "A *b* & <c>", None, "daily",
+                                         None, 0, 0, None, None)])
+    assert "A *b* &amp; &lt;c&gt;" in hostile                  # escaped now
+
+
+def test_habits_overview_card_empty_uses_canonical_copy():
+    text = ui.habits_overview_card([])
+    assert "No habits yet — start one small daily win." in text
+
+
+def test_habit_streak_card_grid_and_warning():
+    log = [("2026-07-16", 1), ("2026-07-15", 1), ("2026-07-14", 1)]
+    text = ui.habit_streak_card(HABIT_ROW, log, [], _date(2026, 7, 16))
+    assert "<i>Meditate</i>" in text                           # caption
+    assert "🔥 Current streak: 3 days" in text
+    assert "🏆 Longest streak: 5 days" in text
+    assert "⬜" * 11 + "🟩" * 3 in text                        # 14-day grid
+    assert "Missed" not in text
+    warned = ui.habit_streak_card(HABIT_ROW, log,
+                                   ["a", "b", "c"], _date(2026, 7, 16))
+    assert "⚠️ <b>Missed 3 day(s) in this window</b>" in warned
+    assert "Tip: try changing the time" in warned
+
+
+def test_habit_log_card_variants():
+    empty = ui.habit_log_card("Meditate", [])
+    assert "ℹ️ <b>No log entries yet</b>" in empty
+    text = ui.habit_log_card("Meditate", [("2026-07-16", 1), ("2026-07-15", 0)])
+    assert "<i>Meditate · last 30 days</i>" in text
+    assert "✅ 2026-07-16" in text and "❌ 2026-07-15" in text
+
+
+def test_habit_usage_and_created_and_reset_cards():
+    usage = ui.habit_usage_card()
+    assert "addhabit &lt;habit name&gt;" in usage
+    created = ui.habit_created_card("Run", "weekly", 0, "07:00")
+    assert "✅ <b>Habit created!</b>" in created
+    assert "📌 Title: Run" in created
+    assert "🔄 Repeats: weekly (day 0)" in created
+    assert "⏰ Time: 07:00" in created
+    assert "flexible" in ui.habit_created_card("Run", "daily", None, None)
+    reset = ui.habit_streak_reset_card("Meditate")
+    assert reset == ("🔄 Streak reset for <b>Meditate</b>. "
+                     "No worries — start fresh tomorrow!")
+
+
 # ── Stat card ────────────────────────────────────────────────────────────
 
 def test_stat_card_fields():
