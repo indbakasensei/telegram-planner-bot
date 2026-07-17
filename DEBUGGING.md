@@ -515,6 +515,19 @@ formatting (help/selftest are already rich-HTML; the older ones —
 settings, models, insights, proactive, admin, the three dash views —
 remain pre-overhaul).
 
+### `dash:models_view` / `dash:perf_view` / `dash:errors_view` buttons dead-end (v11.1, confirmed during Phase 5R)
+
+`usage_cmd`'s keyboard offers 🤖 Models / ⚡ Performance / ❌ Errors
+buttons, but `route_dashboard_callback()` has **no branches for those
+pages** — they fall into the unknown-page `else`. Part of the same
+never-assembled-analytics story as the empty `/usage`-family commands
+(the files were removed in v14.12; the buttons remained). Pre-existing;
+Phase 5R (extraction-only) documents rather than touches it — there was
+no models_view/perf_view/errors_view *presentation* to extract, contrary
+to the Phase 5/5R briefs' assumption. Fix belongs with the v15
+analytics rebuild (or remove the three buttons — a callback change
+needing Board approval either way).
+
 ### Recurring tasks render as "completed" in the dashboard task-detail view (v9.0, found during UI Phase 3)
 
 `get_task_by_id()` returns a **7-column** row ending in

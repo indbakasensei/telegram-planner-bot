@@ -61,7 +61,7 @@ from baka_brain import (
     generate_structured_plan
 )
 from fmt import (HTML, esc, b, i, code, task_line, confirm_box, header,
-                 DIVIDER, blockquote, expandable_blockquote)
+                 DIVIDER)
 from telegram.error import BadRequest
 import ui as UI
 from conversation_state import (
@@ -269,115 +269,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """v14.12: redesigned help -- grouped by category, expandable
-    sections instead of walls of text, admin section shown only to the
-    admin (consistent with silent-deny admin commands). Known-broken
-    analytics commands (usage/performance/errors -- DEBUGGING.md's
-    Known Issues) are deliberately not advertised."""
+    """v14.12 design; v14.18 (Phase 5R): presentation extracted to
+    ui.help_cards() -- the handler only decides admin visibility and
+    sends. Known-broken analytics commands stay unadvertised."""
     user_id = update.message.from_user.id
-
-    def section(emoji, title, body):
-        return f"{emoji} {b(title)}\n{expandable_blockquote(body, escape=False)}"
-
-    intro = (
-        f"🤖 {b('BAKA')} — Behavioral Adaptive Knowledge Assistant\n"
-        f"{i('v' + BAKA_VERSION + ' · offline-first · English / Hindi / Hinglish')}\n\n"
-        f"Talk naturally, or use commands — {b('slash is optional')}.\n"
-        + blockquote(
-            f"{i('Remind me to submit assignment by Friday 5pm')}\n"
-            f"{i('Kal subah 8 baje gym yaad dila dena')}\n"
-            f"{code('list')} = {code('/list')} = {code('show my tasks')}",
-            escape=False)
-        + "\n\nTap a section to expand it. ▾"
-    )
-
-    tasks = "\n".join([
-        f"{code('list')} · {code('today')} · {code('week')} — task views",
-        f"{code('add task <title>')} — create (also just describe it)",
-        f"{code('done <id>')} — complete   {code('edit <id>')} — modify",
-        f"{code('delete <id>')} — remove (asks to confirm)",
-        f"{code('deadline <id>')} — pre-warns 7d/3d/1d/6h/1h before",
-        f"{code('tag <id> <tags>')} · {code('tagged <tag>')} — organize",
-    ])
-    reminders = "\n".join([
-        "Reminder pings have tap-able buttons:",
-        "✅ Done · ⏰ 10m · 🕐 1h · 📅 Tomorrow · 🔕 Stop · 🗑 Delete",
-        f"{code('snooze <id> <min>')} — custom snooze",
-        f"{code('pause <id>')} / {code('resume <id>')} · {code('paused')} — view",
-        f"{code('overdue')} · {code('deadlines')} · {code('review')} — follow-ups",
-        f"{code('carryforward')} — move all overdue to today",
-    ])
-    habits = "\n".join([
-        f"{code('habits')} — all habits + streaks",
-        f"{code('done <id>')} — log today (builds the streak 🔥)",
-        f"{code('streak <id>')} — 14-day grid   {code('habitlog <id>')} — 30-day log",
-        f"{code('addhabit <title> [at HH:MM] [daily|weekly]')} — create",
-        f"{code('skiphabit <id>')} — intentional skip (resets streak)",
-    ])
-    goals_projects = "\n".join([
-        f"{code('goals')} — dashboard with progress bars",
-        f"{i('I want to read 12 books this year')} — then tap ➕/➖",
-        f"{code('projects')} · {code('project <id>')} — project cards",
-        f"{code('need <id> <items>')} — materials   {code('got <name>')} — acquired",
-        f"{code('started <id>')} · {code('worklog <id> <text>')} · {code('finished <id>')}",
-        f"{code('shopping')} — auto shopping list across projects",
-    ])
-    ai_planning = "\n".join([
-        f"{code('think <question>')} — reasoning over your data",
-        f"{code('plan today')} / {code('plan week')} — time-blocked plans",
-        f"{code('breakdown <id>')} — split into subtasks",
-        f"{code('reschedule <id>')} — pick a conflict-free time",
-        f"{code('analyze')} · {code('insights')} · {code('overload')} — reports",
-        f"{code('suggestions')} · {code('approve <id>')} · {code('dismiss <id>')}",
-    ])
-    media = "\n".join([
-        f"{code('image <prompt>')} — generate an image",
-        f"{code('video <prompt>')} — generate a video (1–3 min)",
-        "📷 send any photo — description or todo extraction",
-    ])
-    memory_search = "\n".join([
-        f"{i('Remember my exam is June 20')} — then ask about it later",
-        f"{code('memory')} — stored memories   {code('forget <key>')} — delete one",
-        f"{code('search <keyword>')} — tasks, memories, habits, goals",
-        f"{code('template')} · {code('savetemplate <name> <id>')} — reusables",
-        f"{code('export')} — full plain-text backup",
-    ])
-    settings_utils = "\n".join([
-        f"{code('settings')} — all preferences",
-        f"{code('quiethours <start> <end>')} — no pings while you sleep",
-        f"{code('interval <min>')} — reminder frequency",
-        f"{code('wellness on/off')} — 💧 water/break/eye nudges",
-        f"{code('dashboard')} — inline-button home view",
-        f"{code('status')} — AI benchmark   {code('selftest')} — diagnostics",
-        f"{code('debug')} · {code('report <issue>')} · {code('bugs')} · {code('trace')}",
-        f"{code('cancel')} — abort any pending question",
-    ])
-
-    msg1 = "\n\n".join([
-        intro,
-        section("📌", "TASKS", tasks),
-        section("🔔", "REMINDERS", reminders),
-        section("🌱", "HABITS", habits),
-    ])
-    msg2_parts = [
-        section("🎯", "GOALS & PROJECTS", goals_projects),
-        section("🧠", "AI & PLANNING", ai_planning),
-        section("🖼", "MEDIA", media),
-        section("🗂", "MEMORY, SEARCH & TEMPLATES", memory_search),
-        section("⚙️", "SETTINGS & UTILITIES", settings_utils),
-    ]
-    if is_admin(user_id):
-        admin = "\n".join([
-            f"{code('admin')} · {code('adminmode')} — admin dashboard",
-            f"{code('resettasks')} · {code('resethabits')} · {code('resetall')} — destructive resets",
-            f"{code('sql <query>')} — raw read-only queries",
-            f"{code('misses')} · {code('reviewed <id>')} — capability gap review",
-        ])
-        msg2_parts.append(section("👑", "ADMIN (visible only to you)", admin))
-    msg2_parts.append(
-        f"💡 {i('Slash is optional for every command. English, Hindi, and Hinglish all work.')}")
-    msg2 = "\n\n".join(msg2_parts)
-
+    msg1, msg2 = UI.help_cards(BAKA_VERSION, is_admin(user_id))
     await _reply_rich(update.message, msg1)
     await _reply_rich(update.message, msg2, reply_markup=main_menu())
 
@@ -561,59 +457,19 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await run_blocking(check_api_status)
 
     if result["status"] != "online":
+        # v14.18 (Phase 5R): presentation extracted to ui.ai_status_error_card().
         await thinking.delete()
-        if result["status"] == "rate_limited":
-            text = f"⚠️ {b('Rate Limited')}\nWait 1-2 min. (40 req/min limit)"
-        elif result["status"] == "invalid_key":
-            text = f"❌ {b('Invalid API Key')} — Regenerate at build.nvidia.com"
-        else:
-            text = f"❌ {b('Error')} — {code(str(result.get('error','Unknown'))[:150])}"
-        await update.message.reply_text(text, parse_mode=HTML, reply_markup=main_menu())
+        await update.message.reply_text(UI.ai_status_error_card(result),
+                                        parse_mode=HTML, reply_markup=main_menu())
         return
 
     # Run benchmark
     bench = await run_blocking(benchmark_ai, quick=not full)
 
-    rt = result.get("response_time_ms", 0)
-    speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
-    grade = bench.get("grade", "?")
-    grade_emoji = "🏆" if grade in ("A+","A") else "✅" if grade == "B" else "⚠️"
-
-    lines = [
-        f"🤖 {b('BAKA AI Diagnostics')}",
-        "",
-        f"📡 {b('Connection')}",
-        f"   Model: {code(result.get('model', 'glm-5.1'))}",
-        f"   Ping: {rt}ms {speed}",
-        f"   Tokens: {result.get('prompt_tokens','?')}→{result.get('completion_tokens','?')} ({result.get('total_tokens','?')} total)",
-        "",
-        f"{grade_emoji} {b('Benchmark: ' + bench['score'])} (Grade: {b(grade)})",
-        f"   Avg latency: {bench['avg_latency_ms']}ms",
-        "",
-    ]
-
-    for t in bench["tests"]:
-        icon = "✅" if t["passed"] else "❌"
-        lines.append(f"   {icon} {t['name']} ({t['latency_ms']}ms)")
-        if t.get("error"):
-            lines.append(f"      <i>Error: {esc(t['error'][:80])}</i>")
-
-    lines.extend([
-        "",
-        f"💳 Free tier: 1,000 calls/month · 40 req/min",
-    ])
-
-    if not full:
-        lines.append(f"\n💡 Run {code('status full')} for a deep 6-test benchmark.")
-
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔄 Re-run", callback_data="dash:home"),
-    ]])
-
+    # v14.18 (Phase 5R): presentation extracted to ui.ai_status_card().
+    text, kb = UI.ai_status_card(result, bench, full)
     await thinking.delete()
-    await update.message.reply_text(
-        "\n".join(lines), parse_mode=HTML, reply_markup=kb
-    )
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
 
 
 # ── Task executor ─────────────────────────────────────
@@ -1827,12 +1683,11 @@ async def ask_for_task(update, user_id):
 
 # ── DEBUG SYSTEM COMMANDS (v1.0) ──────────────────────
 async def debug_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # v14.18 (Phase 5R): presentation extracted to ui.debug_toggle_card().
     user_id = update.message.from_user.id
     on = dbg.toggle_debug(user_id)
     await update.message.reply_text(
-        f"🐞 Debug mode is now *{'ON' if on else 'OFF'}*.\n"
-        + ("I'll show you the detected intent and entities after each message."
-           if on else "Back to normal responses."),
+        UI.debug_toggle_card(on),
         parse_mode="Markdown", reply_markup=main_menu()
     )
 
@@ -1855,20 +1710,14 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def bugs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # v14.18 (Phase 5R): presentation extracted to ui.bugs_card().
     user_id = update.message.from_user.id
     bugs = dbg.get_open_bugs(user_id)
     if not bugs:
-        await update.message.reply_text("🎉 No open bugs!", reply_markup=main_menu())
+        await update.message.reply_text(UI.bugs_card(bugs), reply_markup=main_menu())
         return
-    msg = "🐞 *Open Bugs:*\n\n"
-    for b in bugs:
-        icon = "💥" if b[1] == "auto_exception" else "📝"
-        msg += f"{icon} *#{b[0]}* — {b[2][:60]}\n"
-        if b[3]:
-            msg += f"     _on: {b[3][:50]}_\n"
-        msg += "\n"
-    msg += "Use /resolve <id> to close one."
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(UI.bugs_card(bugs),
+                                    parse_mode="Markdown", reply_markup=main_menu())
 
 async def resolve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -1884,20 +1733,14 @@ async def resolve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /resolve <number>")
 
 async def trace_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # v14.18 (Phase 5R): presentation extracted to ui.trace_card().
     user_id = update.message.from_user.id
     trace = dbg.get_last_trace(user_id)
     if not trace:
-        await update.message.reply_text("No interaction traced yet. Send a message first.")
+        await update.message.reply_text(UI.trace_card(trace))
         return
-    import json as _json
     await update.message.reply_text(
-        f"🔍 *Last Interaction Trace:*\n\n"
-        f"📥 You said: `{trace['user_input']}`\n"
-        f"🎯 Intent: `{trace['intent']}`\n"
-        f"📦 Entities:\n`{_json.dumps(trace['entities'], indent=2, ensure_ascii=False)}`\n"
-        f"📤 Reply: {trace['response'][:200]}\n"
-        f"🕐 Time: {trace['time']}",
-        parse_mode="Markdown", reply_markup=main_menu()
+        UI.trace_card(trace), parse_mode="Markdown", reply_markup=main_menu()
     )
 
 async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1938,47 +1781,27 @@ async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     check("Storage Facade", lambda: f"{len(storage.habits.get_all(user_id))} habits")
     check("Conversation state", lambda: get_state(user_id))
 
-    ok_count = sum(1 for ok, *_ in checks if ok)
-    all_ok = ok_count == len(checks)
-    lines = [f"{'✅' if ok else '❌'} {b(label)} — {esc(detail)}"
-             for ok, label, detail in checks]
-
-    # ── environment / configuration ──
+    # v14.18 (Phase 5R): report rendering extracted to
+    # ui.selftest_report(); the live probes above stay here (they touch
+    # the running process -- DB, engines, state).
     try:
         db_size = f"{os.path.getsize(_db.DB_NAME) / 1024:.0f} KB"
     except OSError:
         db_size = "unknown"
     rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-    flags = "\n".join(
-        f"{'🟢' if val else '⚪'} {code(name)} {'ON' if val else 'off'}"
-        for name, val in (
-            ("OFFLINE_TASKS", feature_flags.OFFLINE_TASKS),
-            ("OFFLINE_HABITS", feature_flags.OFFLINE_HABITS),
-            ("OFFLINE_GOALS", feature_flags.OFFLINE_GOALS),
-            ("OFFLINE_PROJECTS", feature_flags.OFFLINE_PROJECTS),
-        ))
-    env = "\n".join([
-        f"BAKA {b('v' + BAKA_VERSION)} · Python {code(sys.version.split()[0])}",
-        f"AI provider: {code(AI_PROVIDER)}",
-        f"Models: main {code(MODEL_MAIN)}",
-        f"       fast {code(MODEL_FAST)}",
-        f"  reasoning {code(MODEL_THINK)}",
-        f"Database: {code(_db.DB_NAME.split('/')[-1])} · {db_size}",
-        f"Memory (peak RSS): {code(f'{rss_mb:.0f} MB')}",
-    ])
-
+    flag_values = [
+        ("OFFLINE_TASKS", feature_flags.OFFLINE_TASKS),
+        ("OFFLINE_HABITS", feature_flags.OFFLINE_HABITS),
+        ("OFFLINE_GOALS", feature_flags.OFFLINE_GOALS),
+        ("OFFLINE_PROJECTS", feature_flags.OFFLINE_PROJECTS),
+    ]
     elapsed_ms = (time.perf_counter() - t_start) * 1000
-    verdict = ("✅ ALL SYSTEMS OPERATIONAL" if all_ok
-               else f"⚠️ {len(checks) - ok_count} CHECK(S) FAILED")
-    report = "\n\n".join([
-        f"🧪 {b('BAKA Diagnostics')}",
-        b(verdict),
-        blockquote("\n".join(lines), escape=False),
-        f"⚙️ {b('Environment')}\n" + blockquote(env, escape=False),
-        f"🚩 {b('Feature flags')}\n" + blockquote(flags, escape=False),
-        i(f"{len(checks)} live checks · report generated in {elapsed_ms:.0f}ms · "
-          f"automated suite: 700+ tests, see TESTING.md"),
-    ])
+    report = UI.selftest_report(
+        BAKA_VERSION, sys.version.split()[0], AI_PROVIDER,
+        MODEL_MAIN, MODEL_FAST, MODEL_THINK,
+        _db.DB_NAME.split("/")[-1], db_size, rss_mb,
+        flag_values, checks, elapsed_ms,
+    )
     await _reply_rich(update.message, report, reply_markup=main_menu())
 
 
@@ -2464,18 +2287,12 @@ async def quiethours_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # v14.18 (Phase 5R): presentation extracted to ui.settings_card().
     user_id = update.message.from_user.id
     prefs = get_user_prefs(user_id)
     is_quiet = is_quiet_hours(user_id)
     await update.message.reply_text(
-        f"⚙️ *Your Settings*\n\n"
-        f"🌙 Quiet hours: *{prefs['quiet_start']} — {prefs['quiet_end']}*"
-        f" {'(active now 🔕)' if is_quiet else '(inactive 🔔)'}\n"
-        f"🔁 Reminder interval: *{prefs['interval']} min*\n"
-        f"📊 Max reminders per task: *{prefs['max_reminders']}*\n\n"
-        f"*Change settings:*\n"
-        f"/quiethours <start> <end>\n"
-        f"/interval <minutes> — change reminder repeat interval",
+        UI.settings_card(prefs, is_quiet),
         parse_mode="Markdown", reply_markup=main_menu()
     )
 
@@ -3082,46 +2899,12 @@ async def skiphabit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── v6.0: Preference Learning Commands ────────────────
 async def insights_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show what BAKA has learned about your behavior."""
+    # v14.18 (Phase 5R): presentation extracted to ui.insights_card()
+    # (including the not-enough-data variant -- pure display selection).
     user_id = update.message.from_user.id
     data = analyze_user(user_id, days=30)
-
-    if data["total_tasks"] < 3:
-        await update.message.reply_text(
-            "\U0001f4ca *Not enough data yet*\n\n"
-            "I need at least 3 tasks across a few days to learn your patterns. "
-            "Keep using me — I'll start spotting trends soon!",
-            parse_mode="Markdown", reply_markup=main_menu()
-        )
-        return
-
-    msg = "\U0001f9e0 *What I've learned about you*\n"
-    msg += f"_(based on last 30 days, {data['total_tasks']} tasks)_\n\n"
-
-    for line in data["insights"]:
-        msg += f"\u2022 {line}\n"
-    msg += "\n"
-
-    if data["active_hours_top3"]:
-        msg += "\U0001f550 *Active hours:*\n"
-        for h, n in data["active_hours_top3"]:
-            msg += f"   {h:02d}:00 ({n} interactions)\n"
-        msg += "\n"
-
-    if data["snooze_patterns"]:
-        msg += "\u23f0 *Snooze patterns:*\n"
-        for cat, count, avg_min in data["snooze_patterns"][:3]:
-            msg += f"   {cat}: {count}x (avg {int(avg_min)}m)\n"
-        msg += "\n"
-
-    if data["category_focus"]:
-        msg += "\U0001f4cc *Top categories:*\n"
-        sorted_cats = sorted(data["category_focus"].items(), key=lambda x: -x[1])
-        for cat, n in sorted_cats[:5]:
-            msg += f"   {cat}: {n} tasks\n"
-        msg += "\n"
-
-    msg += f"_Use these insights to tweak `/settings` for better defaults._"
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(UI.insights_card(data),
+                                    parse_mode=Markdown, reply_markup=main_menu())
 
 
 # ── v6.1: ADMIN MODE (owner-only) ─────────────────────
@@ -3178,30 +2961,12 @@ def admin_only(func):
 @admin_only
 async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """The admin control panel."""
+    # v14.18 (Phase 5R): presentation extracted to ui.admin_panel_card().
     uid = update.message.from_user.id
     in_mode = _admin_mode.get(uid, False)
     stats = get_data_stats(uid)
-    msg = (
-        "\U0001f6e0 *ADMIN CONTROL PANEL*\n"
-        f"Debug mode: {'\U0001f7e2 ON' if in_mode else '\u26aa OFF'}\n\n"
-        "\U0001f4ca *Your Data:*\n"
-        f"  Active tasks: {stats['active_tasks']}\n"
-        f"  Completed: {stats['done_tasks']}\n"
-        f"  Habits: {stats['habits']}\n"
-        f"  Memories: {stats['memories']}\n"
-        f"  Goals: {stats['goals']}\n"
-        f"  Highest task ID: {stats['max_task_id']}\n"
-        f"  Learning logs: {stats['completions_logged']} done, {stats['snoozes_logged']} snoozed\n\n"
-        "\U0001f527 *Commands:*\n"
-        "/adminmode \u2014 toggle debug/admin mode\n"
-        "/resettasks \u2014 delete all tasks + reset IDs to 0\n"
-        "/resetmemory \u2014 wipe all memories\n"
-        "/resethabits \u2014 wipe all habits + streaks\n"
-        "/resetlearning \u2014 wipe preference-learning data\n"
-        "/resetall \u2014 \u26a0\ufe0f nuke EVERYTHING + reset IDs\n"
-        "/sql <query> \u2014 run a read-only SQL query (debug)\n"
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(UI.admin_panel_card(stats, in_mode),
+                                    parse_mode="Markdown", reply_markup=main_menu())
 
 @admin_only
 async def adminmode_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3409,25 +3174,12 @@ async def wellness_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def proactive_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Control panel for all proactive features."""
+    # v14.18 (Phase 5R): presentation extracted to ui.proactive_card().
     user_id = update.message.from_user.id
     w = get_wellness_prefs(user_id)
     prefs = get_user_prefs(user_id)
-    msg = (
-        f"🤖 {b('Proactive Features')}\n\n"
-        f"These are things BAKA does on its own to help you:\n\n"
-        f"🔔 {b('Reminders')} — always on\n"
-        f"   <i>Reminds until done, escalates near deadlines</i>\n\n"
-        f"👀 {b('Follow-ups')} — always on\n"
-        f"   <i>Asks 'did you finish?' after tasks pass</i>\n\n"
-        f"🌙 {b('End-of-day summary')} — 21:00 daily\n"
-        f"   <i>Lists what's still pending today</i>\n\n"
-        f"🌿 {b('Wellness nudges')} — {'🟢 ON' if w['on'] else '⚪ OFF'}\n"
-        f"   <i>Water/break/eye reminders. Toggle: {code('wellness on')}</i>\n\n"
-        f"⏰ {b('Quiet hours')} — {esc(prefs['quiet_start'])}–{esc(prefs['quiet_end'])}\n"
-        f"   <i>No proactive messages during this window</i>\n\n"
-        f"💡 High-priority tasks due soon get a heads-up automatically."
-    )
-    await update.message.reply_text(msg, parse_mode=HTML, reply_markup=main_menu())
+    await update.message.reply_text(UI.proactive_card(w, prefs),
+                                    parse_mode=HTML, reply_markup=main_menu())
 
 
 # ── v9.0: DASHBOARD SYSTEM ────────────────────────────
@@ -4103,37 +3855,10 @@ async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Quick liveness probe
     health = await run_blocking(benchmark_all_models)
 
-    lines = [f"🤖 {b('Multi-Model AI Status')}", ""]
-    for name, r in health.items():
-        model_id = r["model"]
-        online = r["online"]
-        role_label = {
-            "main": "Main Brain", "fast": "Fast Tasks",
-            "vision": "Image Understanding", "image": "Image Generation",
-            "video": "Video Generation"
-        }.get(name, name)
-        # Live status
-        if online is True:
-            ping_str = f"🟢 {r['ms']}ms"
-        elif online is False:
-            ping_str = "🔴 offline"
-        else:
-            ping_str = f"⚪ {esc(str(online))}"
-        # Add real usage if we have it
-        s = stats.get(model_id)
-        lines.append(f"{b(role_label)} — {ping_str}")
-        lines.append(f"  {code(model_id)}")
-        if s and s["total_requests"]:
-            health_emoji = {"healthy": "🟢", "warning": "🟡",
-                           "degraded": "🔴", "slow": "🐢"}.get(s["health"], "⚪")
-            lines.append(f"  Today: {b(s['today_requests'])} · Total: {b(s['total_requests'])} · "
-                         f"{health_emoji} {esc(s['health'])}")
-            lines.append(f"  Avg: {s['avg_latency_ms']}ms · Success: {s['success_rate']}%")
-        lines.append("")
-
-    lines.append(f"<i>All visual models always on · 100% NVIDIA NIM</i>")
+    # v14.18 (Phase 5R): presentation extracted to ui.models_card().
     await thinking.delete()
-    await update.message.reply_text("\n".join(lines), parse_mode=HTML, reply_markup=main_menu())
+    await update.message.reply_text(UI.models_card(health, stats),
+                                    parse_mode=HTML, reply_markup=main_menu())
 
 
 # ── v11.1: Usage Analytics Dashboard ──────────────────

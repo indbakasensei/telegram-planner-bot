@@ -9,7 +9,50 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.17.1 — UI Overhaul Phase 5: Halted at Engineering Review (documentation only) (current)
+## v14.18 — UI Overhaul Phase 5R: Presentation Extraction (current)
+
+The Board-approved unblock for Phase 5: every utility screen's
+presentation moved **verbatim** out of `main.py` into pure, offline-
+testable `ui.py` builders — byte-for-byte output, zero behavior change,
+zero callback change.
+
+- **13 builders extracted**: `settings_card`, `debug_toggle_card`,
+  `bugs_card`, `trace_card`, `insights_card` (incl. its
+  not-enough-data variant), `admin_panel_card`, `proactive_card`,
+  `help_cards` (both messages, admin section parameterized),
+  `ai_status_error_card`, `ai_status_card` (Re-run keyboard included,
+  `dash:home` byte-identical), `models_card`, `selftest_report`
+  (live probes stay in the handler — they touch the running process).
+- **11 handlers reduced to thin wrappers** (gather → `UI.x_card(...)` →
+  reply, same parse_mode/reply_markup/gating): settings, debug, bugs,
+  trace, insights, admin, proactive, help, status, models, selftest.
+  Bonus: two now-unused `fmt` imports dropped (`main.py` pyflakes
+  46 → 44, all remaining pre-existing).
+- **Verbatim-move discipline**: builders keep their handlers' original
+  markup — six still emit the pre-v7.1 Markdown their handlers always
+  used. Converting them to spec HTML is Phase 5 proper, now finally
+  possible against pinned output. (`\\u2022`-style source escapes render
+  identically; verified.)
+- **Brief assumption corrected**: there was no
+  `models_view`/`perf_view`/`errors_view` presentation to extract —
+  `route_dashboard_callback()` has no branches for them; the three
+  buttons dead-end today (new DEBUGGING.md entry, pre-existing since
+  v11.1, tied to the removed analytics).
+- **`tests/test_ui_utility_cards.py` — 18 characterization tests**:
+  every builder, every variant branch (quiet-hours states, empty bugs,
+  no trace, not-enough-data, wellness toggle, error-status trio,
+  quick-vs-full benchmark hint, no-analytics models view, ok/failed
+  selftest verdicts), admin visibility in help, callback identity of
+  the one extracted keyboard, HTML escaping.
+- Handlers themselves still require the TESTING.md live smoke checklist
+  (`main.py` remains unimportable offline) — run it before the next
+  release.
+
+Suite: **809 tests** (791 + 18). pyflakes: 0 on `ui.py`/`core/`/tests.
+
+---
+
+## v14.17.1 — UI Overhaul Phase 5: Halted at Engineering Review (documentation only)
 
 Phase 5 (Settings • AI • Developer Center • Help • About • information
 screens) **stopped at the mandatory pre-implementation review with zero

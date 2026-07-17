@@ -439,3 +439,382 @@ def reminder_card(task):
                         ("🗑 Delete", f"deltask:{tid}")),
     )
     return text, keyboard
+
+
+# ── Utility screens (Phase 5R extraction, UI_SPEC_v1.md) ──────────────────
+# Every builder below is a VERBATIM move of string assembly that lived
+# inline in main.py handlers through v14.17 -- byte-for-byte output, per
+# the Phase 5R mandate. Several still emit Markdown (the pre-v7.1 style
+# their handlers always used); converting them to spec-compliant HTML is
+# Phase 5 proper's job, now finally possible because these are pure,
+# offline-testable functions. Handlers keep: data gathering, permission
+# gates, parse_mode, reply/edit calls, and main_menu() reply keyboards.
+
+def settings_card(prefs, is_quiet):
+    """main.py settings_cmd() presentation (Markdown). Inputs:
+    get_user_prefs() dict, is_quiet_hours() bool. Returns text."""
+    return (
+        f"⚙️ *Your Settings*\n\n"
+        f"🌙 Quiet hours: *{prefs['quiet_start']} — {prefs['quiet_end']}*"
+        f" {'(active now 🔕)' if is_quiet else '(inactive 🔔)'}\n"
+        f"🔁 Reminder interval: *{prefs['interval']} min*\n"
+        f"📊 Max reminders per task: *{prefs['max_reminders']}*\n\n"
+        f"*Change settings:*\n"
+        f"/quiethours <start> <end>\n"
+        f"/interval <minutes> — change reminder repeat interval"
+    )
+
+
+def debug_toggle_card(on):
+    """main.py debug_cmd() presentation (Markdown). Returns text."""
+    return (
+        f"🐞 Debug mode is now *{'ON' if on else 'OFF'}*.\n"
+        + ("I'll show you the detected intent and entities after each message."
+           if on else "Back to normal responses.")
+    )
+
+
+def bugs_card(bugs):
+    """main.py bugs_cmd() presentation (Markdown), including the
+    no-open-bugs variant. Inputs: get_open_bugs() rows. Returns text."""
+    if not bugs:
+        return "🎉 No open bugs!"
+    msg = "🐞 *Open Bugs:*\n\n"
+    for bug in bugs:
+        icon = "💥" if bug[1] == "auto_exception" else "📝"
+        msg += f"{icon} *#{bug[0]}* — {bug[2][:60]}\n"
+        if bug[3]:
+            msg += f"     _on: {bug[3][:50]}_\n"
+        msg += "\n"
+    msg += "Use /resolve <id> to close one."
+    return msg
+
+
+def trace_card(trace):
+    """main.py trace_cmd() presentation (Markdown), including the
+    no-trace variant. Inputs: get_last_trace() dict or None."""
+    if not trace:
+        return "No interaction traced yet. Send a message first."
+    import json as _json
+    return (
+        f"🔍 *Last Interaction Trace:*\n\n"
+        f"📥 You said: `{trace['user_input']}`\n"
+        f"🎯 Intent: `{trace['intent']}`\n"
+        f"📦 Entities:\n`{_json.dumps(trace['entities'], indent=2, ensure_ascii=False)}`\n"
+        f"📤 Reply: {trace['response'][:200]}\n"
+        f"🕐 Time: {trace['time']}"
+    )
+
+
+def insights_card(data):
+    """main.py insights_cmd() presentation (Markdown), including the
+    not-enough-data variant. Inputs: analyze_user() dict."""
+    if data["total_tasks"] < 3:
+        return (
+            "\U0001f4ca *Not enough data yet*\n\n"
+            "I need at least 3 tasks across a few days to learn your patterns. "
+            "Keep using me — I'll start spotting trends soon!"
+        )
+    msg = "\U0001f9e0 *What I've learned about you*\n"
+    msg += f"_(based on last 30 days, {data['total_tasks']} tasks)_\n\n"
+    for line in data["insights"]:
+        msg += f"• {line}\n"
+    msg += "\n"
+    if data["active_hours_top3"]:
+        msg += "\U0001f550 *Active hours:*\n"
+        for h, n in data["active_hours_top3"]:
+            msg += f"   {h:02d}:00 ({n} interactions)\n"
+        msg += "\n"
+    if data["snooze_patterns"]:
+        msg += "⏰ *Snooze patterns:*\n"
+        for cat, count, avg_min in data["snooze_patterns"][:3]:
+            msg += f"   {cat}: {count}x (avg {int(avg_min)}m)\n"
+        msg += "\n"
+    if data["category_focus"]:
+        msg += "\U0001f4cc *Top categories:*\n"
+        sorted_cats = sorted(data["category_focus"].items(), key=lambda x: -x[1])
+        for cat, n in sorted_cats[:5]:
+            msg += f"   {cat}: {n} tasks\n"
+        msg += "\n"
+    msg += "_Use these insights to tweak `/settings` for better defaults._"
+    return msg
+
+
+def admin_panel_card(stats, in_mode):
+    """main.py admin_cmd() presentation (Markdown). Inputs:
+    get_data_stats() dict, admin-debug-mode bool. Admin visibility is
+    the HANDLER's job (silent deny), not this builder's."""
+    return (
+        "\U0001f6e0 *ADMIN CONTROL PANEL*\n"
+        f"Debug mode: {'\U0001f7e2 ON' if in_mode else '⚪ OFF'}\n\n"
+        "\U0001f4ca *Your Data:*\n"
+        f"  Active tasks: {stats['active_tasks']}\n"
+        f"  Completed: {stats['done_tasks']}\n"
+        f"  Habits: {stats['habits']}\n"
+        f"  Memories: {stats['memories']}\n"
+        f"  Goals: {stats['goals']}\n"
+        f"  Highest task ID: {stats['max_task_id']}\n"
+        f"  Learning logs: {stats['completions_logged']} done, {stats['snoozes_logged']} snoozed\n\n"
+        "\U0001f527 *Commands:*\n"
+        "/adminmode — toggle debug/admin mode\n"
+        "/resettasks — delete all tasks + reset IDs to 0\n"
+        "/resetmemory — wipe all memories\n"
+        "/resethabits — wipe all habits + streaks\n"
+        "/resetlearning — wipe preference-learning data\n"
+        "/resetall — ⚠️ nuke EVERYTHING + reset IDs\n"
+        "/sql <query> — run a read-only SQL query (debug)\n"
+    )
+
+
+def proactive_card(wellness, prefs):
+    """main.py proactive_cmd() presentation (HTML). Inputs:
+    get_wellness_prefs() dict, get_user_prefs() dict."""
+    return (
+        f"🤖 {b('Proactive Features')}\n\n"
+        f"These are things BAKA does on its own to help you:\n\n"
+        f"🔔 {b('Reminders')} — always on\n"
+        f"   <i>Reminds until done, escalates near deadlines</i>\n\n"
+        f"👀 {b('Follow-ups')} — always on\n"
+        f"   <i>Asks 'did you finish?' after tasks pass</i>\n\n"
+        f"🌙 {b('End-of-day summary')} — 21:00 daily\n"
+        f"   <i>Lists what's still pending today</i>\n\n"
+        f"🌿 {b('Wellness nudges')} — {'🟢 ON' if wellness['on'] else '⚪ OFF'}\n"
+        f"   <i>Water/break/eye reminders. Toggle: {code('wellness on')}</i>\n\n"
+        f"⏰ {b('Quiet hours')} — {esc(prefs['quiet_start'])}–{esc(prefs['quiet_end'])}\n"
+        f"   <i>No proactive messages during this window</i>\n\n"
+        f"💡 High-priority tasks due soon get a heads-up automatically."
+    )
+
+
+def help_cards(version, user_is_admin):
+    """main.py help_command() presentation (HTML, v14.12 design --
+    moved verbatim in Phase 5R). Inputs: BAKA_VERSION string, is_admin
+    bool (visibility decided by the caller's check; the builder only
+    renders). Returns (msg1, msg2)."""
+    from fmt import blockquote, expandable_blockquote
+
+    def _sec(emoji, title, body):
+        return f"{emoji} {b(title)}\n{expandable_blockquote(body, escape=False)}"
+
+    intro = (
+        f"🤖 {b('BAKA')} — Behavioral Adaptive Knowledge Assistant\n"
+        f"{i('v' + version + ' · offline-first · English / Hindi / Hinglish')}\n\n"
+        f"Talk naturally, or use commands — {b('slash is optional')}.\n"
+        + blockquote(
+            f"{i('Remind me to submit assignment by Friday 5pm')}\n"
+            f"{i('Kal subah 8 baje gym yaad dila dena')}\n"
+            f"{code('list')} = {code('/list')} = {code('show my tasks')}",
+            escape=False)
+        + "\n\nTap a section to expand it. ▾"
+    )
+
+    tasks = "\n".join([
+        f"{code('list')} · {code('today')} · {code('week')} — task views",
+        f"{code('add task <title>')} — create (also just describe it)",
+        f"{code('done <id>')} — complete   {code('edit <id>')} — modify",
+        f"{code('delete <id>')} — remove (asks to confirm)",
+        f"{code('deadline <id>')} — pre-warns 7d/3d/1d/6h/1h before",
+        f"{code('tag <id> <tags>')} · {code('tagged <tag>')} — organize",
+    ])
+    reminders = "\n".join([
+        "Reminder pings have tap-able buttons:",
+        "✅ Done · ⏰ 10m · 🕐 1h · 📅 Tomorrow · 🔕 Stop · 🗑 Delete",
+        f"{code('snooze <id> <min>')} — custom snooze",
+        f"{code('pause <id>')} / {code('resume <id>')} · {code('paused')} — view",
+        f"{code('overdue')} · {code('deadlines')} · {code('review')} — follow-ups",
+        f"{code('carryforward')} — move all overdue to today",
+    ])
+    habits = "\n".join([
+        f"{code('habits')} — all habits + streaks",
+        f"{code('done <id>')} — log today (builds the streak 🔥)",
+        f"{code('streak <id>')} — 14-day grid   {code('habitlog <id>')} — 30-day log",
+        f"{code('addhabit <title> [at HH:MM] [daily|weekly]')} — create",
+        f"{code('skiphabit <id>')} — intentional skip (resets streak)",
+    ])
+    goals_projects = "\n".join([
+        f"{code('goals')} — dashboard with progress bars",
+        f"{i('I want to read 12 books this year')} — then tap ➕/➖",
+        f"{code('projects')} · {code('project <id>')} — project cards",
+        f"{code('need <id> <items>')} — materials   {code('got <name>')} — acquired",
+        f"{code('started <id>')} · {code('worklog <id> <text>')} · {code('finished <id>')}",
+        f"{code('shopping')} — auto shopping list across projects",
+    ])
+    ai_planning = "\n".join([
+        f"{code('think <question>')} — reasoning over your data",
+        f"{code('plan today')} / {code('plan week')} — time-blocked plans",
+        f"{code('breakdown <id>')} — split into subtasks",
+        f"{code('reschedule <id>')} — pick a conflict-free time",
+        f"{code('analyze')} · {code('insights')} · {code('overload')} — reports",
+        f"{code('suggestions')} · {code('approve <id>')} · {code('dismiss <id>')}",
+    ])
+    media = "\n".join([
+        f"{code('image <prompt>')} — generate an image",
+        f"{code('video <prompt>')} — generate a video (1–3 min)",
+        "📷 send any photo — description or todo extraction",
+    ])
+    memory_search = "\n".join([
+        f"{i('Remember my exam is June 20')} — then ask about it later",
+        f"{code('memory')} — stored memories   {code('forget <key>')} — delete one",
+        f"{code('search <keyword>')} — tasks, memories, habits, goals",
+        f"{code('template')} · {code('savetemplate <name> <id>')} — reusables",
+        f"{code('export')} — full plain-text backup",
+    ])
+    settings_utils = "\n".join([
+        f"{code('settings')} — all preferences",
+        f"{code('quiethours <start> <end>')} — no pings while you sleep",
+        f"{code('interval <min>')} — reminder frequency",
+        f"{code('wellness on/off')} — 💧 water/break/eye nudges",
+        f"{code('dashboard')} — inline-button home view",
+        f"{code('status')} — AI benchmark   {code('selftest')} — diagnostics",
+        f"{code('debug')} · {code('report <issue>')} · {code('bugs')} · {code('trace')}",
+        f"{code('cancel')} — abort any pending question",
+    ])
+
+    msg1 = "\n\n".join([
+        intro,
+        _sec("📌", "TASKS", tasks),
+        _sec("🔔", "REMINDERS", reminders),
+        _sec("🌱", "HABITS", habits),
+    ])
+    msg2_parts = [
+        _sec("🎯", "GOALS & PROJECTS", goals_projects),
+        _sec("🧠", "AI & PLANNING", ai_planning),
+        _sec("🖼", "MEDIA", media),
+        _sec("🗂", "MEMORY, SEARCH & TEMPLATES", memory_search),
+        _sec("⚙️", "SETTINGS & UTILITIES", settings_utils),
+    ]
+    if user_is_admin:
+        admin = "\n".join([
+            f"{code('admin')} · {code('adminmode')} — admin dashboard",
+            f"{code('resettasks')} · {code('resethabits')} · {code('resetall')} — destructive resets",
+            f"{code('sql <query>')} — raw read-only queries",
+            f"{code('misses')} · {code('reviewed <id>')} — capability gap review",
+        ])
+        msg2_parts.append(_sec("👑", "ADMIN (visible only to you)", admin))
+    msg2_parts.append(
+        f"💡 {i('Slash is optional for every command. English, Hindi, and Hinglish all work.')}")
+    msg2 = "\n\n".join(msg2_parts)
+    return msg1, msg2
+
+
+def ai_status_error_card(result):
+    """main.py status_cmd() offline-branch presentation (HTML).
+    Inputs: check_api_status() dict with status != 'online'."""
+    if result["status"] == "rate_limited":
+        return f"⚠️ {b('Rate Limited')}\nWait 1-2 min. (40 req/min limit)"
+    if result["status"] == "invalid_key":
+        return f"❌ {b('Invalid API Key')} — Regenerate at build.nvidia.com"
+    return f"❌ {b('Error')} — {code(str(result.get('error','Unknown'))[:150])}"
+
+
+def ai_status_card(result, bench, full):
+    """main.py status_cmd() success presentation (HTML). Inputs:
+    check_api_status() dict, benchmark_ai() dict, full-benchmark bool.
+    Returns (text, InlineKeyboardMarkup) — the Re-run button's
+    callback_data stays byte-identical (dash:home)."""
+    rt = result.get("response_time_ms", 0)
+    speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
+    grade = bench.get("grade", "?")
+    grade_emoji = "🏆" if grade in ("A+", "A") else "✅" if grade == "B" else "⚠️"
+
+    lines = [
+        f"🤖 {b('BAKA AI Diagnostics')}",
+        "",
+        f"📡 {b('Connection')}",
+        f"   Model: {code(result.get('model', 'glm-5.1'))}",
+        f"   Ping: {rt}ms {speed}",
+        f"   Tokens: {result.get('prompt_tokens','?')}→{result.get('completion_tokens','?')} ({result.get('total_tokens','?')} total)",
+        "",
+        f"{grade_emoji} {b('Benchmark: ' + bench['score'])} (Grade: {b(grade)})",
+        f"   Avg latency: {bench['avg_latency_ms']}ms",
+        "",
+    ]
+    for t in bench["tests"]:
+        icon = "✅" if t["passed"] else "❌"
+        lines.append(f"   {icon} {t['name']} ({t['latency_ms']}ms)")
+        if t.get("error"):
+            lines.append(f"      <i>Error: {esc(t['error'][:80])}</i>")
+    lines.extend([
+        "",
+        "💳 Free tier: 1,000 calls/month · 40 req/min",
+    ])
+    if not full:
+        lines.append(f"\n💡 Run {code('status full')} for a deep 6-test benchmark.")
+
+    kb = InlineKeyboardMarkup([[uic.button("🔄 Re-run", "dash:home")]])
+    return "\n".join(lines), kb
+
+
+def models_card(health, stats):
+    """main.py models_cmd() presentation (HTML). Inputs:
+    benchmark_all_models() dict, analytics per-model stats dict
+    (empty when analytics is unavailable — the pre-existing state)."""
+    lines = [f"🤖 {b('Multi-Model AI Status')}", ""]
+    for name, r in health.items():
+        model_id = r["model"]
+        online = r["online"]
+        role_label = {
+            "main": "Main Brain", "fast": "Fast Tasks",
+            "vision": "Image Understanding", "image": "Image Generation",
+            "video": "Video Generation"
+        }.get(name, name)
+        if online is True:
+            ping_str = f"🟢 {r['ms']}ms"
+        elif online is False:
+            ping_str = "🔴 offline"
+        else:
+            ping_str = f"⚪ {esc(str(online))}"
+        s = stats.get(model_id)
+        lines.append(f"{b(role_label)} — {ping_str}")
+        lines.append(f"  {code(model_id)}")
+        if s and s["total_requests"]:
+            health_emoji = {"healthy": "🟢", "warning": "🟡",
+                           "degraded": "🔴", "slow": "🐢"}.get(s["health"], "⚪")
+            lines.append(f"  Today: {b(s['today_requests'])} · Total: {b(s['total_requests'])} · "
+                         f"{health_emoji} {esc(s['health'])}")
+            lines.append(f"  Avg: {s['avg_latency_ms']}ms · Success: {s['success_rate']}%")
+        lines.append("")
+    lines.append("<i>All visual models always on · 100% NVIDIA NIM</i>")
+    return "\n".join(lines)
+
+
+def selftest_report(version, python_version, provider, model_main,
+                    model_fast, model_think, db_name, db_size, rss_mb,
+                    flag_values, checks, elapsed_ms):
+    """main.py selftest_cmd() report presentation (HTML, v14.12 design
+    -- moved verbatim in Phase 5R). The live probes stay in the
+    handler; this renders their results. Inputs: version/python/provider
+    strings, three model ids, db display name + size string, peak-RSS
+    float (MB), [(flag_name, bool)] list, [(ok, label, detail)] checks,
+    elapsed float ms. Returns text."""
+    from fmt import blockquote
+
+    ok_count = sum(1 for ok, *_ in checks if ok)
+    all_ok = ok_count == len(checks)
+    lines = [f"{'✅' if ok else '❌'} {b(label)} — {esc(detail)}"
+             for ok, label, detail in checks]
+
+    flags = "\n".join(
+        f"{'🟢' if val else '⚪'} {code(name)} {'ON' if val else 'off'}"
+        for name, val in flag_values)
+    env = "\n".join([
+        f"BAKA {b('v' + version)} · Python {code(python_version)}",
+        f"AI provider: {code(provider)}",
+        f"Models: main {code(model_main)}",
+        f"       fast {code(model_fast)}",
+        f"  reasoning {code(model_think)}",
+        f"Database: {code(db_name)} · {db_size}",
+        f"Memory (peak RSS): {code(f'{rss_mb:.0f} MB')}",
+    ])
+
+    verdict = ("✅ ALL SYSTEMS OPERATIONAL" if all_ok
+               else f"⚠️ {len(checks) - ok_count} CHECK(S) FAILED")
+    return "\n\n".join([
+        f"🧪 {b('BAKA Diagnostics')}",
+        b(verdict),
+        blockquote("\n".join(lines), escape=False),
+        f"⚙️ {b('Environment')}\n" + blockquote(env, escape=False),
+        f"🚩 {b('Feature flags')}\n" + blockquote(flags, escape=False),
+        i(f"{len(checks)} live checks · report generated in {elapsed_ms:.0f}ms · "
+          f"automated suite: 700+ tests, see TESTING.md"),
+    ])
