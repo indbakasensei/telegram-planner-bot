@@ -1,36 +1,53 @@
 """
-ui.py — v9.0 UI Component System
+ui.py — v9.0 UI Component System, migrated onto the Phase-0 component
+library in UI Phase 1 (UI_SPEC_v1.md §15).
 
-Pure presentation layer. Every function returns either an HTML string or a
-(text, InlineKeyboardMarkup) tuple. NO database access, NO business logic —
-callers pass in already-fetched data. This keeps UI separate from logic
-(spec #12) and makes components trivially testable.
+Pure presentation layer. Every function returns either an HTML string or
+a (text, InlineKeyboardMarkup) tuple. NO database access, NO business
+logic — callers pass in already-fetched data.
 
-Built on top of fmt.py (HTML helpers). All text uses Telegram HTML parse mode.
+Phase 1 rules honored here (tests/test_ui_cards.py pins them):
+- Every field, every button label, and every callback_data is
+  byte-identical to the pre-migration cards. The only visible delta is
+  spec-required typography from the shared components (§5.1 uppercase
+  H1 titles) — explicitly permitted by the Phase 1 brief.
+- Formerly-local formatting primitives (progress bar, priority dots,
+  recurrence icons) now delegate to ui_components — the mappings have
+  exactly one owner.
+- Fixed keyboards are built with ui_components' checked builders
+  (action_row/nav_row/keyboard). The goal and habit keyboards grow one
+  row PER ITEM with no cap (pre-existing behavior), so they can exceed
+  keyboard()'s §5.7 twelve-button design cap with real data — they use
+  uic.button() (64-byte check) with a direct InlineKeyboardMarkup,
+  byte-preserving today's behavior; their §6.2-compliant pagination is
+  Phase 3/4's job, not Phase 1's.
+- Empty-state wording is unchanged (the §14 canonical copy swap happens
+  when each screen is redesigned in Phases 2–8, not during migration).
 """
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from fmt import b, i, code, esc, HTML, DIVIDER
+from telegram import InlineKeyboardMarkup
 
-# ── Primitives ────────────────────────────────────────
+from fmt import b, i, code, esc
+import ui_components as uic
+
+# ── Primitives (delegating to the component library, Phase 1) ─────────────
 
 def progress_bar(percent, width=10):
-    """Render a text progress bar: ▓▓▓▓▓░░░░░ 50%"""
-    percent = max(0, min(100, int(percent or 0)))
-    filled = round(width * percent / 100)
-    return "▓" * filled + "░" * (width - filled) + f" {percent}%"
+    """Render a text progress bar: ▓▓▓▓▓░░░░░ 50%  (delegates to
+    ui_components.progress_indicator — byte-identical output)."""
+    return uic.progress_indicator(percent or 0, width)
 
 
 def priority_dot(priority):
-    return "🔴" if priority == "high" else "🟢" if priority == "low" else "🟡"
+    return uic.priority_dot(priority)
 
 
 def recurrence_icon(recurrence):
-    return {"daily": "🔁", "weekly": "📆", "monthly": "🗓"}.get(recurrence, "")
+    return uic.RECURRENCE_ICONS.get(recurrence, "")
 
 
 def section(title, emoji=""):
     prefix = f"{emoji} " if emoji else ""
-    return f"{prefix}{b(title)}"
+    return f"{prefix}{uic.subheader(title)}"
 
 
 # ── Cards ─────────────────────────────────────────────
@@ -42,12 +59,10 @@ def dashboard_card(data: dict):
       goals, habits, completion_rate, streak_best
     Returns (text, InlineKeyboardMarkup).
     """
-    lines = [f"🏠 {b('BAKA Dashboard')}"]
-    if data.get("date_str"):
-        lines.append(f"<i>{esc(data['date_str'])}</i>")
-    lines.append("")
+    header = uic.render_header("home", "BAKA Dashboard",
+                                caption_text=data.get("date_str"))
 
-    # Snapshot counts
+    lines = []
     snapshot = []
     if data.get("today_count") is not None:
         snapshot.append(f"📅 Today: {b(data['today_count'])}")
@@ -61,7 +76,6 @@ def dashboard_card(data: dict):
         lines.append("  ·  ".join(snapshot))
         lines.append("")
 
-    # Goals / habits quick lines
     if data.get("goals"):
         lines.append(f"🎯 {b('Goals')}: {len(data['goals'])} active")
     if data.get("habits"):
@@ -69,27 +83,19 @@ def dashboard_card(data: dict):
         lines.append(f"🌱 {b('Habits')}: {len(data['habits'])} active"
                      + (f" · 🔥 best streak {best}" if best else ""))
     if data.get("completion_rate") is not None:
-        lines.append(f"📊 Completion: {progress_bar(data['completion_rate']*100 if data['completion_rate']<=1 else data['completion_rate'])}")
+        rate = data["completion_rate"]
+        lines.append(f"📊 Completion: {progress_bar(rate*100 if rate <= 1 else rate)}")
 
     if not snapshot and not data.get("goals") and not data.get("habits"):
         lines.append(i("Nothing tracked yet. Add a task to get started!"))
 
-    text = "\n".join(lines)
+    text = uic.render_page(header, "\n".join(lines).rstrip())
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📅 Today", callback_data="dash:today"),
-            InlineKeyboardButton("📋 Tasks", callback_data="dash:tasks"),
-        ],
-        [
-            InlineKeyboardButton("🎯 Goals", callback_data="dash:goals"),
-            InlineKeyboardButton("🌱 Habits", callback_data="dash:habits"),
-        ],
-        [
-            InlineKeyboardButton("📊 Stats", callback_data="dash:stats"),
-            InlineKeyboardButton("🔄 Refresh", callback_data="dash:home"),
-        ],
-    ])
+    keyboard = uic.keyboard(
+        uic.action_row(("📅 Today", "dash:today"), ("📋 Tasks", "dash:tasks")),
+        uic.action_row(("🎯 Goals", "dash:goals"), ("🌱 Habits", "dash:habits")),
+        uic.action_row(("📊 Stats", "dash:stats"), ("🔄 Refresh", "dash:home")),
+    )
     return text, keyboard
 
 
@@ -123,31 +129,28 @@ def task_card(task, show_actions=True):
     rec_s = f" {rec}" if rec else ""
 
     lines = [f"{dot} {b(title)}{rec_s}"]
+    # meta is escaped ONCE, by caption() -- items must stay raw here.
     meta = []
     if ddate:
-        meta.append(f"📅 {esc(ddate)}")
+        meta.append(f"📅 {ddate}")
     if dtime:
-        meta.append(f"⏰ {esc(dtime)}")
-    meta.append(f"🏷 {esc(category)}")
-    meta.append(f"{priority_dot(priority)} {esc(priority)}")
-    lines.append("<i>" + " · ".join(meta) + "</i>")
+        meta.append(f"⏰ {dtime}")
+    meta.append(f"🏷 {category}")
+    meta.append(f"{priority_dot(priority)} {priority}")
+    lines.append(uic.caption(" · ".join(meta)))
     text = "\n".join(lines)
 
     if not show_actions or done:
         return text, None
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ Done", callback_data=f"done:{tid}"),
-            InlineKeyboardButton("⏰ Snooze", callback_data=f"snooze:{tid}:30"),
-            InlineKeyboardButton("📅 Tomorrow", callback_data=f"postpone:{tid}"),
-        ],
-        [
-            InlineKeyboardButton("✏️ Edit", callback_data=f"dash:edit:{tid}"),
-            InlineKeyboardButton("🗑 Delete", callback_data=f"deltask:{tid}"),
-            InlineKeyboardButton("« Back", callback_data="dash:tasks"),
-        ],
-    ])
+    keyboard = uic.keyboard(
+        uic.action_row(("✅ Done", f"done:{tid}"),
+                        ("⏰ Snooze", f"snooze:{tid}:30"),
+                        ("📅 Tomorrow", f"postpone:{tid}")),
+        uic.action_row(("✏️ Edit", f"dash:edit:{tid}"),
+                        ("🗑 Delete", f"deltask:{tid}"),
+                        ("« Back", "dash:tasks")),
+    )
     return text, keyboard
 
 
@@ -156,10 +159,9 @@ def today_card(groups: dict, date_str=""):
     Grouped today view. `groups` keys: overdue, high, upcoming, done — each a
     list of task tuples. Returns (text, InlineKeyboardMarkup).
     """
-    lines = [f"📅 {b('Today')}"]
-    if date_str:
-        lines.append(f"<i>{esc(date_str)}</i>")
-    lines.append("")
+    header = uic.render_header("date", "Today",
+                                caption_text=date_str or None)
+    lines = []
 
     def render_group(title, emoji, tasks, show_time=True):
         out = []
@@ -187,19 +189,16 @@ def today_card(groups: dict, date_str=""):
     if total == 0 and not done:
         lines.append(i("Nothing scheduled today. Enjoy! 🌟"))
 
-    text = "\n".join(lines).rstrip()
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔄 Refresh", callback_data="dash:today"),
-            InlineKeyboardButton("🏠 Home", callback_data="dash:home"),
-        ],
-    ])
+    text = uic.render_page(header, "\n".join(lines).rstrip())
+    keyboard = uic.keyboard(
+        uic.nav_row(refresh_cb="dash:today", home_cb="dash:home"))
     return text, keyboard
 
 
 def task_list_card(tasks, title="Your Tasks", page_cb="dash:tasks"):
     """List of tasks, each tappable to open its task_card."""
-    lines = [f"📋 {b(title)}", ""]
+    header = uic.render_header("list", title)
+    lines = []
     rows = []
     if not tasks:
         lines.append(i("No tasks here. Add one anytime!"))
@@ -215,13 +214,9 @@ def task_list_card(tasks, title="Your Tasks", page_cb="dash:tasks"):
                 meta.append(esc(t[3]))
             metatxt = f" <i>· {' · '.join(meta)}</i>" if meta else ""
             lines.append(f"{dot} {code('['+str(t[0])+']')} {esc(t[1])}{rec_s}{metatxt}")
-            rows.append([InlineKeyboardButton(
-                f"{dot} {t[1][:28]}", callback_data=f"dash:task:{t[0]}")])
-    rows.append([
-        InlineKeyboardButton("🔄 Refresh", callback_data=page_cb),
-        InlineKeyboardButton("🏠 Home", callback_data="dash:home"),
-    ])
-    return "\n".join(lines), InlineKeyboardMarkup(rows)
+            rows.append([uic.button(f"{dot} {t[1][:28]}", f"dash:task:{t[0]}")])
+    rows.append(uic.nav_row(refresh_cb=page_cb, home_cb="dash:home"))
+    return uic.render_page(header, "\n".join(lines)), InlineKeyboardMarkup(rows)
 
 
 def goal_card(goals, date_str=""):
@@ -229,13 +224,19 @@ def goal_card(goals, date_str=""):
     Goals dashboard. `goals` is a list of tuples:
       (id, title, deadline, progress[, target])
     Returns (text, InlineKeyboardMarkup).
+
+    Keyboard note: one 3-button row per goal with no cap (pre-existing
+    behavior) — assembled directly, not via uic.keyboard(), since real
+    data can exceed the §5.7 twelve-button design cap; pagination is
+    Phase 3b's job.
     """
-    lines = [f"🎯 {b('Goals')}", ""]
+    header = uic.render_header("goal", "Goals")
+    lines = []
     rows = []
     if not goals:
         lines.append(i("No goals yet. Tell me something you're working toward!"))
         lines.append("")
-        lines.append(f"<i>e.g. \"I want to read 12 books this year\"</i>")
+        lines.append("<i>e.g. \"I want to read 12 books this year\"</i>")
     else:
         for g in goals:
             gid = g[0]
@@ -250,15 +251,13 @@ def goal_card(goals, date_str=""):
                 lines.append(f"   <i>📅 by {esc(deadline)}</i>")
             lines.append("")
             rows.append([
-                InlineKeyboardButton("➖", callback_data=f"dash:goalminus:{gid}"),
-                InlineKeyboardButton(f"{title[:18]}", callback_data=f"dash:goals"),
-                InlineKeyboardButton("➕", callback_data=f"dash:goalplus:{gid}"),
+                uic.button("➖", f"dash:goalminus:{gid}"),
+                uic.button(f"{title[:18]}", "dash:goals"),
+                uic.button("➕", f"dash:goalplus:{gid}"),
             ])
-    rows.append([
-        InlineKeyboardButton("🔄 Refresh", callback_data="dash:goals"),
-        InlineKeyboardButton("🏠 Home", callback_data="dash:home"),
-    ])
-    return "\n".join(lines).rstrip(), InlineKeyboardMarkup(rows)
+    rows.append(uic.nav_row(refresh_cb="dash:goals", home_cb="dash:home"))
+    text = uic.render_page(header, "\n".join(lines).rstrip())
+    return text, InlineKeyboardMarkup(rows)
 
 
 def habit_card(habits):
@@ -266,8 +265,12 @@ def habit_card(habits):
     Habit dashboard. `habits` is the get_habits() tuple list:
       (id, title, due_time, recurrence_type, recurrence_weekday,
        current_streak, longest_streak, last_completed, habit_start_date)
+
+    Keyboard note: one check-in row per habit, uncapped (pre-existing) —
+    direct assembly, same reasoning as goal_card.
     """
-    lines = [f"🌱 {b('Habits')}", ""]
+    header = uic.render_header("habit", "Habits")
+    lines = []
     rows = []
     if not habits:
         lines.append(i("No habits yet. Start one like \"meditate daily at 7am\"."))
@@ -281,13 +284,10 @@ def habit_card(habits):
             lines.append(f"   Streak {b(streak or 0)} · best {longest or 0}"
                          + (f" · ⏰ {esc(dtime)}" if dtime else ""))
             lines.append("")
-            rows.append([InlineKeyboardButton(
-                f"✅ Did '{title[:20]}'", callback_data=f"done:{hid}")])
-    rows.append([
-        InlineKeyboardButton("🔄 Refresh", callback_data="dash:habits"),
-        InlineKeyboardButton("🏠 Home", callback_data="dash:home"),
-    ])
-    return "\n".join(lines).rstrip(), InlineKeyboardMarkup(rows)
+            rows.append([uic.button(f"✅ Did '{title[:20]}'", f"done:{hid}")])
+    rows.append(uic.nav_row(refresh_cb="dash:habits", home_cb="dash:home"))
+    text = uic.render_page(header, "\n".join(lines).rstrip())
+    return text, InlineKeyboardMarkup(rows)
 
 
 def stat_card(stats: dict):
@@ -296,17 +296,18 @@ def stat_card(stats: dict):
       completion_rate, overdue_rate, total_tasks, done_tasks, top_categories
       (list of (cat,count)), tone, active_hour, insights (list)
     """
-    lines = [f"📊 {b('Productivity')}", ""]
+    header = uic.render_header("stats", "Productivity")
+    lines = []
 
     if stats.get("completion_rate") is not None:
         cr = stats["completion_rate"]
         cr = cr * 100 if cr <= 1 else cr
-        lines.append(f"✅ Completion rate")
+        lines.append("✅ Completion rate")
         lines.append(f"   {progress_bar(cr)}")
     if stats.get("overdue_rate") is not None:
         orate = stats["overdue_rate"]
         orate = orate * 100 if orate <= 1 else orate
-        lines.append(f"⚠️ Overdue rate")
+        lines.append("⚠️ Overdue rate")
         lines.append(f"   {progress_bar(orate)}")
     lines.append("")
 
@@ -330,37 +331,32 @@ def stat_card(stats: dict):
         for ins in stats["insights"][:4]:
             lines.append(f"   • {ins}")
 
-    text = "\n".join(lines).rstrip()
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔄 Refresh", callback_data="dash:stats"),
-            InlineKeyboardButton("🏠 Home", callback_data="dash:home"),
-        ],
-    ])
+    text = uic.render_page(header, "\n".join(lines).rstrip())
+    keyboard = uic.keyboard(
+        uic.nav_row(refresh_cb="dash:stats", home_cb="dash:home"))
     return text, keyboard
 
 
 def reminder_card(task):
     """
     Rich reminder card (spec #9). `task` tuple: (id, title, due_date, due_time).
-    Returns (text, InlineKeyboardMarkup).
+    Returns (text, InlineKeyboardMarkup). REGRESSION-CRITICAL: the ping
+    buttons and callbacks are byte-identical to pre-Phase-1
+    (UI_SPEC_v1.md §3: reminder pings are restyled header only).
     """
     tid = task[0]
     title = task[1]
     ddate = task[2] if len(task) > 2 else None
     dtime = task[3] if len(task) > 3 else None
-    text = (f"🔔 {b('Reminder')}\n\n📌 {b(title)}\n"
-            f"<i>📅 {esc(ddate or 'No date')} · ⏰ {esc(dtime or 'No time')}</i>")
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ Done", callback_data=f"done:{tid}"),
-            InlineKeyboardButton("⏰ 10m", callback_data=f"snooze:{tid}:10"),
-            InlineKeyboardButton("🕐 1h", callback_data=f"snooze:{tid}:60"),
-        ],
-        [
-            InlineKeyboardButton("📅 Tomorrow", callback_data=f"postpone:{tid}"),
-            InlineKeyboardButton("🔕 Stop", callback_data=f"stoprem:{tid}"),
-            InlineKeyboardButton("🗑 Delete", callback_data=f"deltask:{tid}"),
-        ],
-    ])
+    meta = f"📅 {ddate or 'No date'} · ⏰ {dtime or 'No time'}"
+    body = f"📌 {b(title)}\n{uic.caption(meta)}"
+    text = uic.render_page(uic.render_header("bell", "Reminder"), body)
+    keyboard = uic.keyboard(
+        uic.action_row(("✅ Done", f"done:{tid}"),
+                        ("⏰ 10m", f"snooze:{tid}:10"),
+                        ("🕐 1h", f"snooze:{tid}:60")),
+        uic.action_row(("📅 Tomorrow", f"postpone:{tid}"),
+                        ("🔕 Stop", f"stoprem:{tid}"),
+                        ("🗑 Delete", f"deltask:{tid}")),
+    )
     return text, keyboard

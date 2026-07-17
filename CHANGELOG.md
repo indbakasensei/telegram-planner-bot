@@ -9,7 +9,53 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.13 — UI Overhaul Phase 0: Component Library (current)
+## v14.14 — UI Overhaul Phase 1: Cards Migrated to the Component Library (current)
+
+`ui.py`'s eight dashboard cards now render through `ui_components.py`
+(UI_SPEC_v1.md §15 Phase 1). **Characterization tests were written
+first** (`tests/test_ui_cards.py`, 21 tests, green against the
+pre-migration code, kept green through it): every field, every button
+label, and every callback_data is pinned **byte-exact**; headings are
+pinned case-insensitively because the one visible delta is
+spec-required typography — §5.1 uppercase H1 card titles
+("BAKA Dashboard" → "BAKA DASHBOARD" etc.), which the Phase 1 brief
+explicitly permits.
+
+- **Duplicated renderers removed from `ui.py` (4)**: `progress_bar`
+  (delegates to `progress_indicator` — byte-identical output),
+  `priority_dot` (moved to `ui_components`, single owner),
+  `recurrence_icon` (new shared `RECURRENCE_ICONS` map), `section`
+  (builds on `subheader`). Headers/pages/captions/keyboards now come
+  from `render_header`/`render_page`/`caption`/`action_row`/`nav_row`/
+  `keyboard`/`button`.
+- **Keyboard cap exemption, documented**: `goal_card`/`habit_card`
+  (and the per-task rows of `task_list_card`) grow one row per item
+  with no cap — pre-existing behavior, so they use `uic.button()` (the
+  64-byte check) with direct `InlineKeyboardMarkup` instead of
+  `keyboard()`'s 12-button design cap; §6.2-compliant pagination is
+  Phase 3/4's job.
+- **ICONS vocabulary completion (needs Board ratification)**: `📋 list`,
+  `🔔 bell`, `🗓 recurring_monthly` added — all already in production
+  chrome before Phase 0 froze the §5.5 vocabulary (ui.py headers since
+  v9.0, fmt.task_line's monthly icon). Documenting reality, not new
+  chrome.
+- **Duplication found and deferred with reasoning**: `main.py`'s
+  `_progress_bar` (project cards) is a *variant*, not a duplicate —
+  different glyphs (█), truncation, no % suffix; consolidating it
+  changes project-card visuals, which is Phase 3b scope.
+  `fmt.task_line`'s inline recurrence-icon copy likewise waits for its
+  screens' migration (noted at `RECURRENCE_ICONS`).
+- Two double-escape bugs caught by the characterization tests during
+  migration (caption() escapes; meta must stay raw) — fixed before
+  commit.
+
+Zero handler/callback/routing/storage/scheduler/AI changes (`main.py`,
+`core/`, `fmt.py` and every behavior file: zero diff). Suite: **781
+tests** (760 + 21). pyflakes: 0 on `ui.py`/`ui_components.py`/`core/`.
+
+---
+
+## v14.13 — UI Overhaul Phase 0: Component Library
 
 First implementation phase of the Board-approved UI overhaul. Two
 deliverables, **zero user-visible change** (the library is deliberately

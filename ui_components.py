@@ -57,7 +57,35 @@ ICONS = {
     "loading": "⏳", "streak": "🔥", "paused": "⏸", "recurring": "🔁",
     "priority_high": "🔴", "priority_medium": "🟡", "priority_low": "🟢",
     "flag_on": "🟢", "flag_off": "⚪",
+    # Phase 1 vocabulary completion (UI_SPEC_v1.md §5.5): icons that were
+    # ALREADY in production chrome before Phase 0 froze the vocabulary
+    # (ui.py card headers since v9.0, fmt.task_line's monthly icon) --
+    # documenting existing reality, not new chrome. Flagged for Board
+    # ratification in the Phase 1 report.
+    "list": "📋", "bell": "🔔", "recurring_monthly": "🗓",
 }
+
+# Recurrence-type → icon, the single owner of this mapping (Phase 1 --
+# ui.py's recurrence_icon() delegates here; fmt.task_line's inline copy
+# predates this and is scheduled for consolidation when its screens are
+# migrated in Phases 2-3).
+RECURRENCE_ICONS = {
+    "daily": ICONS["recurring"],
+    "weekly": ICONS["calendar"],
+    "monthly": ICONS["recurring_monthly"],
+}
+
+
+def priority_dot(priority: str) -> str:
+    """Purpose: priority → dot icon (§5.5), the single owner of the
+    mapping (unknown/missing priorities render medium, matching the
+    pre-Phase-1 behavior everywhere). Inputs: 'high'/'medium'/'low'.
+    Outputs: 🔴/🟡/🟢. Used by: task rows/cards on every screen."""
+    if priority == "high":
+        return ICONS["priority_high"]
+    if priority == "low":
+        return ICONS["priority_low"]
+    return ICONS["priority_medium"]
 
 # ── §7: canonical button labels (closed table) ───────────────────────────
 LABELS = {
