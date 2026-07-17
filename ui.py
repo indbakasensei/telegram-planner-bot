@@ -301,10 +301,15 @@ def goal_card(goals, date_str=""):
     data can exceed the §5.7 twelve-button design cap; pagination is
     Phase 3b's job.
     """
-    header = uic.render_header("goal", "Goals")
+    cap = (f"{len(goals)} active goal{'s' if len(goals) != 1 else ''}"
+           if goals else None)
+    header = uic.render_header("goal", "Goals", caption_text=cap)
     lines = []
     rows = []
     if not goals:
+        # Copy kept verbatim (Phase 4): UI_SPEC §14 has no approved
+        # Goals empty state, and inventing copy is forbidden -- a §14
+        # addition is a spec-revision item (CHANGELOG).
         lines.append(i("No goals yet. Tell me something you're working toward!"))
         lines.append("")
         lines.append("<i>e.g. \"I want to read 12 books this year\"</i>")
@@ -340,11 +345,14 @@ def habit_card(habits):
     Keyboard note: one check-in row per habit, uncapped (pre-existing) —
     direct assembly, same reasoning as goal_card.
     """
-    header = uic.render_header("habit", "Habits")
+    cap = (f"{len(habits)} active habit{'s' if len(habits) != 1 else ''}"
+           if habits else None)
+    header = uic.render_header("habit", "Habits", caption_text=cap)
     lines = []
     rows = []
     if not habits:
-        lines.append(i("No habits yet. Start one like \"meditate daily at 7am\"."))
+        # Phase 4: the §14 canonical empty state (approved wording).
+        lines.append(uic.empty_habits())
     else:
         for h in habits:
             hid, title, dtime = h[0], h[1], h[2]

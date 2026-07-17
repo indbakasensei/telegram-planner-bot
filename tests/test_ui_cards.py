@@ -257,9 +257,33 @@ def test_goal_card_fields_and_plusminus_buttons():
 
 
 def test_goal_card_empty_copy():
+    # KEPT VERBATIM through Phase 4: UI_SPEC §14 has no approved Goals
+    # empty-state copy (only Projects), and inventing copy is forbidden
+    # -- adding one is a spec-revision item, documented in CHANGELOG.
     text, _ = ui.goal_card([])
     assert "No goals yet. Tell me something you're working toward!" in text
     assert "I want to read 12 books this year" in text
+
+
+def test_goal_card_phase4_caption_ordering_and_callback_set():
+    goals = [(4, "Read 12 books", "2026-12-31", 6, 12),
+             (9, "Run 100 km", None, 150, 100)]
+    text, kb = ui.goal_card(goals)
+    assert "<i>2 active goals</i>" in text
+    # Input ordering preserved (no sorting introduced).
+    assert text.index("Read 12 books") < text.index("Run 100 km")
+    # Over-target progress clamps at 100% in the bar (pre-existing).
+    assert "▓▓▓▓▓▓▓▓▓▓ 100%" in text
+    flat = {btn.callback_data for row in kb.inline_keyboard for btn in row}
+    assert flat == {"dash:goalminus:4", "dash:goalplus:4",
+                    "dash:goalminus:9", "dash:goalplus:9",
+                    "dash:goals", "dash:home"}
+
+
+def test_goal_card_button_title_truncated_to_18():
+    long_title = "A very long goal title exceeding limits"
+    _, kb = ui.goal_card([(1, long_title, None, 0, 100)])
+    assert kb.inline_keyboard[0][1].text == long_title[:18]
 
 
 # ── Habit card ───────────────────────────────────────────────────────────
@@ -277,11 +301,30 @@ def test_habit_card_fields_and_checkin_buttons():
     assert rows[-1] == ["dash:habits", "dash:home"]
 
 
-def test_habit_card_zero_streak_and_empty_copy():
+def test_habit_card_zero_streak_and_canonical_empty_copy():
     text, _ = ui.habit_card([(7, "Read", None, "daily", None, 0, 0, None, None)])
     assert "○ <b>Read</b>" in text
+    # Phase 4: §14's approved empty-state wording via empty_habits().
     empty, _ = ui.habit_card([])
-    assert 'No habits yet. Start one like "meditate daily at 7am".' in empty
+    assert "No habits yet — start one small daily win." in empty
+    assert "addhabit Drink water at 09:00 daily" in empty
+
+
+def test_habit_card_phase4_caption_fire_cap_and_callback_set():
+    habits = [(7, "Meditate", "07:00", "daily", None, 8, 9, None, None),
+              (8, "Read", None, "daily", None, 1, 1, None, None)]
+    text, kb = ui.habit_card(habits)
+    assert "<i>2 active habits</i>" in text
+    assert "🔥" * 5 in text and "🔥" * 6 not in text     # fire cap at 5
+    assert text.index("Meditate") < text.index("Read")   # input ordering
+    flat = {btn.callback_data for row in kb.inline_keyboard for btn in row}
+    assert flat == {"done:7", "done:8", "dash:habits", "dash:home"}
+
+
+def test_habit_card_button_title_truncated_to_20():
+    long_title = "An exceptionally long habit title"
+    _, kb = ui.habit_card([(1, long_title, None, "daily", None, 0, 0, None, None)])
+    assert kb.inline_keyboard[0][0].text == f"✅ Did '{long_title[:20]}'"
 
 
 # ── Stat card ────────────────────────────────────────────────────────────

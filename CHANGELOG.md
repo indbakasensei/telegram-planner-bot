@@ -9,7 +9,39 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.16 — UI Overhaul Phase 3: Task Workflow (current)
+## v14.17 — UI Overhaul Phase 4: Goals & Habits (current)
+
+Goal and Habit dashboard surfaces on the component library
+(UI_SPEC_v1.md §15 Phase 4) — presentation only, `ui.py` alone changed.
+
+- **`goal_card`**: "N active goals" caption; item lines, progress bars,
+  and the ➖/title/➕ keyboard byte-identical (existing pins kept, not
+  replaced, per the brief). **Empty-state copy kept verbatim** — §14 has
+  no approved Goals wording (only Projects) and inventing copy is
+  forbidden; adding a Goals entry to §14 is a spec-revision item for the
+  Board.
+- **`habit_card`**: "N active habits" caption; §14 canonical empty
+  state (`empty_habits()` — the approved wording); fire-cap/streak/
+  check-in rows byte-identical.
+- New pins (extending, not replacing): callback-set equality for both
+  cards, input-ordering preservation, over-target progress clamping,
+  fire cap at 5, and the 18/20-char button-title truncations.
+
+**Constraint-driven deferrals, documented**: every other surface in the
+brief's screen list renders inside frozen files — habit streak/log
+views and completion/skip texts live in `main.py` handlers and
+`core/actions/habit_views.py`/`complete_habit.py`/`skip_habit.py`
+(READ-ONLY / DO-NOT-TOUCH this sprint), and no separate Goal
+Detail/Statistics screens exist to migrate. Those surfaces await a
+phase whose brief unfreezes their files. The dashboard's Goal/Habit
+summary lines were already migrated in Phase 2. No new bugs found (the
+Phase 3 recurring-detail quirk remains the only open UI known issue).
+
+Suite: **791 tests** (787 + 4). pyflakes: 0.
+
+---
+
+## v14.16 — UI Overhaul Phase 3: Task Workflow
 
 Task List, Today, and Task Details redesigned on the component library
 (UI_SPEC_v1.md §15 Phase 3) — presentation only, `ui.py` alone changed,
