@@ -138,6 +138,13 @@ what actually shipped; the authoritative design doc itself uses Stage
   canary per RC_v14_ARCHITECTURE_VALIDATION.md's plan** (plus rotating
   the two exposed credentials — see DEBUGGING.md).
 
+  **UI Overhaul** (Board-approved, spec frozen —
+  [UI_SPEC_v1.md](UI_SPEC_v1.md)): Phase 0 shipped in v14.13
+  (`ui_components.py` + tests, deliberately unwired). Remaining phases
+  per spec §15: 1 (re-express `ui.py` cards) → 2 (Dashboard) → 3–8
+  (Tasks+Duplicate, Habits, AI Hub, Developer Center, Statistics,
+  Settings) → 9 (Polish); each gates on spec §13.3's review checklist.
+
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles
   (`ADR-008`/`ADR-009`) — this is a *different*, nested numbering from

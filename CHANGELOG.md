@@ -9,7 +9,48 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.12 — Production Readiness & Release Candidate (current)
+## v14.13 — UI Overhaul Phase 0: Component Library (current)
+
+First implementation phase of the Board-approved UI overhaul. Two
+deliverables, **zero user-visible change** (the library is deliberately
+unwired — Shadow-Mode discipline, same as v14.0's Intent Engine):
+
+- **`UI_SPEC_v1.md`** — the approved, frozen v1.2 specification
+  committed as the single source of truth (§15 freeze policy: no new UI
+  pattern without a Board-approved revision first). Approved behavior
+  changes ledger: Duplicate Task (§9, Tasks only — Habits excluded with
+  reasoning) and `/debug` admin-gating (§10). Neither is implemented in
+  this phase.
+- **`ui_components.py`** — the §12 component library: page skeleton
+  (`render_page/header/section/footer`), cards (information/status/
+  statistics), states (success/warning/error/info/loading + the §14
+  canonical empty-state builders, copy pinned verbatim by tests),
+  confirmation dialog (wraps existing preview builders unescaped —
+  wording byte-preserved), button builders (primary/action/nav/
+  confirmation/pagination rows + `keyboard()`), and typography helpers
+  (closed §5.5 icon vocabulary, §7 canonical labels, breadcrumbs,
+  §5.6 timestamps — clock always caller-supplied, core/ discipline).
+  Spec rules are enforced **mechanically**: unknown icons/labels,
+  wordless status icons, >8-row cards, >4,000-char pages, >64-byte
+  callbacks, >3-button rows, >12-button keyboards, empty nav rows, and
+  >3-segment breadcrumbs all raise at build time, so violations die in
+  tests instead of review.
+- **`fmt.py`** gains `link(text, url)` (escaped hyperlink — the one
+  §5.3 primitive it lacked). Only fmt change.
+- **`tests/test_ui_components.py`** — 38 tests: HTML generation with
+  hostile input for every component, §14 copy pins, and every
+  enforcement rule's raise path.
+
+Handlers, callbacks, routing, storage, scheduler, AI, commands:
+untouched (verified: zero diff on `main.py`, `ui.py`, `core/`,
+`conversation_state.py`, `database.py`, `scheduler.py`,
+`baka_brain.py`). Suite: **760 tests, ~11–20 s** (722 + 38). Next: 
+Phase 1 re-expresses `ui.py`'s existing cards on these components with
+field parity pinned.
+
+---
+
+## v14.12 — Production Readiness & Release Candidate
 
 The final polish sprint before real-world testing. No new features;
 twelve workstreams:

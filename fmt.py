@@ -65,6 +65,15 @@ def spoiler(text) -> str:
     return f"<tg-spoiler>{esc(text)}</tg-spoiler>"
 
 
+def link(text, url) -> str:
+    """Inline hyperlink with descriptive text (UI Phase 0). Escapes the
+    text; the URL has its quote character escaped so a hostile URL can't
+    break out of the attribute. Per UI_SPEC_v1.md §5.3, links are
+    Dev-page documentation pointers only — never bare URLs."""
+    safe_url = str(url).replace('"', "%22")
+    return f'<a href="{safe_url}">{esc(text)}</a>'
+
+
 def blockquote(text, escape=True) -> str:
     """Blockquote (Bot API 7.0+). Pass escape=False when `text` is
     already-formatted HTML built from these helpers (v14.12)."""

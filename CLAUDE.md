@@ -21,6 +21,7 @@ NIM for AI. Start with [PROJECT.md](PROJECT.md) for the overview, then
 | How to test a change | [TESTING.md](TESTING.md) |
 | How to debug, and current known bugs | [DEBUGGING.md](DEBUGGING.md) |
 | AI prompt locations and structure | [PROMPTS.md](PROMPTS.md) |
+| UI standards (frozen spec — all UI work cites its § numbers) | [UI_SPEC_v1.md](UI_SPEC_v1.md) |
 | Cross-session context/decisions | [MEMORY.md](MEMORY.md) |
 | Scheduler, AI system, database, dashboard, reminders, Telegram integration deep-dives | `docs/*.md` |
 
