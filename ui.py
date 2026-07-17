@@ -441,149 +441,248 @@ def reminder_card(task):
     return text, keyboard
 
 
-# ── Utility screens (Phase 5R extraction, UI_SPEC_v1.md) ──────────────────
-# Every builder below is a VERBATIM move of string assembly that lived
-# inline in main.py handlers through v14.17 -- byte-for-byte output, per
-# the Phase 5R mandate. Several still emit Markdown (the pre-v7.1 style
-# their handlers always used); converting them to spec-compliant HTML is
-# Phase 5 proper's job, now finally possible because these are pure,
-# offline-testable functions. Handlers keep: data gathering, permission
-# gates, parse_mode, reply/edit calls, and main_menu() reply keyboards.
+# ── Utility screens (extracted in Phase 5R, redesigned in Phase 5) ────────
+# UI_SPEC_v1.md §15 Phase 5: every builder below now renders through the
+# shared component library (header → caption → cards → footer, §5
+# typography, HTML only — the six former-Markdown screens are converted;
+# their handlers pass parse_mode=HTML accordingly). Behavior unchanged:
+# same inputs, same variants, and the single keyboard (AI status Re-run)
+# keeps its byte-identical dash:home callback. help_cards() keeps its
+# v14.12 design (already spec-styled); selftest_report() gets the
+# component header/status treatment.
 
 def settings_card(prefs, is_quiet):
-    """main.py settings_cmd() presentation (Markdown). Inputs:
+    """Settings screen (Phase 5: HTML via components). Inputs:
     get_user_prefs() dict, is_quiet_hours() bool. Returns text."""
-    return (
-        f"⚙️ *Your Settings*\n\n"
-        f"🌙 Quiet hours: *{prefs['quiet_start']} — {prefs['quiet_end']}*"
-        f" {'(active now 🔕)' if is_quiet else '(inactive 🔔)'}\n"
-        f"🔁 Reminder interval: *{prefs['interval']} min*\n"
-        f"📊 Max reminders per task: *{prefs['max_reminders']}*\n\n"
-        f"*Change settings:*\n"
-        f"/quiethours <start> <end>\n"
-        f"/interval <minutes> — change reminder repeat interval"
-    )
+    header = uic.render_header(
+        "settings", "Settings",
+        caption_text="Quiet hours active now 🔕" if is_quiet else None)
+    info = uic.render_information_card("Preferences", [
+        ("🌙 Quiet hours", f"{prefs['quiet_start']} — {prefs['quiet_end']}"
+                           + (" (active now)" if is_quiet else "")),
+        ("🔁 Reminder interval", f"{prefs['interval']} min"),
+        ("📊 Max reminders per task", str(prefs['max_reminders'])),
+    ])
+    footer = uic.render_footer(
+        "Change: quiethours <start> <end> · interval <minutes>")
+    return uic.render_page(header, info, footer=footer)
 
 
 def debug_toggle_card(on):
-    """main.py debug_cmd() presentation (Markdown). Returns text."""
-    return (
-        f"🐞 Debug mode is now *{'ON' if on else 'OFF'}*.\n"
-        + ("I'll show you the detected intent and entities after each message."
-           if on else "Back to normal responses.")
-    )
+    """Debug-mode toggle result (Phase 5: status components)."""
+    if on:
+        return uic.render_success(
+            "Debug mode ON",
+            "I'll show you the detected intent and entities after each message.")
+    return uic.render_info("Debug mode OFF", "Back to normal responses.")
 
 
 def bugs_card(bugs):
-    """main.py bugs_cmd() presentation (Markdown), including the
-    no-open-bugs variant. Inputs: get_open_bugs() rows. Returns text."""
+    """Open-bugs list (Phase 5: components; §14 dev empty state).
+    Inputs: get_open_bugs() rows. Returns text."""
+    header = uic.render_header(
+        "dev", "Open Bugs",
+        caption_text=f"{len(bugs)} open" if bugs else None)
     if not bugs:
-        return "🎉 No open bugs!"
-    msg = "🐞 *Open Bugs:*\n\n"
+        return uic.render_page(
+            header,
+            uic.empty_dev("bugs list is empty — nothing reported since last review"))
+    lines = []
     for bug in bugs:
         icon = "💥" if bug[1] == "auto_exception" else "📝"
-        msg += f"{icon} *#{bug[0]}* — {bug[2][:60]}\n"
+        lines.append(f"{icon} {b('#' + str(bug[0]))} — {esc(bug[2][:60])}")
         if bug[3]:
-            msg += f"     _on: {bug[3][:50]}_\n"
-        msg += "\n"
-    msg += "Use /resolve <id> to close one."
-    return msg
+            lines.append(f"   {uic.caption('on: ' + bug[3][:50])}")
+    footer = uic.render_footer("Use resolve <id> to close one.")
+    return uic.render_page(header, "\n".join(lines), footer=footer)
 
 
 def trace_card(trace):
-    """main.py trace_cmd() presentation (Markdown), including the
-    no-trace variant. Inputs: get_last_trace() dict or None."""
-    if not trace:
-        return "No interaction traced yet. Send a message first."
+    """Last-interaction trace (Phase 5: components; dev code block for
+    entities per §5.3). Inputs: get_last_trace() dict or None."""
+    from fmt import code_block
     import json as _json
-    return (
-        f"🔍 *Last Interaction Trace:*\n\n"
-        f"📥 You said: `{trace['user_input']}`\n"
-        f"🎯 Intent: `{trace['intent']}`\n"
-        f"📦 Entities:\n`{_json.dumps(trace['entities'], indent=2, ensure_ascii=False)}`\n"
-        f"📤 Reply: {trace['response'][:200]}\n"
-        f"🕐 Time: {trace['time']}"
-    )
+    header = uic.render_header("search", "Last Interaction Trace")
+    if not trace:
+        return uic.render_page(
+            header,
+            uic.empty_dev("no interaction traced yet — send a message first"))
+    info = uic.render_information_card("Interaction", [
+        ("📥 You said", trace["user_input"]),
+        ("🎯 Intent", trace["intent"]),
+        ("📤 Reply", trace["response"][:200]),
+        ("🕐 Time", trace["time"]),
+    ])
+    entities = code_block(
+        _json.dumps(trace["entities"], indent=2, ensure_ascii=False), "json")
+    return uic.render_page(header, info, f"📦 {b('Entities')}\n{entities}")
 
 
 def insights_card(data):
-    """main.py insights_cmd() presentation (Markdown), including the
-    not-enough-data variant. Inputs: analyze_user() dict."""
+    """Learning insights (Phase 5: components; §14 statistics empty
+    state for the not-enough-data variant). Inputs: analyze_user() dict."""
     if data["total_tasks"] < 3:
-        return (
-            "\U0001f4ca *Not enough data yet*\n\n"
-            "I need at least 3 tasks across a few days to learn your patterns. "
-            "Keep using me — I'll start spotting trends soon!"
-        )
-    msg = "\U0001f9e0 *What I've learned about you*\n"
-    msg += f"_(based on last 30 days, {data['total_tasks']} tasks)_\n\n"
-    for line in data["insights"]:
-        msg += f"• {line}\n"
-    msg += "\n"
+        return uic.render_page(
+            uic.render_header("stats", "Insights"),
+            uic.empty_statistics())
+    header = uic.render_header(
+        "stats", "Insights",
+        caption_text=f"based on last 30 days · {data['total_tasks']} tasks")
+    blocks = ["\n".join(f"• {line}" for line in data["insights"])]
     if data["active_hours_top3"]:
-        msg += "\U0001f550 *Active hours:*\n"
-        for h, n in data["active_hours_top3"]:
-            msg += f"   {h:02d}:00 ({n} interactions)\n"
-        msg += "\n"
+        blocks.append(uic.render_section("Active hours", "\n".join(
+            f"• {h:02d}:00 ({n} interactions)"
+            for h, n in data["active_hours_top3"])))
     if data["snooze_patterns"]:
-        msg += "⏰ *Snooze patterns:*\n"
-        for cat, count, avg_min in data["snooze_patterns"][:3]:
-            msg += f"   {cat}: {count}x (avg {int(avg_min)}m)\n"
-        msg += "\n"
+        blocks.append(uic.render_section("Snooze patterns", "\n".join(
+            f"• {esc(cat)}: {count}x (avg {int(avg_min)}m)"
+            for cat, count, avg_min in data["snooze_patterns"][:3])))
     if data["category_focus"]:
-        msg += "\U0001f4cc *Top categories:*\n"
         sorted_cats = sorted(data["category_focus"].items(), key=lambda x: -x[1])
-        for cat, n in sorted_cats[:5]:
-            msg += f"   {cat}: {n} tasks\n"
-        msg += "\n"
-    msg += "_Use these insights to tweak `/settings` for better defaults._"
-    return msg
+        blocks.append(uic.render_section("Top categories", "\n".join(
+            f"• {esc(cat)}: {n} tasks" for cat, n in sorted_cats[:5])))
+    footer = uic.render_footer(
+        "Use these insights to tweak settings for better defaults.")
+    return uic.render_page(header, *blocks, footer=footer)
 
 
 def admin_panel_card(stats, in_mode):
-    """main.py admin_cmd() presentation (Markdown). Inputs:
+    """Admin control panel (Phase 5: components). Inputs:
     get_data_stats() dict, admin-debug-mode bool. Admin visibility is
     the HANDLER's job (silent deny), not this builder's."""
-    return (
-        "\U0001f6e0 *ADMIN CONTROL PANEL*\n"
-        f"Debug mode: {'\U0001f7e2 ON' if in_mode else '⚪ OFF'}\n\n"
-        "\U0001f4ca *Your Data:*\n"
-        f"  Active tasks: {stats['active_tasks']}\n"
-        f"  Completed: {stats['done_tasks']}\n"
-        f"  Habits: {stats['habits']}\n"
-        f"  Memories: {stats['memories']}\n"
-        f"  Goals: {stats['goals']}\n"
-        f"  Highest task ID: {stats['max_task_id']}\n"
-        f"  Learning logs: {stats['completions_logged']} done, {stats['snoozes_logged']} snoozed\n\n"
-        "\U0001f527 *Commands:*\n"
-        "/adminmode — toggle debug/admin mode\n"
-        "/resettasks — delete all tasks + reset IDs to 0\n"
-        "/resetmemory — wipe all memories\n"
-        "/resethabits — wipe all habits + streaks\n"
-        "/resetlearning — wipe preference-learning data\n"
-        "/resetall — ⚠️ nuke EVERYTHING + reset IDs\n"
-        "/sql <query> — run a read-only SQL query (debug)\n"
-    )
+    header = uic.render_header(
+        "dev", "Admin Control Panel",
+        caption_text=f"Debug mode {'🟢 ON' if in_mode else '⚪ OFF'}")
+    data_card = uic.render_statistics_card("Your Data", [
+        ("Active tasks", stats["active_tasks"]),
+        ("Completed", stats["done_tasks"]),
+        ("Habits", stats["habits"]),
+        ("Memories", stats["memories"]),
+        ("Goals", stats["goals"]),
+        ("Highest task ID", stats["max_task_id"]),
+        ("Learning logs",
+         f"{stats['completions_logged']} done, {stats['snoozes_logged']} snoozed"),
+    ])
+    commands = uic.render_section("Commands", "\n".join([
+        f"{code('adminmode')} — toggle debug/admin mode",
+        f"{code('resettasks')} — delete all tasks + reset IDs",
+        f"{code('resetmemory')} · {code('resethabits')} · {code('resetlearning')}",
+        f"{code('resetall')} — ⚠️ nuke EVERYTHING + reset IDs",
+        f"{code('sql <query>')} — read-only SQL (debug)",
+    ]))
+    return uic.render_page(header, data_card, commands)
 
 
 def proactive_card(wellness, prefs):
-    """main.py proactive_cmd() presentation (HTML). Inputs:
+    """Proactive-features panel (Phase 5: components). Inputs:
     get_wellness_prefs() dict, get_user_prefs() dict."""
-    return (
-        f"🤖 {b('Proactive Features')}\n\n"
-        f"These are things BAKA does on its own to help you:\n\n"
+    header = uic.render_header(
+        "settings", "Proactive Features",
+        caption_text="Things BAKA does on its own to help you")
+    body = "\n\n".join([
         f"🔔 {b('Reminders')} — always on\n"
-        f"   <i>Reminds until done, escalates near deadlines</i>\n\n"
+        f"{uic.caption('Reminds until done, escalates near deadlines')}",
         f"👀 {b('Follow-ups')} — always on\n"
-        f"   <i>Asks 'did you finish?' after tasks pass</i>\n\n"
+        f"{uic.caption(chr(39) + 'Did you finish?' + chr(39) + ' after tasks pass')}",
         f"🌙 {b('End-of-day summary')} — 21:00 daily\n"
-        f"   <i>Lists what's still pending today</i>\n\n"
+        f"{uic.caption('Lists what is still pending today')}",
         f"🌿 {b('Wellness nudges')} — {'🟢 ON' if wellness['on'] else '⚪ OFF'}\n"
-        f"   <i>Water/break/eye reminders. Toggle: {code('wellness on')}</i>\n\n"
+        f"{uic.caption('Water/break/eye reminders. Toggle: wellness on')}",
         f"⏰ {b('Quiet hours')} — {esc(prefs['quiet_start'])}–{esc(prefs['quiet_end'])}\n"
-        f"   <i>No proactive messages during this window</i>\n\n"
-        f"💡 High-priority tasks due soon get a heads-up automatically."
-    )
+        f"{uic.caption('No proactive messages during this window')}",
+    ])
+    footer = uic.render_footer(
+        "High-priority tasks due soon get a heads-up automatically.")
+    return uic.render_page(header, body, footer=footer)
+
+
+def ai_status_error_card(result):
+    """AI connectivity failure states (Phase 5: status components).
+    Inputs: check_api_status() dict with status != 'online'."""
+    if result["status"] == "rate_limited":
+        return uic.render_warning("Rate limited",
+                                   "Wait 1–2 min. (40 req/min limit)")
+    if result["status"] == "invalid_key":
+        return uic.render_error("Invalid API key",
+                                 "Regenerate at build.nvidia.com")
+    return uic.render_error("AI error",
+                             str(result.get("error", "Unknown"))[:150])
+
+
+def ai_status_card(result, bench, full):
+    """AI diagnostics (Phase 5: components). Inputs: check_api_status()
+    dict, benchmark_ai() dict, full-benchmark bool. Returns
+    (text, InlineKeyboardMarkup) — Re-run callback stays dash:home."""
+    rt = result.get("response_time_ms", 0)
+    speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
+    grade = bench.get("grade", "?")
+
+    header = uic.render_header("ai", "AI Diagnostics")
+    conn = uic.render_information_card("Connection", [
+        ("Model", result.get("model", "glm-5.1")),
+        ("Ping", f"{rt}ms {speed}"),
+        ("Tokens", f"{result.get('prompt_tokens','?')}→"
+                   f"{result.get('completion_tokens','?')} "
+                   f"({result.get('total_tokens','?')} total)"),
+    ])
+    bench_card = uic.render_statistics_card(f"Benchmark {bench['score']}", [
+        ("Grade", grade),
+        ("Avg latency", f"{bench['avg_latency_ms']}ms"),
+    ])
+    passed = sum(1 for t in bench["tests"] if t["passed"])
+    test_lines = []
+    for t in bench["tests"]:
+        icon = "✅" if t["passed"] else "❌"
+        test_lines.append(f"{icon} {esc(t['name'])} ({t['latency_ms']}ms)")
+        if t.get("error"):
+            test_lines.append(f"   {uic.caption('Error: ' + t['error'][:80])}")
+    tests_card = uic.render_status_card(
+        "success" if passed == len(bench["tests"]) else "warning",
+        f"{passed}/{len(bench['tests'])} tests passed",
+        "\n".join(test_lines))
+    hint = "Free tier: 1,000 calls/month · 40 req/min"
+    if not full:
+        hint += " · run status full for the deep 6-test benchmark"
+    text = uic.render_page(header, conn, bench_card, tests_card,
+                            footer=uic.render_footer(hint))
+    kb = InlineKeyboardMarkup([[uic.button("🔄 Re-run", "dash:home")]])
+    return text, kb
+
+
+def models_card(health, stats):
+    """Multi-model AI status (Phase 5: components). Inputs:
+    benchmark_all_models() dict, analytics per-model stats dict (empty
+    when analytics is unavailable — the pre-existing state)."""
+    header = uic.render_header(
+        "ai", "Multi-Model AI Status",
+        caption_text=f"{len(health)} models probed")
+    lines = []
+    for name, r in health.items():
+        model_id = r["model"]
+        online = r["online"]
+        role_label = {
+            "main": "Main Brain", "fast": "Fast Tasks",
+            "vision": "Image Understanding", "image": "Image Generation",
+            "video": "Video Generation"
+        }.get(name, name)
+        if online is True:
+            ping_str = f"🟢 {r['ms']}ms"
+        elif online is False:
+            ping_str = "🔴 offline"
+        else:
+            ping_str = f"⚪ {esc(str(online))}"
+        s = stats.get(model_id)
+        lines.append(f"{b(role_label)} — {ping_str}")
+        lines.append(f"  {code(model_id)}")
+        if s and s["total_requests"]:
+            health_emoji = {"healthy": "🟢", "warning": "🟡",
+                           "degraded": "🔴", "slow": "🐢"}.get(s["health"], "⚪")
+            lines.append(f"  Today: {b(s['today_requests'])} · Total: {b(s['total_requests'])} · "
+                         f"{health_emoji} {esc(s['health'])}")
+            lines.append(f"  Avg: {s['avg_latency_ms']}ms · Success: {s['success_rate']}%")
+        lines.append("")
+    footer = uic.render_footer("All visual models always on · 100% NVIDIA NIM")
+    return uic.render_page(header, "\n".join(lines).rstrip(), footer=footer)
 
 
 def help_cards(version, user_is_admin):
@@ -695,87 +794,6 @@ def help_cards(version, user_is_admin):
         f"💡 {i('Slash is optional for every command. English, Hindi, and Hinglish all work.')}")
     msg2 = "\n\n".join(msg2_parts)
     return msg1, msg2
-
-
-def ai_status_error_card(result):
-    """main.py status_cmd() offline-branch presentation (HTML).
-    Inputs: check_api_status() dict with status != 'online'."""
-    if result["status"] == "rate_limited":
-        return f"⚠️ {b('Rate Limited')}\nWait 1-2 min. (40 req/min limit)"
-    if result["status"] == "invalid_key":
-        return f"❌ {b('Invalid API Key')} — Regenerate at build.nvidia.com"
-    return f"❌ {b('Error')} — {code(str(result.get('error','Unknown'))[:150])}"
-
-
-def ai_status_card(result, bench, full):
-    """main.py status_cmd() success presentation (HTML). Inputs:
-    check_api_status() dict, benchmark_ai() dict, full-benchmark bool.
-    Returns (text, InlineKeyboardMarkup) — the Re-run button's
-    callback_data stays byte-identical (dash:home)."""
-    rt = result.get("response_time_ms", 0)
-    speed = "⚡ Fast" if rt < 1000 else "🐢 Slow" if rt > 3000 else "✅ Normal"
-    grade = bench.get("grade", "?")
-    grade_emoji = "🏆" if grade in ("A+", "A") else "✅" if grade == "B" else "⚠️"
-
-    lines = [
-        f"🤖 {b('BAKA AI Diagnostics')}",
-        "",
-        f"📡 {b('Connection')}",
-        f"   Model: {code(result.get('model', 'glm-5.1'))}",
-        f"   Ping: {rt}ms {speed}",
-        f"   Tokens: {result.get('prompt_tokens','?')}→{result.get('completion_tokens','?')} ({result.get('total_tokens','?')} total)",
-        "",
-        f"{grade_emoji} {b('Benchmark: ' + bench['score'])} (Grade: {b(grade)})",
-        f"   Avg latency: {bench['avg_latency_ms']}ms",
-        "",
-    ]
-    for t in bench["tests"]:
-        icon = "✅" if t["passed"] else "❌"
-        lines.append(f"   {icon} {t['name']} ({t['latency_ms']}ms)")
-        if t.get("error"):
-            lines.append(f"      <i>Error: {esc(t['error'][:80])}</i>")
-    lines.extend([
-        "",
-        "💳 Free tier: 1,000 calls/month · 40 req/min",
-    ])
-    if not full:
-        lines.append(f"\n💡 Run {code('status full')} for a deep 6-test benchmark.")
-
-    kb = InlineKeyboardMarkup([[uic.button("🔄 Re-run", "dash:home")]])
-    return "\n".join(lines), kb
-
-
-def models_card(health, stats):
-    """main.py models_cmd() presentation (HTML). Inputs:
-    benchmark_all_models() dict, analytics per-model stats dict
-    (empty when analytics is unavailable — the pre-existing state)."""
-    lines = [f"🤖 {b('Multi-Model AI Status')}", ""]
-    for name, r in health.items():
-        model_id = r["model"]
-        online = r["online"]
-        role_label = {
-            "main": "Main Brain", "fast": "Fast Tasks",
-            "vision": "Image Understanding", "image": "Image Generation",
-            "video": "Video Generation"
-        }.get(name, name)
-        if online is True:
-            ping_str = f"🟢 {r['ms']}ms"
-        elif online is False:
-            ping_str = "🔴 offline"
-        else:
-            ping_str = f"⚪ {esc(str(online))}"
-        s = stats.get(model_id)
-        lines.append(f"{b(role_label)} — {ping_str}")
-        lines.append(f"  {code(model_id)}")
-        if s and s["total_requests"]:
-            health_emoji = {"healthy": "🟢", "warning": "🟡",
-                           "degraded": "🔴", "slow": "🐢"}.get(s["health"], "⚪")
-            lines.append(f"  Today: {b(s['today_requests'])} · Total: {b(s['total_requests'])} · "
-                         f"{health_emoji} {esc(s['health'])}")
-            lines.append(f"  Avg: {s['avg_latency_ms']}ms · Success: {s['success_rate']}%")
-        lines.append("")
-    lines.append("<i>All visual models always on · 100% NVIDIA NIM</i>")
-    return "\n".join(lines)
 
 
 def selftest_report(version, python_version, provider, model_main,

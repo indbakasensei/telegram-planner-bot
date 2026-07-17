@@ -175,7 +175,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "14.12"
+BAKA_VERSION = "14.19"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -1688,7 +1688,7 @@ async def debug_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     on = dbg.toggle_debug(user_id)
     await update.message.reply_text(
         UI.debug_toggle_card(on),
-        parse_mode="Markdown", reply_markup=main_menu()
+        parse_mode=HTML, reply_markup=main_menu()
     )
 
 async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1713,11 +1713,8 @@ async def bugs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v14.18 (Phase 5R): presentation extracted to ui.bugs_card().
     user_id = update.message.from_user.id
     bugs = dbg.get_open_bugs(user_id)
-    if not bugs:
-        await update.message.reply_text(UI.bugs_card(bugs), reply_markup=main_menu())
-        return
     await update.message.reply_text(UI.bugs_card(bugs),
-                                    parse_mode="Markdown", reply_markup=main_menu())
+                                    parse_mode=HTML, reply_markup=main_menu())
 
 async def resolve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -1736,11 +1733,8 @@ async def trace_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v14.18 (Phase 5R): presentation extracted to ui.trace_card().
     user_id = update.message.from_user.id
     trace = dbg.get_last_trace(user_id)
-    if not trace:
-        await update.message.reply_text(UI.trace_card(trace))
-        return
     await update.message.reply_text(
-        UI.trace_card(trace), parse_mode="Markdown", reply_markup=main_menu()
+        UI.trace_card(trace), parse_mode=HTML, reply_markup=main_menu()
     )
 
 async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2293,7 +2287,7 @@ async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_quiet = is_quiet_hours(user_id)
     await update.message.reply_text(
         UI.settings_card(prefs, is_quiet),
-        parse_mode="Markdown", reply_markup=main_menu()
+        parse_mode=HTML, reply_markup=main_menu()
     )
 
 async def interval_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2904,7 +2898,7 @@ async def insights_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     data = analyze_user(user_id, days=30)
     await update.message.reply_text(UI.insights_card(data),
-                                    parse_mode=Markdown, reply_markup=main_menu())
+                                    parse_mode=HTML, reply_markup=main_menu())
 
 
 # ── v6.1: ADMIN MODE (owner-only) ─────────────────────
@@ -2966,7 +2960,7 @@ async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     in_mode = _admin_mode.get(uid, False)
     stats = get_data_stats(uid)
     await update.message.reply_text(UI.admin_panel_card(stats, in_mode),
-                                    parse_mode="Markdown", reply_markup=main_menu())
+                                    parse_mode=HTML, reply_markup=main_menu())
 
 @admin_only
 async def adminmode_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

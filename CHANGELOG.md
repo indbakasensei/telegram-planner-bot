@@ -9,7 +9,51 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.18 — UI Overhaul Phase 5R: Presentation Extraction (current)
+## v14.19 — UI Overhaul Phase 5: Utility Screens (current)
+
+The utility screens redesigned onto the component library
+(UI_SPEC_v1.md §15 Phase 5), building directly on 5R's pure builders.
+Presentation only; the one keyboard (AI-status Re-run → `dash:home`)
+stays byte-identical; no callback/routing/logic change anywhere.
+
+- **Ten builders redesigned** to the §-standard layout (header →
+  caption → cards → footer, HTML only): settings (information card +
+  quiet-hours caption), debug toggle (status components), bugs (§14 dev
+  empty state + per-bug rows + footer), trace (information card +
+  `language-json` code block for entities — the first §5.3 dev
+  code-block use), insights (§14 statistics empty state for
+  not-enough-data + sectioned report), admin panel (statistics card +
+  commands section), proactive (feature blocks + footer), AI status
+  error trio (render_warning/render_error), AI diagnostics (connection
+  info card + benchmark statistics card + worst-wins tests status
+  card), models (header/caption/footer treatment). `help_cards` keeps
+  its v14.12 design (already spec-styled); `selftest_report` unchanged
+  from 5R.
+- **Six screens leave Markdown behind** (settings/debug/bugs/trace/
+  insights/admin — the last pre-v7.1 Markdown surfaces in the command
+  path): handlers now pass `parse_mode=HTML`; hostile content is
+  escaped by the components (the old Markdown screens never escaped).
+  The bugs/trace empty-variant special-case calls collapsed into the
+  single builder call.
+- **Latent bug caught in review, fixed before it could fire**: the 5R
+  insights wrapper had ended up with an unquoted `parse_mode=Markdown`
+  (a NameError on first use) via shell quote-stripping in the splice —
+  found while converting to HTML; a reminder of why the live smoke
+  checklist matters for wrapper lines.
+- `BAKA_VERSION` bumped 14.12 → 14.19 (had drifted; /help and
+  /selftest now report the real version).
+- The 18 utility characterization tests updated in place to the new
+  layouts (fields, variants, admin visibility, callback identity all
+  still pinned).
+
+Suite: **809 tests**. pyflakes: 0 on `ui.py`/tests/`core/`; `main.py`
+pre-existing findings 44 → 43. Live smoke checklist still required
+before the next release (wrapper lines + rendered HTML on a real
+client).
+
+---
+
+## v14.18 — UI Overhaul Phase 5R: Presentation Extraction
 
 The Board-approved unblock for Phase 5: every utility screen's
 presentation moved **verbatim** out of `main.py` into pure, offline-
