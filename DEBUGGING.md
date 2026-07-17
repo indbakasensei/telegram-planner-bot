@@ -483,6 +483,38 @@ of every habit code path:
   creates yield two habits in both paths (test-pinned). Contrast with
   task creation, which duplicate-checks in both paths.
 
+### UI Phase 5 architectural limitation — utility screens render inline in `main.py` (found during the Phase 5 review, v14.17.1)
+
+Phase 5's entire scope (Settings • AI • Developer Center • Help • About
+• information screens) has **no presentation surface outside
+`main.py`**: `help_command` (271), `status_cmd` (550), `debug_cmd`
+(1829), `bugs_cmd` (1857), `trace_cmd` (1886), `selftest_cmd` (1903),
+`settings_cmd` (2466), `insights_cmd` (3083), `admin_cmd` (3179),
+`proactive_cmd` (3410), `models_cmd` (4091), plus the
+`dash:models_view/perf_view/errors_view` branches inside
+`route_dashboard_callback` — all build their reply text inline. No
+About/credits screen exists at all. `ui.py` holds none of these
+(Phases 1–4 already migrated everything it owns), and the sprint froze
+`main.py` outright — so the migration's touchable-file set intersected
+with its screen inventory is **empty**. Compounding it, `main.py` is
+not importable from the offline suite (module-level Telegram/
+instance-lock side effects — see `tests/test_conversation_state.py`'s
+header), so the mandated characterization-first step can't be satisfied
+for these screens either.
+
+**What Phase 5R needs from the Board**: unfreeze `main.py`'s
+*presentation statements only* — the plan that keeps risk near zero is
+the Phases 1–4 pattern inverted: extract each screen's text/keyboard
+builder into `ui.py` as a pure function (offline-testable,
+characterization-pinned), swap each handler body to a one-line
+`UI.<x>_card(...)` call, and verify the swapped handlers via the
+TESTING.md live smoke checklist (offline tests cannot cover the calling
+line itself). Until then, per the sprint rule "never sacrifice
+compatibility for appearance," these screens keep their v14.12
+formatting (help/selftest are already rich-HTML; the older ones —
+settings, models, insights, proactive, admin, the three dash views —
+remain pre-overhaul).
+
 ### Recurring tasks render as "completed" in the dashboard task-detail view (v9.0, found during UI Phase 3)
 
 `get_task_by_id()` returns a **7-column** row ending in

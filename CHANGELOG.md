@@ -9,7 +9,36 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.17 — UI Overhaul Phase 4: Goals & Habits (current)
+## v14.17.1 — UI Overhaul Phase 5: Halted at Engineering Review (documentation only) (current)
+
+Phase 5 (Settings • AI • Developer Center • Help • About • information
+screens) **stopped at the mandatory pre-implementation review with zero
+code changed** — the same discipline as the v14.7.1 RC and the v14.9
+"stop if the review reveals a conflict" rule, applied to the UI track.
+
+Findings (full detail in DEBUGGING.md's new entry):
+- Every screen in the Phase 5 inventory renders **inline in
+  `main.py`** (11 handlers + the 3 `dash:*_view` dashboard branches,
+  line numbers documented); no About screen exists; `ui.py` owns none
+  of them. The sprint's own DO-NOT-MODIFY list freezes `main.py`, so
+  the touchable-file set ∩ screen inventory = **empty**.
+- The characterization-first mandate is equally unsatisfiable offline:
+  `main.py` is not importable from the test suite (module-level
+  side effects, documented since v14.12).
+- Per the sprint's stated priority ("behavior wins — never sacrifice
+  compatibility for appearance"), no workaround was attempted: no
+  speculative unwired renderers, no handler edits, no test churn.
+
+**Proposal for Phase 5R** (needs Board approval): unfreeze `main.py`'s
+presentation statements only; extract each screen's text/keyboard
+builder into `ui.py` as a pure characterization-pinned function; swap
+handler bodies to one-line card calls; verify live via the TESTING.md
+smoke checklist. Suite unchanged: **791 tests**, pyflakes 0, zero
+diffs outside CHANGELOG.md/DEBUGGING.md.
+
+---
+
+## v14.17 — UI Overhaul Phase 4: Goals & Habits
 
 Goal and Habit dashboard surfaces on the component library
 (UI_SPEC_v1.md §15 Phase 4) — presentation only, `ui.py` alone changed.
