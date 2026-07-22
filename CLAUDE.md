@@ -84,3 +84,25 @@ stale or broken during the 2026-07 documentation pass.**
   fit neatly into one of the permanent docs yet, add it to
   [MEMORY.md](MEMORY.md)** rather than letting it live only in a chat
   transcript.
+
+## Definition of Done (v14.23 — permanent rule)
+
+A **user-visible feature is not complete** until ALL of these exist in
+the same change-set (see [QA_SYSTEM_DESIGN.md](QA_SYSTEM_DESIGN.md) R2):
+
+1. ✅ Production implementation
+2. ✅ Regression test spec(s) in `core/regression/suites/` (the feature
+   owns its manual tests — [docs/regression.md](docs/regression.md))
+3. ✅ Self-Test check(s) in `core/selftest/tests/` where a live health
+   probe applies ([docs/selftest.md](docs/selftest.md))
+4. ✅ `/help` updated (`ui.help_cards`) if a command/capability changed
+5. ✅ `/start` updated if onboarding changed
+6. ✅ CHANGELOG.md
+7. ✅ ROADMAP.md if roadmap-affecting
+8. ✅ README.md if user-facing
+9. ✅ Feature documentation (`docs/` / the permanent docs)
+
+Non-user-visible / infra changes need at least 1, 6, and the relevant
+docs. This is enforced by review, and increasingly by automatable
+checks (a Self-Test asserting every `CommandHandler` appears in
+`help_cards`).

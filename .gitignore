@@ -27,3 +27,6 @@ backups/
 # pytest
 .pytest_cache/
 .coverage
+
+# Regression test execution history (runtime state; specs are in core/regression/)
+regression_history.json

@@ -9,7 +9,62 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.22 — Admin-only Self-Test Framework (current)
+## v14.23 — Regression Specification Foundation (QA Phase 1) (current)
+
+First implementation milestone of the QA system
+([QA_SYSTEM_DESIGN.md](QA_SYSTEM_DESIGN.md)). Foundation only — the
+manual-regression **specification** system. **No runner, no UI, no
+callbacks, no Developer Center integration** (those are later
+milestones, by design).
+
+### Design refinements adopted (QA design R1–R4)
+
+- **R1** feature-driven, growing-forever suite (the "~315" is an
+  estimate, never a target); **R2** the **Definition of Done** rule
+  (now in CLAUDE.md); **R3** three independent QA layers (pytest /
+  `core/selftest` / `core/regression`); **R4** version-aware history.
+
+### Added
+
+- **`core/regression/`** — the spec foundation:
+  - `models.py` — `RegressionTest` (immutable authored spec: id, steps,
+    expected, priority, scenario class, suite membership, introduced
+    version) + `RegressionHistory` (version-aware: last executed/passed,
+    pass/fail/skip counts, linked bugs) + `Priority`/`ScenarioClass`/
+    `Suite` enums with QUICK ⊆ MAJOR ⊆ FULL nesting.
+  - `categories.py` — the 23 canonical categories (one source of truth).
+  - `registry.py` — `register()` with validation (id format, known
+    category, non-empty steps/expected, suite membership) + dedup by id
+    + `by_suite`/`by_category`/`by_priority` queries.
+  - `store.py` — JSON-backed history persistence foundation
+    (`record()`/`load()`/`get_history()`); gitignored, safe to delete.
+    *(No runner writes to it yet — the API is ready for the future
+    runner.)*
+  - `suites/` — the authored **Quick Release Suite**: **28 tests**
+    across Core, Tasks, Reminders, Dashboard, Memory, AI, Settings,
+    Admin, Developer/Debug, Documentation. Highest-value behavioural
+    tests every release must pass; several guard known bugs
+    (BUG-001/002/004/007).
+- **`tests/test_regression_spec.py`** — 15 tests: model roundtrip +
+  suite nesting, registry validation/dedup/queries, the history store
+  (record/persist/reload, skip, bad status, corrupt-file resilience),
+  and Quick-Suite integrity (unique ids, valid categories, executable
+  steps, focus-area coverage).
+- **`docs/regression.md`** — how to author regression specs (the
+  feature-owns-its-tests workflow).
+
+### Changed
+
+- **CLAUDE.md** — the permanent Definition of Done (R2).
+- **QA_SYSTEM_DESIGN.md** — the R1–R4 refinements section.
+- **.gitignore** — `regression_history.json` (runtime state).
+
+Suite: **855 tests** (840 + 15). pyflakes: 0 on `core/regression/` +
+the new test. No production behaviour changed (frozen files diff-empty).
+
+---
+
+## v14.22 — Admin-only Self-Test Framework
 
 A permanent, registration-based **runtime regression runner** — verifies
 BAKA's major features still work in a live process after an update,

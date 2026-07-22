@@ -13,6 +13,45 @@ DEBUGGING.md.
 
 ---
 
+## Refinements (v14.23 architecture review)
+
+The four refinements below were approved after the initial design and
+are now normative. Phase 1 of the implementation (`core/regression/`)
+is built to them.
+
+**R1 — Feature-driven, growing-forever suite.** The "~315 tests" in
+Part 4 is an **estimate, never a target**. Every user-visible feature
+permanently *owns* its regression tests; the suite grows with the
+project, it is never a fixed size that gets periodically rewritten. The
+per-feature authoring model (`core/regression/suites/`) makes this
+structural: adding a feature adds a suite module (or extends one);
+nothing central is edited.
+
+**R2 — Definition of Done (permanent rule).** A feature is NOT complete
+until ALL exist: ✓ production implementation · ✓ regression tests · ✓
+Self-Test additions (where applicable) · ✓ updated `/help` · ✓ updated
+`/start` (if onboarding changed) · ✓ CHANGELOG · ✓ ROADMAP (if
+affected) · ✓ README · ✓ feature documentation. Recorded in CLAUDE.md's
+development standards.
+
+**R3 — Three independent QA layers.** Kept completely separate:
+
+| Layer | Purpose | Tech | Runs |
+|---|---|---|---|
+| **1 — Automated tests** | developer verification | `pytest` | CI / local |
+| **2 — Runtime Self-Test** | live health check (DB, scheduler, storage, routing, AI, permissions) | `core/selftest` | in Telegram, admin-only |
+| **3 — Manual regression** | human behaviour verification (PASS/FAIL/SKIP; FAIL → auto-bug) | `core/regression` + future runner | human, admin-driven |
+
+Each layer has its own package and lifecycle; they never merge.
+
+**R4 — Version-aware tests.** Every regression test permanently stores
+execution history: introduced version (in the spec), plus last
+executed / last passed / pass count / fail count / skip count / linked
+bug ids (in the persisted history, `store.py`). A test that passed for
+many versions and now fails is the regression signal.
+
+---
+
 ## Part 1 — Project Feature Inventory
 
 Criticality: **C**ritical (data loss / missed reminders = catastrophic)
@@ -197,7 +236,9 @@ Notes:              Under main-model timeout the 8B fallback may misclassify —
 | | | | Security | 10 |
 | | | | Regression (known-bug guards) | 15 |
 
-**Estimated full suite: ~315 tests.**
+**Estimated full suite: ~315 tests — an ESTIMATE, not a target (R1).**
+The suite grows as features are added; this table is a planning
+snapshot, not a cap.
 
 - **Quick Release Suite (~35 tests, ~25 min)** — Critical-only smoke:
   create/complete/delete task, one reminder fire + Done button, habit

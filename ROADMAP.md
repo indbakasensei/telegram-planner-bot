@@ -145,8 +145,20 @@ what actually shipped; the authoritative design doc itself uses Stage
   (Tasks+Duplicate, Habits, AI Hub, Developer Center, Statistics,
   Settings) → 9 (Polish); each gates on spec §13.3's review checklist.
 
+  **QA system** (design: [QA_SYSTEM_DESIGN.md](QA_SYSTEM_DESIGN.md)):
+  three independent layers — pytest (automated), `core/selftest`
+  (runtime health), and `core/regression` (manual behaviour). **Phase 1
+  shipped in v14.23**: the regression *specification* foundation
+  (`core/regression/` — spec model, registry, categories, version-aware
+  history store) + the authored **Quick Release Suite** (28 tests). The
+  **Definition of Done** rule (CLAUDE.md) is now permanent: every
+  user-visible feature owns its regression tests + docs. Remaining QA
+  phases (later milestones, per the design's Q-roadmap): expand toward
+  the Major/Full suites, then the Regression Runner, the 🐞 Bugs and
+  🧯 Regression Tests Developer Center screens, and Test History/Stats.
+
   **Self-Test framework** (v14.22, `core/selftest/`): admin-only runtime
-  regression runner reached from the Debug Menu's 🧪 Self Test button —
+  health runner reached from the Debug Menu's 🧪 Self Test button —
   registration-based, so every future feature registers its own live
   checks without editing the runner ([docs/selftest.md](docs/selftest.md)).
   This also delivered the first piece of UI_SPEC §10's Developer Center
