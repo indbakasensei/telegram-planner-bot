@@ -145,6 +145,16 @@ what actually shipped; the authoritative design doc itself uses Stage
   (Tasks+Duplicate, Habits, AI Hub, Developer Center, Statistics,
   Settings) → 9 (Polish); each gates on spec §13.3's review checklist.
 
+  **Self-Test framework** (v14.22, `core/selftest/`): admin-only runtime
+  regression runner reached from the Debug Menu's 🧪 Self Test button —
+  registration-based, so every future feature registers its own live
+  checks without editing the runner ([docs/selftest.md](docs/selftest.md)).
+  This also delivered the first piece of UI_SPEC §10's Developer Center
+  (the admin-only `/debug` menu); the rest of S39–S44 (logs, engines,
+  flags panels) can hang off the same `dev:*` namespace when their
+  phase runs. Natural next additions: register self-tests for reminders/
+  deadlines, projects/materials, and the AI-router health once it lands.
+
   **Naming note**: task creation/update are sometimes called "Offline
   Engine Stage 2/Stage 3" in their own commit messages and ADR titles
   (`ADR-008`/`ADR-009`) — this is a *different*, nested numbering from

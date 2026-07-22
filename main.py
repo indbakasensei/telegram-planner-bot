@@ -1706,13 +1706,19 @@ async def ask_for_task(update, user_id):
 
 # ── DEBUG SYSTEM COMMANDS (v1.0) ──────────────────────
 async def debug_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # v14.18 (Phase 5R): presentation extracted to ui.debug_toggle_card().
+    # v14.22: /debug now opens the admin-only Developer Center (Debug
+    # Menu), which hosts the Self-Test framework. Non-admins are
+    # silently denied using the same is_admin() gate and message the
+    # @admin_only decorator uses (that decorator is defined later in
+    # this file, so the check is inlined rather than applied). The
+    # debug-mode toggle moved into the menu (🐞 button -> dev:toggle).
     user_id = update.message.from_user.id
-    on = dbg.toggle_debug(user_id)
-    await update.message.reply_text(
-        UI.debug_toggle_card(on),
-        parse_mode=HTML, reply_markup=main_menu()
-    )
+    if not is_admin(user_id):
+        await update.message.reply_text("❓ Unknown command. Type /help.",
+                                        reply_markup=main_menu())
+        return
+    text, kb = UI.dev_menu_card(dbg.is_debug_on(user_id))
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
 
 async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -2137,6 +2143,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await safe_edit_message_text(query, "❌ Task not found.")
+
+    elif action == "dev":
+        # v14.22: Developer Center / Self-Test framework. Admin-only;
+        # silent no-op for non-admins (they never see the buttons, and
+        # a spoofed callback does nothing). Namespace: dev:* (UI_SPEC §10).
+        if not is_admin(user_id):
+            return
+        page = parts[1] if len(parts) > 1 else "menu"
+        if page == "menu":
+            text, kb = UI.dev_menu_card(dbg.is_debug_on(user_id))
+            await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
+        elif page == "toggle":
+            on = dbg.toggle_debug(user_id)
+            text, kb = UI.dev_menu_card(on)
+            await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
+        elif page == "st":
+            from core import selftest
+            if len(parts) > 2 and parts[2] == "run":
+                # Show a running placeholder, then execute the whole
+                # suite OFF the event loop (some tests do blocking I/O),
+                # then render the results.
+                await safe_edit_message_text(query, UI.selftest_running_text(),
+                                             parse_mode=HTML)
+                report = await run_blocking(selftest.run)
+                text, kb = UI.selftest_results_card(report)
+                await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
+            else:
+                selftest.discover()
+                text, kb = UI.selftest_screen_card(
+                    selftest.categories(), len(selftest.registered_tests()))
+                await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
 
 
 # ── v1.1: Pause / Resume commands ─────────────────────

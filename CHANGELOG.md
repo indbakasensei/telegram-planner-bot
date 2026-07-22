@@ -9,7 +9,62 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.21 — Maintenance & Developer Experience (current)
+## v14.22 — Admin-only Self-Test Framework (current)
+
+A permanent, registration-based **runtime regression runner** — verifies
+BAKA's major features still work in a live process after an update,
+without manual testing. Complements (does not replace) the offline
+pytest suite. Foundation for all future in-bot diagnostics.
+
+### Added
+
+- **`core/selftest/`** — the framework:
+  - `models.py` — the result contract: `Status`
+    (PASS/SKIPPED/WARNING/FAIL), `SelfTestResult`, the signal exceptions
+    (`SelfTestFail/Warning/Skip`), and `SELFTEST_USER_ID` (a synthetic
+    id far outside Telegram's range for temp write-tests).
+  - `registry.py` — decorator registration (`@selftest(name, category)`),
+    dedup-by-name; a new test needs no central edit.
+  - `runner.py` — auto-discovers `tests/` modules, runs sequentially,
+    catches every exception (one failure never stops the run), times
+    each test + the run, aggregates. Category `include`/`exclude`
+    filters.
+  - `results.py` — `SelfTestReport` (counts, duration, worst-outcome).
+  - `tests/` — 11 representative checks across 9 categories: Database
+    (schema integrity), Memory (write/read + overwrite), Tasks, Goals,
+    Habits (create round-trips), Dashboard (render sanity), Routing
+    (intent→routing), AI (live provider health), Core (settings load,
+    scheduler availability). Write-tests use `SELFTEST_USER_ID` and
+    clean up in `finally` — production data untouched.
+- **Debug Menu (Developer Center)** — since no menu existed, `/debug`
+  now opens an **admin-only** inline menu hosting **🧪 Self Test**; the
+  old debug-mode toggle moved into it (🐞 button). Non-admins are
+  silently denied (same `is_admin()` gate + message as `@admin_only`).
+  Namespace `dev:*` (UI_SPEC §10). New `ui.py` builders: `dev_menu_card`,
+  `selftest_screen_card`, `selftest_running_text`, `selftest_results_card`.
+- **`tests/test_selftest_framework.py`** — 14 tests: registration/dedup,
+  the runner's outcome mapping + continue-after-failure + filters, real
+  discovery, a full integration run under a temp DB (all pass, zero
+  leftover rows), and the UI builders' callbacks/shape.
+- **`docs/selftest.md`** — developer guide (architecture, adding a test,
+  best practices, how admins run it).
+
+### Changed
+
+- **`main.py`** — `debug_cmd` → admin-only Debug Menu (was: all-users
+  toggle; the toggle is preserved as a menu button); `handle_callback`
+  gains an admin-gated `dev:` branch. No other handler, routing,
+  storage, scheduler, or business-logic change (frozen files diff-empty).
+  `ui.debug_toggle_card` is now unused by the command (the menu
+  re-renders instead) but retained and still tested — harmless, flagged
+  for a future cleanup.
+
+Suite: **840 tests** (826 + 14). pyflakes: 0 on `core/selftest/`,
+`ui.py`, and the new test; `main.py` steady at 40 pre-existing.
+
+---
+
+## v14.21 — Maintenance & Developer Experience
 
 Developer tooling and hygiene only; zero user-feature change; frozen
 files (core/, database, scheduler, conversation state, fmt,

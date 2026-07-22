@@ -513,6 +513,31 @@ formatting (help/selftest are already rich-HTML; the older ones —
 settings, models, insights, proactive, admin, the three dash views —
 remain pre-overhaul).
 
+### Self-Test framework — admin-only runtime diagnostics (v14.22)
+
+`core/selftest/` is a **registration-based runtime regression runner**
+accessed from the Debug Menu's 🧪 Self Test button (admins only). It
+runs live checks against the running process (DB, scheduler, engines,
+AI provider) and reports PASS/WARNING/FAIL/SKIPPED per test plus a
+summary — the fast "is the bot healthy after this update?" check.
+
+- **Not** a replacement for the offline pytest suite: pytest proves
+  logic in isolation; the self-test framework proves the *live wiring*
+  (real DB, real AI provider). Both matter.
+- **Adding a test:** drop a module in `core/selftest/tests/` with a
+  `@selftest(name=, category=)` function — no central edit. Full guide:
+  [docs/selftest.md](docs/selftest.md).
+- **Production-safe:** write-tests use `SELFTEST_USER_ID` (a synthetic
+  id outside Telegram's range) and clean up in `finally`; the
+  integration test asserts zero leftover rows.
+- **AI test does a network call** — it's the only one; the offline
+  pytest integration run excludes the `AI` category.
+- **`/debug` changed (v14.22):** it now opens the admin-only Developer
+  Center menu (was an all-users debug toggle). Non-admins get the
+  standard silent "Unknown command"; the toggle lives on as the menu's
+  🐞 button. If a tester reports "`/debug` stopped toggling for me,"
+  this is why — it's admin-only by design now (UI_SPEC §10).
+
 ### Debug logging workflow (v14.21)
 
 Two log files, two jobs:

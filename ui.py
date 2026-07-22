@@ -960,3 +960,85 @@ def habit_streak_reset_card(title):
     skip_habit reply)."""
     return (f"🔄 Streak reset for {b(title)}. "
             "No worries — start fresh tomorrow!")
+
+
+# ── Developer Center / Self-Test screens (v14.22, admin-only) ─────────────
+# The Debug Menu and the Self-Test framework's UI. All builders are pure
+# (text + keyboard); the admin gate and the actual run live in main.py.
+# Callback namespace: dev:* (UI_SPEC_v1.md §10). Byte-for-byte callbacks
+# are the contract the handler routes on.
+
+_ST_ICON = {"PASS": "✅", "FAIL": "❌", "WARNING": "⚠️", "SKIPPED": "⏭"}
+_ST_LEVEL = {"PASS": "success", "FAIL": "error", "WARNING": "warning",
+             "SKIPPED": "info"}
+
+
+def dev_menu_card(debug_on):
+    """The Debug Menu home (Developer Center), admin-only. Inputs:
+    current debug-mode bool. Returns (text, keyboard)."""
+    header = uic.render_header("dev", "Developer Center",
+                                caption_text="owner only")
+    info = uic.render_information_card("Diagnostics", [
+        ("🐞 Debug mode", "ON" if debug_on else "off"),
+        ("🧪 Self-Test", "registry-based regression runner"),
+        ("🆔 Bug ids", "DBG-#### (independent of task ids)"),
+        ("📜 Debug log", "debugbot.log (rotating, gitignored)"),
+    ])
+    keyboard = uic.keyboard(
+        uic.primary_row("🧪 Self Test", "dev:st"),
+        uic.action_row((f"🐞 Debug {'ON' if debug_on else 'OFF'}", "dev:toggle"),
+                        ("🔄 Refresh", "dev:menu")),
+    )
+    return uic.render_page(header, info), keyboard
+
+
+def selftest_screen_card(category_names, test_count):
+    """The idle Self-Test screen. Inputs: list of category names, total
+    test count. Returns (text, keyboard)."""
+    header = uic.render_header("test", "BAKA Self Test",
+                                caption_text="Status: Idle")
+    listing = "\n".join(f"• {esc(c)}" for c in category_names)
+    body = uic.render_section(f"Available Tests ({test_count})", listing)
+    keyboard = uic.keyboard(
+        uic.primary_row("▶ Run All Tests", "dev:st:run"),
+        uic.nav_row(back_cb="dev:menu"),
+    )
+    return uic.render_page(header, body), keyboard
+
+
+def selftest_running_text():
+    """Shown (edit-in-place) while the blocking run executes."""
+    return f"{uic.render_header('test', 'BAKA Self Test', caption_text='Status: Running…')}\n\n⏳ Running self-tests…"
+
+
+def selftest_results_card(report):
+    """The results screen. Inputs: a core.selftest SelfTestReport.
+    Returns (text, keyboard)."""
+    header = uic.render_header("test", "Self Test Results")
+    lines = []
+    for r in report.results:
+        icon = _ST_ICON.get(r.status.value, "•")
+        lines.append(f"{icon} {b(r.name)} — {esc(r.message)} "
+                     f"{i(f'({r.duration_ms:.0f}ms)')}")
+        if r.details and r.status.value == "FAIL":
+            snippet = r.details.strip().splitlines()[-1][:120]
+            lines.append(f"   {uic.caption(snippet)}")
+    from fmt import expandable_blockquote
+    results_block = expandable_blockquote("\n".join(lines), escape=False)
+
+    summary_level = _ST_LEVEL.get(report.worst.value, "info")
+    summary = uic.render_status_card(
+        summary_level,
+        f"{report.passed}/{report.total} passed",
+        "\n".join([
+            f"✅ Passed: {report.passed}",
+            f"❌ Failed: {report.failed}",
+            f"⚠️ Warnings: {report.warnings}",
+            f"⏭ Skipped: {report.skipped}",
+            f"⏱ Duration: {report.duration_s:.2f}s",
+        ]))
+    keyboard = uic.keyboard(
+        uic.primary_row("▶ Run Again", "dev:st:run"),
+        uic.nav_row(back_cb="dev:menu"),
+    )
+    return uic.render_page(header, results_block, summary), keyboard
