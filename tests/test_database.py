@@ -251,6 +251,20 @@ def test_memory_crud_round_trip(temp_db, uid):
     assert db.get_memory(uid, "exam_date") is None
 
 
+def test_memory_separator_variants_overwrite(temp_db, uid):
+    # v14.26 bug fix (MEM-002): the AI spells the same fact's key
+    # inconsistently ('favorite color' vs 'favorite_color'); those must
+    # overwrite, not duplicate.
+    db.save_memory(uid, "favorite color", "blue")
+    db.save_memory(uid, "favorite_color", "red")     # same fact, other spelling
+    assert db.get_memory(uid, "favorite color") == "red"
+    assert db.get_memory(uid, "favorite_color") == "red"
+    assert len(db.get_all_memories(uid)) == 1         # one row, not two
+    # Delete matches either spelling.
+    assert db.delete_memory(uid, "Favorite-Color") is True
+    assert db.get_all_memories(uid) == []
+
+
 # ── reset commands (Sprint 1C fix, re-verified here permanently) ─────────
 
 def test_reset_all_tasks_excludes_habits(temp_db, uid):

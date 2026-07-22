@@ -482,6 +482,19 @@ def get_recurring_tasks():
     return tasks
 
 # ── Memory ─────────────────────────────────────────────
+def _normalize_memory_key(key):
+    """Canonical form for MATCHING two memory keys (v14.26 bug fix). The
+    AI generates the same fact's key inconsistently — 'favorite color'
+    vs 'favorite_color' — which used to create two separate rows instead
+    of overwriting. Comparing the normalized form (lowercased, with
+    underscores/hyphens/whitespace collapsed to a single space) makes
+    those variants match. Only used for comparison; the stored key text
+    is left as-is, so existing keys keep working."""
+    if not key:
+        return ""
+    k = str(key).lower().strip().replace("_", " ").replace("-", " ")
+    return " ".join(k.split())
+
 def save_memory(user_id, key, value):
     """
     Manual check-then-insert/update instead of INSERT...ON CONFLICT.
@@ -489,31 +502,43 @@ def save_memory(user_id, key, value):
     older databases (created before this constraint was added) won't have.
     SQLite raises 'ON CONFLICT clause does not match any PRIMARY KEY or
     UNIQUE constraint' in that case — this approach works regardless.
+
+    v14.26: matches on the NORMALIZED key so separator variants of the
+    same fact overwrite rather than duplicate, and any pre-existing
+    duplicate rows (different key spellings) are collapsed on the next save.
     """
     if not key:
         return False
-    key_clean = key.lower().strip()
+    canon = _normalize_memory_key(key)
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('SELECT id FROM memories WHERE user_id=? AND key=?', (user_id, key_clean))
-    existing = c.fetchone()
-    if existing:
-        c.execute('UPDATE memories SET value=? WHERE id=?', (value, existing[0]))
+    c.execute('SELECT id, key FROM memories WHERE user_id=?', (user_id,))
+    matches = [rid for rid, k in c.fetchall() if _normalize_memory_key(k) == canon]
+    if matches:
+        # Update the first, delete any duplicates that normalize the same.
+        c.execute('UPDATE memories SET value=? WHERE id=?', (value, matches[0]))
+        for extra in matches[1:]:
+            c.execute('DELETE FROM memories WHERE id=?', (extra,))
     else:
         c.execute('INSERT INTO memories (user_id, key, value) VALUES (?,?,?)',
-                  (user_id, key_clean, value))
+                  (user_id, key.lower().strip(), value))
     conn.commit()
     conn.close()
     return True
 
 def get_memory(user_id, key):
+    # v14.26: match on the normalized key so a fact stored under a
+    # slightly different spelling is still found.
+    canon = _normalize_memory_key(key)
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('SELECT value FROM memories WHERE user_id=? AND key=?',
-              (user_id, key.lower().strip()))
-    result = c.fetchone()
+    c.execute('SELECT key, value FROM memories WHERE user_id=?', (user_id,))
+    rows = c.fetchall()
     conn.close()
-    return result[0] if result else None
+    for k, v in rows:
+        if _normalize_memory_key(k) == canon:
+            return v
+    return None
 
 def get_all_memories(user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -536,17 +561,20 @@ def search_memories(user_id, query):
     return memories
 
 def delete_memory(user_id, key):
-    # Bug 19: keys stored lowercased+stripped — match the same way
+    # v14.26: delete every row whose key normalizes to the requested one
+    # (handles separator variants and any leftover duplicates).
     if not key:
         return False
-    key_clean = key.lower().strip()
+    canon = _normalize_memory_key(key)
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('DELETE FROM memories WHERE user_id=? AND key=?', (user_id, key_clean))
-    deleted = c.rowcount > 0
+    c.execute('SELECT id, key FROM memories WHERE user_id=?', (user_id,))
+    ids = [rid for rid, k in c.fetchall() if _normalize_memory_key(k) == canon]
+    for rid in ids:
+        c.execute('DELETE FROM memories WHERE id=?', (rid,))
     conn.commit()
     conn.close()
-    return deleted
+    return bool(ids)
 
 # ── Goals ──────────────────────────────────────────────
 def add_goal(user_id, title, deadline=None):

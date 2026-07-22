@@ -107,8 +107,10 @@ Criticality: **C**ritical (data loss / missed reminders = catastrophic)
 **Known active defects to guard** (v14.20 / v14.22 audits, DEBUGGING.md):
 
 - Recurring-task detail view renders as "completed" (7-tuple index bug).
-- Memory duplicate-key: "remember X is A" then "…is B" keeps both when
-  the AI varies the key (no overwrite).
+- Memory duplicate-key: "remember X is A" then "…is B" kept both when
+  the AI varied the key. **Fixed in v14.26** — keys are now matched by a
+  normalized form, so separator variants overwrite and existing
+  duplicates collapse on the next save.
 - `is_deadline` over-triggers on plain time-based meetings.
 - `usage`/`performance`/`errors` return empty data; their dashboard
   buttons (`dash:models_view`/`perf_view`/`errors_view`) dead-end.

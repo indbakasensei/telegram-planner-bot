@@ -9,7 +9,31 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.25 — Developer Center: Run Tests (manual regression runner) (current)
+## v14.26 — Bug fix: memory duplicate keys (current)
+
+Fixes the one genuine code defect surfaced by the manual regression run
+(MEM-002). The other reported items are AI-provider degradation
+(AI-001/002 timeouts, TASK-007 multi-task split, MEM-003 recall) or
+feature requests (GOAL-001 deadline inference, PROJ-001/003 project
+creation & sub-goals, SET-003 per-id intervals) — neither a code bug;
+see DEBUGGING/summary.
+
+- **`database.py`** — memory keys are now compared via a normalized
+  form (`_normalize_memory_key`: lowercased, `_`/`-`/whitespace →
+  single space). `save_memory` matches on it, so "favorite color" and
+  "favorite_color" **overwrite instead of duplicating**, and any
+  pre-existing duplicate rows collapse on the next save; `get_memory`
+  and `delete_memory` match the same way (robust to old spellings). The
+  stored key text is unchanged, so existing memories keep working.
+- **`tests/test_database.py`** — added a separator-variant test
+  (overwrite + one row + delete-either-spelling).
+
+Small and isolated: only the three memory functions changed. Suite:
+**860 tests** (859 + 1). `BAKA_VERSION` → 14.26.
+
+---
+
+## v14.25 — Developer Center: Run Tests (manual regression runner)
 
 The one QA feature actually needed to test BAKA today — a simple
 interactive runner in the Developer Center. **Reuses everything: the
