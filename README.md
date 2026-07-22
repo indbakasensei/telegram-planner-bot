@@ -7,8 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v14.12** (Production Readiness) — see
-> [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v14.25** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -176,7 +175,28 @@ verified-against-code list is in [API.md](API.md#command-reference).
 | 🖼 Media | `image <prompt>` · `video <prompt>` · send a photo |
 | 🗂 Memory & Tools | `memory` · `forget <key>` · `search <kw>` · `template` · `export` |
 | ⚙️ Settings | `settings` · `quiethours` · `interval` · `wellness on/off` · `dashboard` |
-| 🛠 Diagnostics | `status` · `selftest` · `debug` · `report <issue>` · `bugs` · `trace` |
+| 🛠 Diagnostics | `status` · `selftest` · `report <issue>` · `bugs` · `trace` |
+| 🔑 Setup | `claimadmin` (become owner, first run) · `myid` (your Telegram ID) |
+
+### 🛠 Developer Center (owner only, `/debug`)
+
+`/debug` opens an admin-only Developer Center — silent "Unknown command"
+for everyone else. Inside:
+
+- **🧪 Self Test** — a live health check (database, scheduler, storage,
+  routing, AI provider, …); "Run All" reports PASS/WARNING/FAIL per check.
+- **🧯 Run Tests** — the manual regression runner: walks the Quick
+  Release Suite (44 tests) one at a time with **Pass / Fail / Skip**; a
+  Fail prompts for a note and logs a bug (`DBG-####`), then a summary.
+- **🐞 Debug toggle** — the old intent/entity tracer, now a menu button.
+
+Bug reports use independent `DBG-####` ids (never task ids).
+
+> **What's new (v14.21 → v14.25):** DBG-prefixed bug ids + a dedicated
+> `debugbot.log`; the `/debug` Developer Center; the Self-Test framework;
+> and the manual Run-Tests regression runner. No new *user* commands were
+> added in this range — these are owner/diagnostic tools. Full history:
+> [CHANGELOG.md](CHANGELOG.md).
 
 Admin commands exist but deny silently for non-admins (deliberate
 obscurity) — the admin sees them in `/help`.

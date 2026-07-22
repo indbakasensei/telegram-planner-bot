@@ -31,6 +31,14 @@ architecture, no statistics, no history, no separate runner package.
   Two helpers (`_quick_suite_tests`, `_test_run_view`).
 - `BAKA_VERSION` 14.19 → 14.25 (keeps `/help` + `/selftest` current,
   which DOC-002 checks).
+- **Docs synced (Definition of Done):** `/help` moved `debug` into the
+  admin section as the **Developer Center** (Self Test · Run Tests ·
+  toggle) — it's admin-only now, so it no longer misleads non-admins in
+  the general list — and added `claimadmin`/`myid` (previously
+  undocumented); `/start` gained a first-run `/claimadmin` hint; README
+  updated (version, a Developer Center section, and a "what's new
+  v14.21→v14.25" note). **No new user commands were added in this
+  range** — the additions are owner/diagnostic tools.
 
 Tests: **859** (855 + 4 builder tests; the Dev-menu callback-set pin
 updated for the new button). pyflakes 0; `core/regression`, database,

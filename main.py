@@ -290,6 +290,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔔 I'll keep reminding you until tasks are done!\n"
         f"🌙 Quiet hours: no pings while you sleep\n"
         f"📊 Track your productivity over time\n\n"
+        f"👑 _First time? Send /claimadmin to become the owner._\n\n"
         f"Type /help to see all features, or just start talking!",
         parse_mode="Markdown", reply_markup=main_menu()
     )

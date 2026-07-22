@@ -769,7 +769,8 @@ def help_cards(version, user_is_admin):
         f"{code('wellness on/off')} — 💧 water/break/eye nudges",
         f"{code('dashboard')} — inline-button home view",
         f"{code('status')} — AI benchmark   {code('selftest')} — diagnostics",
-        f"{code('debug')} · {code('report <issue>')} · {code('bugs')} · {code('trace')}",
+        f"{code('report <issue>')} · {code('bugs')} · {code('trace')} — bug tools",
+        f"{code('claimadmin')} — become the owner (first run)   {code('myid')} — your ID",
         f"{code('cancel')} — abort any pending question",
     ])
 
@@ -788,6 +789,7 @@ def help_cards(version, user_is_admin):
     ]
     if user_is_admin:
         admin = "\n".join([
+            f"🛠 {code('debug')} — Developer Center: Self Test · Run Tests · debug toggle",
             f"{code('admin')} · {code('adminmode')} — admin dashboard",
             f"{code('resettasks')} · {code('resethabits')} · {code('resetall')} — destructive resets",
             f"{code('sql <query>')} — raw read-only queries",
