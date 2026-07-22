@@ -250,6 +250,50 @@ snapshot, not a cap.
 - **Full Regression Suite (~315 tests, ~1 day)** — every scenario
   class. Run on major releases and before public launch.
 
+### Quick Release Suite — COMPLETED (v14.23–v14.24)
+
+**The mandatory release gate. Every future BAKA release must pass this
+before it is production-ready.** Authored specs live in
+`core/regression/suites/`.
+
+- **Size:** **44 tests** · est. runtime **~29 min** · priority mix 9
+  Critical / 18 High / 15 Medium / 2 Low.
+- **Categories covered (15 of 23):** Core, Tasks, Reminders, Dashboard,
+  Habits, Goals, Projects, Memory, AI, Search/Files, Settings, Admin,
+  Developer, Debug, Documentation.
+- **Workflow coverage:** **100%** of the critical user workflows in the
+  Quick-Suite brief — every listed workflow (create/edit/complete/
+  delete/recurring/multi-task tasks; reminder fire/done/snooze/tomorrow;
+  memory remember/recall/forget; AI chat/planning/clarification/
+  fallback; habit create/complete/streak; goal create + progress;
+  project create/material/worklog; task+memory search; dashboard
+  open/refresh/nav; quiet-hours + interval; admin-only + denial;
+  self-test execute; help + onboarding validity) has ≥ 1 spec.
+- Includes a handful of high-value edge cases in the gate: invalid time
+  (TASK-005), memory overwrite (MEM-002, guards BUG-007), habit
+  already-logged (HAB-003), quiet-hours suppression (REM-003), admin
+  denial (ADM-001), destructive-reset confirmation (ADM-003).
+
+**Coverage-review findings (deliberately deferred to the Major Suite):**
+
+- **8 categories not yet in Quick** (dev-facing or non-critical for a
+  smoke gate): Scheduler (escalation, carry-forward), Notifications
+  (rate-limit/retry), Vision, Media (image/video — degraded/flaky),
+  Routing, Offline Engine, Intent Engine (flag-ON paths), Performance,
+  Security (beyond the ADM permission tests already in Quick).
+- **Scenario classes not yet in Quick:** Interrupted-conversation
+  (ADR-011 state priority), Restart recovery (in-memory state loss),
+  and deeper Boundary/Invalid/Recovery/Failure/Repeated per feature.
+- These are the Major Suite's remit — see below.
+
+### Remaining work for the Major Suite
+
+Expand each Critical/High feature across the full scenario matrix, add
+the 8 deferred categories, and add the interrupted/restart cross-cutting
+tests. Target ~130 tests (Critical + High everywhere + the 15 known-bug
+guards). The Regression Runner is a **separate, later** milestone — the
+spec corpus grows first.
+
 ---
 
 ## Part 5 — Bug Workflow (lifecycle)

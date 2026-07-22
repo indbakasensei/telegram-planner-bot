@@ -40,3 +40,32 @@ _t(
     notes="Known: under provider timeouts all retries can fail; a graceful "
           "failure message is a PASS, a silent hang is a FAIL.",
 )
+
+
+_t(
+    test_id="AI-003", category="AI", feature="AI planning",
+    introduced_version="v4.0", priority=Priority.HIGH,
+    scenario=ScenarioClass.NORMAL, estimated_seconds=60, suites=_QUICK,
+    objective="A plan request produces a time-blocked plan and offers to apply it.",
+    preconditions="Some open tasks exist; AI reachable.",
+    steps=("Send: plan today",),
+    expected=("A structured, time-blocked plan is returned",
+              "An 'apply' style confirmation is offered"),
+    failure_conditions=("No plan", "Unhandled error", "Silent hang"),
+    related_bugs=("BUG-001",),
+    notes="Provider-dependent; a graceful 'try again' is acceptable, a silent "
+          "hang is a FAIL.",
+)
+
+_t(
+    test_id="AI-004", category="AI", feature="Clarification (missing info)",
+    introduced_version="v3.0", priority=Priority.HIGH,
+    scenario=ScenarioClass.MULTI_STEP, estimated_seconds=45, suites=_QUICK,
+    objective="When required info is missing, BAKA asks rather than guessing.",
+    preconditions="Idle state; AI reachable.",
+    steps=("Send: Remind me in 2 hours", "Provide the title when asked"),
+    expected=("BAKA asks WHAT to be reminded about (title missing)",
+              "After the reply, the task is created with the given title"),
+    failure_conditions=("Uses the raw message as the title",
+                        "Saves without asking", "Gathering loop never resolves"),
+)

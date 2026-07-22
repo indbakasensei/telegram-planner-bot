@@ -127,7 +127,7 @@ def test_store_load_corrupt_file_is_empty(tmp_path):
 def test_quick_suite_is_valid_and_covers_focus_areas():
     reg.discover()
     quick = reg.by_suite(Suite.QUICK)
-    assert len(quick) >= 20                            # a real suite exists
+    assert len(quick) >= 40                            # the completed gate
 
     ids = [t.test_id for t in quick]
     assert len(ids) == len(set(ids))                   # unique ids
@@ -139,10 +139,12 @@ def test_quick_suite_is_valid_and_covers_focus_areas():
         assert t.estimated_seconds > 0, t.test_id
         assert Suite.QUICK in t.suites, t.test_id
 
-    # The Phase-2 focus areas are all represented.
+    # Every critical user-facing feature area has at least one test
+    # (the Quick Suite is BAKA's mandatory release gate).
     covered = {t.category for t in quick}
-    required = {"Core", "Tasks", "Reminders", "Dashboard", "Memory",
-                "AI", "Settings", "Admin", "Documentation"}
+    required = {"Core", "Tasks", "Reminders", "Dashboard", "Memory", "AI",
+                "Habits", "Goals", "Projects", "Search/Files", "Settings",
+                "Admin", "Documentation"}
     assert required <= covered, required - covered
     # Self-Test coverage lives under Developer/Debug.
     assert covered & {"Developer", "Debug"}

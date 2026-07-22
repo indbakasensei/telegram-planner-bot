@@ -9,7 +9,43 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.23 — Regression Specification Foundation (QA Phase 1) (current)
+## v14.24 — Quick Release Suite complete (QA Phase 2) (current)
+
+The **mandatory release gate** is now authored. Every future BAKA
+release must pass the Quick Release Suite before it is production-ready.
+Specification corpus only — still **no runner, no UI, no callbacks**
+(those are later milestones, unchanged by this one).
+
+### Added (16 new specs → 44 total)
+
+- **Habits** (`suites/habits.py`): create, complete+streak, already-logged.
+- **Goals + Projects** (`suites/goals_projects.py`): goal create; project
+  create, materials (need/got), worklog.
+- **Search** (`suites/search.py`): task search, memory search.
+- **Extended existing modules:** task edit (TASK-006), multi-task
+  extraction (TASK-007), reminder Tomorrow button (REM-004), AI planning
+  (AI-003), AI clarification (AI-004), reminder interval (SET-003),
+  onboarding-reference validity (DOC-003).
+
+### Coverage
+
+- **44 tests · 15 categories · ~29 min · 9 Critical / 18 High / 15
+  Medium / 2 Low.** 100% of the Quick-Suite brief's critical workflows
+  have ≥ 1 spec; several guard known bugs (BUG-001/002/004/007).
+- **Coverage review** performed (QA_SYSTEM_DESIGN.md): deferred to the
+  Major Suite — 8 dev-facing/non-smoke categories (Scheduler, Vision,
+  Media, Notifications, Routing, Offline Engine, Intent Engine,
+  Performance, Security-depth) and the interrupted/restart scenario
+  classes.
+
+`tests/test_regression_spec.py` integrity test tightened to assert the
+completed gate (≥ 40 tests; Habits/Goals/Projects/Search now required).
+Suite: **855 tests** (unchanged count — the regression *specs* are data,
+not pytest cases). pyflakes 0; frozen files diff-empty.
+
+---
+
+## v14.23 — Regression Specification Foundation (QA Phase 1)
 
 First implementation milestone of the QA system
 ([QA_SYSTEM_DESIGN.md](QA_SYSTEM_DESIGN.md)). Foundation only — the

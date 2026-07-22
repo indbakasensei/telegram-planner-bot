@@ -73,9 +73,13 @@ version, linked_bugs)` is the single mutation the future runner calls.
 
 | Suite | ~Size | When | Time |
 |---|---|---|---|
-| **Quick** | ~35 (28 authored) | every release | ~25 min |
-| **Major** | ~130 | minor/feature releases | ~2.5 hr |
+| **Quick** | **44 (complete, v14.24)** | every release — mandatory gate | ~29 min |
+| **Major** | ~130 (not yet authored) | minor/feature releases | ~2.5 hr |
 | **Full** | ~315 (estimate) | major releases / pre-launch | ~1 day |
+
+The Quick Release Suite is the **mandatory release gate**: no version
+ships until it passes. It covers every critical user workflow across 15
+categories (see QA_SYSTEM_DESIGN.md).
 
 Sizes are estimates, not caps — the suite grows with features.
 

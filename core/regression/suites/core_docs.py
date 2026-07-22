@@ -75,3 +75,19 @@ _t(
     expected=("Both show the current BAKA_VERSION", "The two agree"),
     failure_conditions=("Stale version string", "Mismatch between surfaces"),
 )
+
+
+_t(
+    test_id="DOC-003", category="Documentation", feature="Onboarding validity",
+    introduced_version="v14.23", priority=Priority.LOW,
+    scenario=ScenarioClass.NORMAL, estimated_seconds=30, suites=_QUICK,
+    objective="Every command/example referenced by /start actually works.",
+    preconditions="Latest /start output.",
+    steps=("Read the /start greeting", "Try each command/example phrase it shows"),
+    expected=("Every referenced command/example is valid and produces the "
+              "described behaviour", "No dead or renamed references"),
+    failure_conditions=("/start references a removed/renamed command or a "
+                        "broken example"),
+    notes="Part of the Definition of Done: /start must stay in sync with the "
+          "real command surface.",
+)

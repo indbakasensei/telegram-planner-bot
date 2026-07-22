@@ -148,3 +148,42 @@ _t(
               "Value clamps at 0–100%"),
     failure_conditions=("No update", "Value exceeds 100% / goes negative"),
 )
+
+
+_t(
+    test_id="TASK-006", category="Tasks", feature="Task editing",
+    introduced_version="v14.4", priority=Priority.HIGH,
+    scenario=ScenarioClass.MULTI_STEP, estimated_seconds=40, suites=_QUICK,
+    objective="Edit an existing task's time via natural language.",
+    preconditions="A task with a time exists (note its id).",
+    steps=("Send: edit <id>", "Send: set time to 7pm"),
+    expected=("The task's time becomes 19:00",
+              "A confirmation of the change is shown"),
+    failure_conditions=("Time unchanged", "Wrong task edited", "New task created"),
+)
+
+_t(
+    test_id="TASK-007", category="Tasks", feature="Multi-task extraction",
+    introduced_version="v3.0", priority=Priority.HIGH,
+    scenario=ScenarioClass.MULTI_STEP, estimated_seconds=45, suites=_QUICK,
+    objective="A message with two tasks creates both.",
+    preconditions="Idle state; AI reachable.",
+    steps=("Send: Tomorrow buy groceries and call mom", "Confirm"),
+    expected=("Both 'Buy groceries' and 'Call mom' are proposed",
+              "After confirm, two separate tasks are created for tomorrow"),
+    failure_conditions=("Only one task created", "Both merged into one title"),
+    notes="Under AI degradation the fallback model may mis-split — a FAIL here "
+          "is often provider-related, not a code regression.",
+)
+
+_t(
+    test_id="REM-004", category="Reminders", feature="Postpone to tomorrow",
+    introduced_version="v1.1", priority=Priority.HIGH,
+    scenario=ScenarioClass.NORMAL, estimated_seconds=90, suites=_QUICK,
+    objective="The Tomorrow button on a reminder postpones it to the next day.",
+    preconditions="A reminder ping is showing.",
+    steps=("Tap 📅 Tomorrow",),
+    expected=("Confirmation that it's moved to tomorrow",
+              "The task's date advances by one day; it does not fire again today"),
+    failure_conditions=("Date unchanged", "Fires again today", "Task lost"),
+)

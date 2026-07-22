@@ -73,3 +73,17 @@ _t(
     expected=("Change acknowledged", "/settings shows 22:00 — 07:00"),
     failure_conditions=("Not persisted", "Settings still show the old window"),
 )
+
+
+_t(
+    test_id="SET-003", category="Settings", feature="Reminder interval",
+    introduced_version="v2.0", priority=Priority.MEDIUM,
+    scenario=ScenarioClass.NORMAL, estimated_seconds=30, suites=_QUICK,
+    objective="The reminder repeat interval can be changed and reflected back.",
+    preconditions="Bot running.",
+    steps=("Send: interval 15", "Send /settings"),
+    expected=("Change acknowledged (15 min)",
+              "/settings shows the reminder interval as 15 min"),
+    failure_conditions=("Not persisted", "Settings show the old interval",
+                        "Accepts an out-of-range value silently"),
+)
