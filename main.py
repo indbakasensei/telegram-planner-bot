@@ -192,13 +192,16 @@ def is_admin(uid):
 
 # In-memory flag: is the admin currently in debug/admin mode?
 _admin_mode = {}
+# v14.25: in-memory manual test-run sessions (Developer Center -> Run Tests).
+# user_id -> {"index": int, "results": [ {test_id, status, bug_id} ], "awaiting_note": bool}
+_test_runs = {}
 IST = ZoneInfo("Asia/Kolkata")
 
 # v13.2: single source of truth for the startup log line (see main()).
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "14.19"
+BAKA_VERSION = "14.25"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -679,6 +682,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_input = update.message.text.strip()
     state = get_state(user_id)
+
+    # v14.25: Developer Center Run Tests -- if this admin just marked a test
+    # FAILED, the next message is the note. Log a bug and advance. Checked
+    # first so it can't be swallowed by intent routing.
+    _run = _test_runs.get(user_id)
+    if _run and _run.get("awaiting_note") and is_admin(user_id):
+        tests = _quick_suite_tests()
+        test = tests[_run["index"]]
+        bug_id = dbg.report_bug(user_id, f"[REGRESSION {test.test_id}] {user_input}")
+        _run["results"].append({"test_id": test.test_id, "status": "FAIL",
+                                "bug_id": dbg.format_bug_id(bug_id)})
+        _run["index"] += 1
+        _run["awaiting_note"] = False
+        text, kb = _test_run_view(user_id, _run, tests)
+        await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
+        return
 
     logger.info(f"User {user_id} [{state}]: {user_input}")
     add_history(user_id, "user", user_input)
@@ -1834,6 +1853,25 @@ async def selftest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── v1.1: Inline button callback handler ──────────────
+def _quick_suite_tests():
+    """The regression Quick Suite, sorted (stable order for the manual
+    runner's index-based walk). v14.25."""
+    from core import regression as reg
+    from core.regression.models import Suite
+    reg.discover()
+    return reg.by_suite(Suite.QUICK)
+
+
+def _test_run_view(user_id, run, tests):
+    """(text, keyboard) for the run's current test, or the summary when
+    finished (which also ends the session). v14.25."""
+    if run["index"] >= len(tests):
+        _test_runs.pop(user_id, None)
+        return UI.dev_run_summary_card(run["results"])
+    test = tests[run["index"]]
+    return UI.dev_run_test_card(test, run["index"], len(tests))
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await safe_answer_callback_query(query)
@@ -2174,6 +2212,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text, kb = UI.selftest_screen_card(
                     selftest.categories(), len(selftest.registered_tests()))
                 await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
+        elif page == "run":
+            # v14.25: manual regression runner (Developer Center -> Run Tests).
+            # Walks the Quick Suite one test at a time; the FAIL-note capture
+            # happens in handle_message (a text reply logs a bug, then advances).
+            sub = parts[2] if len(parts) > 2 else "start"
+            tests = _quick_suite_tests()
+            run = _test_runs.get(user_id)
+            if sub == "start" or run is None:
+                run = {"index": 0, "results": [], "awaiting_note": False}
+                _test_runs[user_id] = run
+            elif sub in ("pass", "skip") and run["index"] < len(tests):
+                run["results"].append({
+                    "test_id": tests[run["index"]].test_id,
+                    "status": "PASS" if sub == "pass" else "SKIP",
+                    "bug_id": None,
+                })
+                run["index"] += 1
+            elif sub == "fail" and run["index"] < len(tests):
+                run["awaiting_note"] = True
+                await safe_edit_message_text(
+                    query, UI.dev_run_fail_prompt(tests[run["index"]]),
+                    parse_mode=HTML)
+                return
+            text, kb = _test_run_view(user_id, run, tests)
+            await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
 
 
 # ── v1.1: Pause / Resume commands ─────────────────────

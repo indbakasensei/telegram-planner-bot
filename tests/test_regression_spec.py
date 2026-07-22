@@ -154,3 +154,56 @@ def test_every_registered_test_has_a_known_category():
     reg.discover()
     valid = set(CATEGORIES)
     assert all(t.category in valid for t in reg.all_tests())
+
+
+# ── Run Tests UI builders (v14.25 Developer Center manual runner) ─────────
+
+def _sample_spec():
+    return RegressionTest(
+        test_id="TASK-001", category="Tasks", feature="Task creation",
+        introduced_version="v1.0", priority=Priority.CRITICAL,
+        scenario=ScenarioClass.NORMAL, estimated_seconds=40,
+        objective="Create a task from natural language.",
+        preconditions="Idle state.", steps=("Send X", "Confirm"),
+        expected=("Task created", "Shown in list"),
+        suites=frozenset({Suite.QUICK}))
+
+
+def test_dev_run_test_card():
+    import ui
+    text, kb = ui.dev_run_test_card(_sample_spec(), index=0, total=44)
+    assert "RUN TESTS" in text.upper()
+    assert "1 of 44 · TASK-001" in text
+    assert "1. Send X" in text and "2. Confirm" in text     # numbered steps
+    assert "• Task created" in text                          # bulleted expected
+    assert "Create a task from natural language." in text
+    assert [b.callback_data for row in kb.inline_keyboard for b in row] == [
+        "dev:run:pass", "dev:run:fail", "dev:run:skip", "dev:menu"]
+
+
+def test_dev_run_fail_prompt():
+    import ui
+    out = ui.dev_run_fail_prompt(_sample_spec())
+    assert "TASK-001" in out and "failed" in out.lower()
+    assert "log a bug" in out.lower()
+
+
+def test_dev_run_summary_card():
+    import ui
+    results = [{"test_id": "TASK-001", "status": "PASS", "bug_id": None},
+               {"test_id": "MEM-002", "status": "FAIL", "bug_id": "DBG-0007"},
+               {"test_id": "REM-003", "status": "SKIP", "bug_id": None}]
+    text, kb = ui.dev_run_summary_card(results)
+    assert "COMPLETE" in text.upper()
+    assert "✅ Passed: 1" in text and "❌ Failed: 1" in text and "⏭ Skipped: 1" in text
+    assert "MEM-002 → bug DBG-0007" in text                  # failure + bug id
+    assert "❌" in text                                       # error-level summary
+    assert [b.callback_data for row in kb.inline_keyboard for b in row] == [
+        "dev:run:start", "dev:menu"]
+
+
+def test_dev_run_summary_all_pass_is_success():
+    import ui
+    results = [{"test_id": "T-001", "status": "PASS", "bug_id": None}]
+    text, _ = ui.dev_run_summary_card(results)
+    assert "✅ 1/1 passed" in text

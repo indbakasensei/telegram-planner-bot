@@ -986,6 +986,7 @@ def dev_menu_card(debug_on):
     ])
     keyboard = uic.keyboard(
         uic.primary_row("🧪 Self Test", "dev:st"),
+        uic.action_row(("🧯 Run Tests", "dev:run:start")),
         uic.action_row((f"🐞 Debug {'ON' if debug_on else 'OFF'}", "dev:toggle"),
                         ("🔄 Refresh", "dev:menu")),
     )
@@ -1042,3 +1043,67 @@ def selftest_results_card(report):
         uic.nav_row(back_cb="dev:menu"),
     )
     return uic.render_page(header, results_block, summary), keyboard
+
+
+# ── Developer Center: Run Tests (v14.25, admin-only manual runner) ────────
+# Walks the regression Quick Suite one test at a time. Pure builders;
+# the session state + bug creation live in main.py. Callbacks: dev:run:*.
+
+def dev_run_test_card(test, index, total):
+    """One regression test, presented for a manual PASS/FAIL/SKIP.
+    Inputs: a core.regression RegressionTest, 0-based index, total."""
+    header = uic.render_header(
+        "test", "Run Tests",
+        caption_text=f"{index + 1} of {total} · {test.test_id}")
+    meta = uic.render_information_card(test.feature, [
+        ("Category", test.category),
+        ("Priority", test.priority.value),
+    ])
+    blocks = [meta]
+    if test.preconditions:
+        blocks.append(uic.caption("Preconditions: " + test.preconditions))
+    blocks.append(uic.render_section("Objective", esc(test.objective)))
+    blocks.append(uic.render_section(
+        "Steps", "\n".join(f"{n}. {esc(s)}" for n, s in enumerate(test.steps, 1))))
+    blocks.append(uic.render_section(
+        "Expected", "\n".join(f"• {esc(e)}" for e in test.expected)))
+    keyboard = uic.keyboard(
+        uic.action_row(("✅ Pass", "dev:run:pass"),
+                        ("❌ Fail", "dev:run:fail"),
+                        ("⏭ Skip", "dev:run:skip")),
+        uic.action_row(("✕ Stop", "dev:menu")),
+    )
+    return uic.render_page(header, *blocks), keyboard
+
+
+def dev_run_fail_prompt(test):
+    """Text prompt shown when a test is marked failed -- asks for a note."""
+    return (f"❌ {b(test.test_id)} marked {b('failed')}.\n\n"
+            "Send a short note describing what went wrong — I'll log a bug "
+            "and continue to the next test.")
+
+
+def dev_run_summary_card(results):
+    """Final summary. Inputs: list of dicts {test_id, status, bug_id}."""
+    passed = sum(1 for r in results if r["status"] == "PASS")
+    failed = sum(1 for r in results if r["status"] == "FAIL")
+    skipped = sum(1 for r in results if r["status"] == "SKIP")
+    header = uic.render_header("test", "Test Run Complete")
+    level = "error" if failed else ("warning" if skipped else "success")
+    summary = uic.render_status_card(
+        level, f"{passed}/{len(results)} passed",
+        "\n".join([f"✅ Passed: {passed}",
+                   f"❌ Failed: {failed}",
+                   f"⏭ Skipped: {skipped}"]))
+    blocks = [summary]
+    fails = [r for r in results if r["status"] == "FAIL"]
+    if fails:
+        blocks.append(uic.render_section(
+            "Failures logged",
+            "\n".join(f"❌ {esc(r['test_id'])} → bug {esc(r['bug_id'])}"
+                      for r in fails)))
+    keyboard = uic.keyboard(
+        uic.action_row(("🔁 Run Again", "dev:run:start")),
+        uic.action_row(("⬅ Developer Center", "dev:menu")),
+    )
+    return uic.render_page(header, *blocks), keyboard

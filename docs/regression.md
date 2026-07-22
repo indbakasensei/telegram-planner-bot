@@ -83,6 +83,17 @@ categories (see QA_SYSTEM_DESIGN.md).
 
 Sizes are estimates, not caps — the suite grows with features.
 
+## Running the suite in Telegram (v14.25)
+
+Admins run the Quick Suite manually from **`/debug` → 🧯 Run Tests**. It
+walks the suite one test at a time, showing each test's objective,
+steps, and expected result with **✅ Pass / ❌ Fail / ⏭ Skip** buttons.
+On **Fail** it asks for a short note and logs a bug (a `DBG-####` id via
+`debug_system`), then continues. At the end it shows a summary
+(passed / failed / skipped + the bug ids created). This is the manual
+release gate — no automated runner or history tracking (deliberately
+simple; a future feature just adds more specs to the same list).
+
 ## Definition of Done
 
 A user-visible feature is not complete until its regression spec(s)

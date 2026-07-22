@@ -151,7 +151,8 @@ def test_dev_menu_card_callbacks_and_toggle_label():
     text, kb = ui.dev_menu_card(debug_on=True)
     assert "DEVELOPER CENTER" in text.upper()
     cbs = {b.callback_data for row in kb.inline_keyboard for b in row}
-    assert cbs == {"dev:st", "dev:toggle", "dev:menu"}
+    # v14.25 added the Run Tests entry.
+    assert cbs == {"dev:st", "dev:run:start", "dev:toggle", "dev:menu"}
     labels = [b.text for row in kb.inline_keyboard for b in row]
     assert any("🐞 Debug ON" in x for x in labels)
     off_labels = [b.text for row in ui.dev_menu_card(False)[1].inline_keyboard

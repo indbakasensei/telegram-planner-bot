@@ -9,7 +9,36 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.24 — Quick Release Suite complete (QA Phase 2) (current)
+## v14.25 — Developer Center: Run Tests (manual regression runner) (current)
+
+The one QA feature actually needed to test BAKA today — a simple
+interactive runner in the Developer Center. **Reuses everything: the
+existing Quick Suite specs (`core/regression`), the `dev:*` menu
+(v14.22), and `debug_system.report_bug` for the FAIL→bug step.** No new
+architecture, no statistics, no history, no separate runner package.
+
+- **`/debug → 🧯 Run Tests`** (admin-only): walks the Quick Suite (44
+  tests) one at a time — each shows objective, steps, expected result
+  with **✅ Pass / ❌ Fail / ⏭ Skip**. On **Fail** it prompts for a
+  short note and logs a bug (`DBG-####`), then continues. Ends with a
+  summary (passed/failed/skipped + the bug ids created).
+- **`ui.py`** — 3 pure builders (`dev_run_test_card`,
+  `dev_run_fail_prompt`, `dev_run_summary_card`) + a 🧯 Run Tests button
+  on the Dev menu.
+- **`main.py`** — a small in-memory session (`_test_runs`), a `dev:run:*`
+  callback branch, and one early-return in `handle_message` to capture
+  the FAIL note (checked before intent routing so it can't be swallowed).
+  Two helpers (`_quick_suite_tests`, `_test_run_view`).
+- `BAKA_VERSION` 14.19 → 14.25 (keeps `/help` + `/selftest` current,
+  which DOC-002 checks).
+
+Tests: **859** (855 + 4 builder tests; the Dev-menu callback-set pin
+updated for the new button). pyflakes 0; `core/regression`, database,
+scheduler, and the engines untouched.
+
+---
+
+## v14.24 — Quick Release Suite complete (QA Phase 2)
 
 The **mandatory release gate** is now authored. Every future BAKA
 release must pass the Quick Release Suite before it is production-ready.
