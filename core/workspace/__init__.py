@@ -41,6 +41,7 @@ from core.workspace.orchestrator import (  # noqa: F401
     Status,
     WorkspaceOrchestrator,
 )
+from core.workspace.llm_interpreter import LLMInterpreter  # noqa: F401
 from core.workspace.models import (  # noqa: F401
     DEFAULT_WORKSPACE_TITLE,
     Milestone,

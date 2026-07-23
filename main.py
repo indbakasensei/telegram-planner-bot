@@ -87,6 +87,10 @@ from core.actions.create_task import format_summary as _offline_format_summary
 from core.actions.delete_task import format_preview as _offline_format_delete_preview
 from core.storage import Storage
 from core import feature_flags
+# v15.0-beta.1: Workspace OS production wiring. Import is side-effect-free
+# and offline; nothing here runs unless feature_flags.WORKSPACE is ON, so
+# the flag-OFF path stays byte-identical to v14.26.
+from core.workspace import app as workspace_app
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -201,7 +205,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.0-alpha.7"
+BAKA_VERSION = "15.0-beta.1"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -707,6 +711,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_log_interaction(user_id, "message")
     except Exception:
         pass
+
+    # v15.0-beta.1: Workspace OS pipeline, feature-flag gated. When
+    # WORKSPACE is OFF this branch is skipped entirely -> byte-identical to
+    # v14.26. When ON, a recognized workspace utterance is handled by the AI
+    # Orchestrator (message -> Interpreter -> Orchestrator -> Entity Engine
+    # -> Timeline -> Sync) and we return; anything it doesn't recognize
+    # falls through to the Legacy pipeline below (no duplicate commands).
+    if feature_flags.WORKSPACE:
+        try:
+            handled, reply = workspace_app.process_message(user_id, user_input)
+        except Exception:
+            logger.exception("Workspace pipeline failed; falling back to Legacy")
+            handled, reply = False, ""
+        if handled:
+            await update.message.reply_text(reply, parse_mode=HTML)
+            return
 
     # v14.0 Stage 1: Intent Engine, Shadow Mode (docs/adr/ADR-002-intent-engine.md).
     # v14.1B: Routing Layer, decision-logging only (DRG-001_Intent_Aware_Routing.md,
@@ -5321,6 +5341,12 @@ def main() -> None:
             logger.error(f"Deadline check failed: {e}")
 
     app.job_queue.run_repeating(check_deadlines, interval=3600, first=120)
+
+    # v15.0-beta.1: register the Workspace sync-drain worker on the existing
+    # scheduler -- ONLY when WORKSPACE is ON. When OFF this is a no-op and
+    # the job set is identical to v14.26.
+    workspace_app.register_workers(app)
+
     logger.info("🤖 BAKA is online!")
     print("🤖 BAKA is running! Check bot.log for logs.")
     app.run_polling(drop_pending_updates=True)

@@ -27,12 +27,18 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > `SyncAdapter`, delivering through an injected sender), and the generic
 > **AI Workspace Orchestrator** (alpha.7/AWOD: NL → validated engine op via
 > interpret → select → resolve → safety gate → apply, with the AI injected
-> as an `Interpreter` — no live LLM import, template-agnostic). The v15
-> backend is now feature-complete behind the flag. Still to come is the
-> **user-facing wiring**, each additive & flag-gated: the handler swap for
-> Projects, Workspace commands/UI, the job_queue drain worker, the real
-> Telegram sender, and the LLM-backed `Interpreter` — see
-> docs/v15/MIGRATION.md §7 for the phased rollout.
+> as an `Interpreter` — no live LLM import, template-agnostic).
+>
+> **`v15.0-beta.1` — the platform is wired into production** (integration
+> only, no architecture change): a flag-gated branch in the free-text
+> handler routes to the orchestrator when `WORKSPACE=on` (else Legacy,
+> byte-identical); a `SyncWorker` drains the outbox on the existing
+> scheduler; the production Telegram sender and the `LLMInterpreter`
+> (baka_brain, with a rule-based fallback) are injected. The Workspace OS
+> now runs inside the real app behind the flag. **Next:** Workspace
+> templates (Game, Books, Research, richer Projects) built on this
+> production-ready platform, plus Workspace UI/commands — see
+> docs/v15/MIGRATION.md §7.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

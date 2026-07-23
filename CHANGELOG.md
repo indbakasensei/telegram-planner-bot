@@ -9,7 +9,59 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-alpha.7 — AI Workspace Orchestrator (current)
+## v15.0-beta.1 — Workspace Activation & Production Wiring (current)
+
+**Integration only** — the completed v15 backend (alpha.1–7) is wired into
+the running application, with **no architecture, engine, repository, or
+schema changes**. The whole thing stays behind `WORKSPACE`: with the flag
+**OFF the bot is byte-identical to v14.26** (the guarded branch is skipped
+and no worker is registered), and with it **ON the Workspace OS pipeline
+becomes active**. All 1008 prior tests stay green; **1026 passing** total
+(+18 integration).
+
+- **Feature-flag activation (main.py):** a single guarded branch in the
+  free-text handler — `if feature_flags.WORKSPACE:` route through the
+  Workspace OS, else the existing production path. A recognized workspace
+  utterance is handled and returns; anything unrecognized falls through to
+  Legacy (no duplicate command implementations). A pipeline exception is
+  caught and also falls through.
+- **Telegram handler integration (`core/workspace/app.py`
+  `process_message`):** message → Interpreter → Orchestrator → Entity
+  Engine → Timeline (→ Sync). Manages a small confirm flow ("reply yes/no"
+  for irreversible actions) and tracks the last-touched workspace so
+  follow-ups need no explicit "in <ws>". Returns `(handled, reply)`;
+  `handled=False` defers to Legacy.
+- **Background worker + scheduler wiring:** `SyncWorker.run_once` drains
+  the sync outbox (enqueue backlog + retrying drain) for each user; a
+  failed user never aborts the pass and it no-ops once stopped (clean
+  shutdown). `register_workers(application)` registers a repeating job on
+  the **existing** `job_queue` **only when the flag is ON**; the job drains
+  off the event loop (`asyncio.to_thread`) so a slow send never blocks the
+  bot.
+- **Production Telegram sender (`make_telegram_sender`):** a synchronous
+  sender that safely calls the async bot from the worker thread via
+  `run_coroutine_threadsafe`, injected into the (unchanged) Telegram
+  adapter. The Sync Engine stays Telegram-independent.
+- **LLM Interpreter (`core/workspace/llm_interpreter.py`):** the production
+  `Interpreter`, using `baka_brain` (imported lazily) to turn an utterance
+  into a JSON `Proposal`. It never writes and cannot bypass the engine
+  (proposal only), and **falls back cleanly to `RuleBasedInterpreter`** on
+  any AI failure (timeout/429/bad JSON/unknown action).
+  `RuleBasedInterpreter` remains the default for tests.
+
+**Tests:** `tests/test_workspace_integration.py` (18) — flag OFF/ON
+(worker registration), message→proposal→execution (create + active-
+workspace follow-up, confirm/cancel), Timeline recording, Sync delivery,
+AI fallback (valid JSON / AI error / garbage / unknown action / full
+failing-AI pipeline), worker lifecycle + graceful shutdown + per-user
+error tolerance, and the sync→async production sender bridge (no live bot).
+Files touched: `main.py` (import + guarded handler branch + guarded worker
+registration + version), new `core/workspace/{app,llm_interpreter}.py`,
+`core/workspace/__init__.py`, new test file, docs.
+
+---
+
+## v15.0-alpha.7 — AI Workspace Orchestrator
 
 The **generic** orchestration layer (docs/v15/AWOD.md) that turns a
 natural-language utterance into a validated Entity Engine operation. It

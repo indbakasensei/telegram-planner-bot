@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-alpha.7** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-beta.1** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -67,7 +67,15 @@ architecture deep-dive is [ARCHITECTURE.md](ARCHITECTURE.md). Behavioral
 equivalence with Legacy is enforced by a 700+-test suite
 ([TESTING.md](TESTING.md)) with query-count and row-level parity checks.
 
-### 🧱 Workspace OS backend — Foundation · Engine · Projects · Timeline · Sync · AI Orchestrator (v15.0-alpha.7 — dormant)
+### 🧱 Workspace OS — Foundation · Engine · Projects · Timeline · Sync · AI Orchestrator (v15.0-beta.1 — flag-gated, wired into production)
+
+As of **beta.1** the completed backend is **wired into the running bot**
+behind `WORKSPACE`: **OFF ⇒ byte-identical to v14.26**; **ON ⇒** free-text
+messages flow `Interpreter → Orchestrator → Entity Engine → Timeline →
+Sync → Telegram`, and a repeating job on the existing scheduler drains the
+sync outbox off the event loop. The AI (`LLMInterpreter`) and the Telegram
+sender are injected, so the offline suite stays AI/Telegram-free.
+
 
 The next evolution, the **Workspace OS**, turns Projects/Books/Games/
 Courses/Goals/Memory into one **Workspace** abstraction differentiated
@@ -92,7 +100,9 @@ inert: empty tables, no handlers, byte-identical to v14.
 | **Sync Engine** | `core/workspace/sync.py` | **Reliable outbound sync (TWID outbox): durable `sync_outbox`, idempotent enqueue, oldest-first drain with bounded retries; `SyncAdapter` contract** |
 | **Telegram Adapter** | `core/workspace/adapters/telegram.py` | **First `SyncAdapter` — renders a timeline event to Telegram HTML and delivers through an injected sender (no live-bot import)** |
 | **AI Orchestrator** | `core/workspace/orchestrator.py` | **Generic NL → validated engine op: interpret → select workspace → resolve entity → safety gate → apply. AI injected as an `Interpreter` (no live LLM import); template-agnostic** |
-| Feature flag | `core/feature_flags.py` | `WORKSPACE` — default OFF |
+| **LLM Interpreter** | `core/workspace/llm_interpreter.py` | Production `Interpreter` over `baka_brain` (lazy) → JSON `Proposal`; falls back to `RuleBasedInterpreter` on any AI failure |
+| **Production wiring** | `core/workspace/app.py` | `process_message` (handler entry), `SyncWorker` + `register_workers` (scheduler), `make_telegram_sender` (async bridge) — all flag-gated |
+| Feature flag | `core/feature_flags.py` | `WORKSPACE` — default OFF (activates the whole pipeline when ON) |
 
 When `WORKSPACE` is ON, a Project is a `template='project'` workspace whose
 backing goal (via `goals.workspace_id`) still owns its materials/worklog —
