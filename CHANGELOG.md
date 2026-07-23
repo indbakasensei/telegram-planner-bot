@@ -9,7 +9,52 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-alpha.2 — Workspace Entity Engine (current)
+## v15.0-alpha.3 — Project Integration (current)
+
+Proves the Workspace architecture can **transparently replace the v14
+Project backend**. Backend integration only — **no Milestones, no
+Timeline, no Telegram sync, no AI**, and no user-facing wiring: the
+production `/projects` handlers are untouched. Still gated behind
+`WORKSPACE` (default OFF), so with the flag off the bot is byte-identical
+to v14.26. Full suite: **934 passing** (920 + 14 integration tests).
+
+A v14 "project" is a goal with materials/worklog. This milestone routes it
+through the Workspace layer by making a `template='project'` workspace its
+container, linked to the goal via `goals.workspace_id`. **No project data
+is moved** — materials/worklog/progress are read and written through the
+existing v14 project functions, keyed by the goal the workspace resolves
+to (WED §8, MIGRATION.md §3). Same data, new lens.
+
+- **Bridge (database.py):** `get_workspace_goal_id()` /
+  `get_goal_workspace_id()` / `set_goal_workspace()` link a project's goal
+  and its workspace both ways; `verify_project_migration()` reports
+  unmigrated projects and orphan project-workspaces (`ok` = the
+  transparent-replacement proof). All additive, uncalled while the flag is
+  OFF.
+- **Repository / Facade updates:** `WorkspaceStorage` and
+  `WorkspaceRepository` gain the bridge methods (`goal_id_for`,
+  `workspace_id_for_goal`, `link_goal`, `verify_migration`).
+- **`ProjectAdapter` (`core/workspace/project_adapter.py`):** serves
+  project operations (create, list, overview, materials, worklog,
+  progress) through the Workspace layer, delegating project data to the
+  v14 functions. Creates project workspaces with **`seed_milestones=
+  False`** and reports **project progress via the v14 materials/worklog
+  computation** (not a milestone rollup) — so a project routed through the
+  workspace layer returns identical values to the legacy path.
+  `use_workspace_projects()` reflects the flag for the later handler swap.
+
+**Integration tests** (`tests/test_workspace_project_integration.py`, 14):
+flag-OFF legacy path unchanged; project-via-workspace == legacy project
+(materials/worklog/progress/overview equivalence); ownership scoping;
+migration round-trip + `verify_project_migration` correctness &
+idempotency; no data moved. Files touched: `database.py`,
+`core/storage/storage.py`, `core/workspace/repository.py`, new
+`project_adapter.py`, `__init__.py`, the new test file, `main.py`
+(version), docs.
+
+---
+
+## v15.0-alpha.2 — Workspace Entity Engine
 
 The reusable **Entity Engine** every future template will depend on.
 Backend infrastructure only — as with alpha.1, **no user-facing

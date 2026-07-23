@@ -2661,3 +2661,92 @@ def migrate_projects_to_workspaces(user_id):
     conn.commit()
     conn.close()
     return created
+
+
+# ── Project<->Workspace bridge (v15.0-alpha.3) ─────────
+# A v14 "project" is a goal with materials/worklog. v15 routes projects
+# through the Workspace layer by treating the project's goal as the backing
+# record and a template='project' workspace as its container, linked via
+# goals.workspace_id. These helpers are the bridge; the project's
+# materials/worklog/progress functions above are reused verbatim (no data
+# moved -- MIGRATION.md §3). All additive and uncalled while WORKSPACE is
+# OFF, so the legacy /projects path stays byte-identical.
+def get_workspace_goal_id(user_id, workspace_id):
+    """The goal id backing a project workspace (reverse of the link), or
+    None."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT id FROM goals WHERE workspace_id=? AND user_id=? "
+              "ORDER BY id ASC LIMIT 1", (workspace_id, user_id))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_goal_workspace_id(user_id, goal_id):
+    """The workspace id a goal is linked to, or None."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT workspace_id FROM goals WHERE id=? AND user_id=?",
+              (goal_id, user_id))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else None
+
+
+def set_goal_workspace(user_id, goal_id, workspace_id):
+    """Link a goal to a workspace (idempotent -- re-setting the same link is
+    a no-op)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("UPDATE goals SET workspace_id=? WHERE id=? AND user_id=?",
+              (workspace_id, goal_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+def verify_project_migration(user_id):
+    """Integrity report for the project->workspace migration: how many
+    project-goals still lack a workspace link, and how many
+    template='project' workspaces have no backing goal (orphans). `ok` is
+    True when both are zero. Never raises -- returns a report dict."""
+    report = {"ok": True, "unmigrated_projects": [], "orphan_workspaces": [],
+              "projects_total": 0, "project_workspaces_total": 0}
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        _init_workspace_tables(conn)
+        c = conn.cursor()
+        # Project-goals (have materials or worklog) not yet linked.
+        c.execute("""SELECT g.id FROM goals g WHERE g.user_id=?
+                     AND g.workspace_id IS NULL
+                     AND (g.id IN (SELECT goal_id FROM project_materials WHERE user_id=?)
+                       OR g.id IN (SELECT goal_id FROM project_worklog WHERE user_id=?))""",
+                  (user_id, user_id, user_id))
+        report["unmigrated_projects"] = [r[0] for r in c.fetchall()]
+        # Count all project-goals for context.
+        c.execute("""SELECT COUNT(DISTINCT g.id) FROM goals g WHERE g.user_id=?
+                     AND (g.id IN (SELECT goal_id FROM project_materials WHERE user_id=?)
+                       OR g.id IN (SELECT goal_id FROM project_worklog WHERE user_id=?))""",
+                  (user_id, user_id, user_id))
+        report["projects_total"] = c.fetchone()[0]
+        # Project workspaces with no backing goal.
+        c.execute("""SELECT w.id FROM workspaces w
+                     WHERE w.user_id=? AND w.template='project'
+                     AND w.id NOT IN (SELECT workspace_id FROM goals
+                                      WHERE user_id=? AND workspace_id IS NOT NULL)""",
+                  (user_id, user_id))
+        report["orphan_workspaces"] = [r[0] for r in c.fetchall()]
+        c.execute("SELECT COUNT(*) FROM workspaces WHERE user_id=? AND template='project'",
+                  (user_id,))
+        report["project_workspaces_total"] = c.fetchone()[0]
+        conn.close()
+        report["ok"] = (not report["unmigrated_projects"]
+                        and not report["orphan_workspaces"])
+    except Exception as e:
+        logger.error(f"verify_project_migration failed: {e}")
+        report["ok"] = False
+        report["error"] = str(e)
+    return report

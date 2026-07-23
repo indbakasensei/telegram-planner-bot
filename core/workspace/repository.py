@@ -91,3 +91,18 @@ class WorkspaceRepository:
 
     def migrate_projects(self, user_id) -> int:
         return self._s.workspaces.migrate_projects(user_id)
+
+    # ── Project<->Workspace bridge (v15.0-alpha.3) ─────
+    def goal_id_for_workspace(self, user_id, workspace_id):
+        """The goal backing a project workspace, or None."""
+        return self._s.workspaces.goal_id_for(workspace_id, user_id)
+
+    def workspace_for_goal(self, user_id, goal_id) -> Workspace | None:
+        ws_id = self._s.workspaces.workspace_id_for_goal(goal_id, user_id)
+        return self.get_workspace(ws_id, user_id) if ws_id else None
+
+    def link_goal_to_workspace(self, user_id, goal_id, workspace_id) -> None:
+        self._s.workspaces.link_goal(user_id, goal_id, workspace_id)
+
+    def verify_project_migration(self, user_id) -> dict:
+        return self._s.workspaces.verify_migration(user_id)

@@ -24,5 +24,10 @@ from core.workspace.models import (  # noqa: F401
     Note,
     Workspace,
 )
+from core.workspace.project_adapter import (  # noqa: F401
+    ProjectAdapter,
+    ProjectView,
+    use_workspace_projects,
+)
 from core.workspace.repository import WorkspaceRepository  # noqa: F401
 from core.workspace.service import WorkspaceService  # noqa: F401

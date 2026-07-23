@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-alpha.2** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-alpha.3** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -67,7 +67,7 @@ architecture deep-dive is [ARCHITECTURE.md](ARCHITECTURE.md). Behavioral
 equivalence with Legacy is enforced by a 700+-test suite
 ([TESTING.md](TESTING.md)) with query-count and row-level parity checks.
 
-### 🧱 Workspace Foundation + Entity Engine (v15.0-alpha.2 — dormant)
+### 🧱 Workspace Foundation + Entity Engine + Project Integration (v15.0-alpha.3 — dormant)
 
 The next evolution, the **Workspace OS**, turns Projects/Books/Games/
 Courses/Goals/Memory into one **Workspace** abstraction differentiated
@@ -87,7 +87,14 @@ inert: empty tables, no handlers, byte-identical to v14.
 | Errors | `core/workspace/errors.py` | Typed refusals: `EntityNotFound` / `EntityValidationError` / `InvalidTransition` |
 | Service | `core/workspace/service.py` | Use-cases on top of the engine: flag-gated migration/bootstrap, Inbox |
 | Templates | `core/workspace/templates/` | `WorkspaceTemplate` registry (composition, not inheritance) + built-ins |
+| **Project Adapter** | `core/workspace/project_adapter.py` | **Routes v14 Projects through the Workspace layer (goal ↔ `template='project'` workspace) — data referenced, not moved; progress stays the v14 materials/worklog computation** |
 | Feature flag | `core/feature_flags.py` | `WORKSPACE` — default OFF |
+
+When `WORKSPACE` is ON, a Project is a `template='project'` workspace whose
+backing goal (via `goals.workspace_id`) still owns its materials/worklog —
+so `ProjectAdapter` returns values identical to the legacy `/projects`
+path (proven by `tests/test_workspace_project_integration.py`). The
+production handler swap that consumes this is a later, user-facing phase.
 
 ---
 

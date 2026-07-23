@@ -236,6 +236,19 @@ class WorkspaceStorage:
     def migrate_projects(self, user_id):
         return database.migrate_projects_to_workspaces(user_id)
 
+    # ── Project<->Workspace bridge (v15.0-alpha.3) ──
+    def goal_id_for(self, workspace_id, user_id):
+        return database.get_workspace_goal_id(user_id, workspace_id)
+
+    def workspace_id_for_goal(self, goal_id, user_id):
+        return database.get_goal_workspace_id(user_id, goal_id)
+
+    def link_goal(self, user_id, goal_id, workspace_id):
+        return database.set_goal_workspace(user_id, goal_id, workspace_id)
+
+    def verify_migration(self, user_id):
+        return database.verify_project_migration(user_id)
+
 
 class MilestoneStorage:
     """Delegates to database.py's milestone functions (v15.0-alpha.1)."""
