@@ -13,19 +13,21 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > additively behind a `WORKSPACE` flag (ships dark, canary-enabled) so no
 > existing behaviour regresses — the v14 Autonomous Core playbook.
 >
-> **Status:** `v15.0-alpha.4` — built in `core/workspace/`, all dormant
+> **Status:** `v15.0-alpha.5` — built in `core/workspace/`, all dormant
 > behind `WORKSPACE=off`: the **Workspace Foundation** (alpha.1: schema,
 > Storage Facade, Repository, Service, Template registry, migration), the
 > reusable **Entity Engine** (alpha.2: ownership + input validation,
 > lifecycle state machines, event seam), **Project Integration** (alpha.3:
 > `ProjectAdapter` routes v14 Projects through the Workspace layer with
-> proven data equivalence — no data moved), and **Milestone Management**
-> (alpha.4: archive + soft-delete, events via the engine hook). Still to
-> come, each additive & flag-gated: the **Knowledge Timeline** (alpha.5,
-> subscribing to the engine's milestone events), the user-facing handler
-> swap for Projects and other Workspace commands/UI, the Telegram sync
-> outbox (TWID), and the AI Orchestrator (AWOD) — see
-> docs/v15/MIGRATION.md §7 for the phased rollout.
+> proven data equivalence — no data moved), **Milestone Management**
+> (alpha.4: archive + soft-delete), and the append-only **Knowledge
+> Timeline** (alpha.5: `TimelineEngine` subscribes to the engine's
+> `EntityEvent` hook and persists every mutation). Still to come, each
+> additive & flag-gated: the **Telegram Sync outbox** (alpha.6/TWID,
+> draining unsynced timeline rows), the **AI Orchestrator** (alpha.7/AWOD,
+> reading history), and the user-facing handler swap for Projects and
+> other Workspace commands/UI — see docs/v15/MIGRATION.md §7 for the
+> phased rollout.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

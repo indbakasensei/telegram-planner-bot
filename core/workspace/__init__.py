@@ -18,6 +18,12 @@ from core.workspace.errors import (  # noqa: F401
     EntityValidationError,
     InvalidTransition,
 )
+from core.workspace.events import EntityEvent  # noqa: F401
+from core.workspace.timeline import (  # noqa: F401
+    TimelineEngine,
+    TimelineEvent,
+    TimelineRepository,
+)
 from core.workspace.models import (  # noqa: F401
     DEFAULT_WORKSPACE_TITLE,
     Milestone,

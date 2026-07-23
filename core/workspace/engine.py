@@ -26,12 +26,17 @@ AI. Those are later phases; this milestone ships only the engine + tests.
 """
 from __future__ import annotations
 
-from typing import Callable
-
 from core.workspace import lifecycle, templates
 from core.workspace.errors import (
     EntityNotFound,
     EntityValidationError,
+)
+from core.workspace.events import (
+    SRC_SYSTEM,
+    SRC_USER,
+    EventHook,
+    build_event,
+    noop_event,
 )
 from core.workspace.models import (
     MS_ARCHIVED,
@@ -62,14 +67,6 @@ EV_MILESTONE_ARCHIVED = "milestone.archived"
 EV_MILESTONE_DELETED = "milestone.deleted"
 EV_NOTE_ADDED = "note.added"
 
-# on_event(event_type, entity_type, entity) -> None
-EventHook = Callable[[str, str, object], None]
-
-
-def _noop_event(event_type: str, entity_type: str, entity: object) -> None:
-    """Default event sink: does nothing. Replaced by the Timeline later."""
-
-
 class EntityEngine:
     """Validated, lifecycle-aware operations over Workspace entities.
     Stateless apart from its Repository and event hook."""
@@ -77,7 +74,15 @@ class EntityEngine:
     def __init__(self, repo: WorkspaceRepository | None = None,
                  on_event: EventHook | None = None):
         self._repo = repo or WorkspaceRepository()
-        self._emit = on_event or _noop_event
+        self._on_event = on_event or noop_event
+
+    def _emit(self, event_type, entity_type, entity, user_id,
+              source=SRC_USER) -> None:
+        """Build a self-contained EntityEvent (alpha.5) and hand it to the
+        subscriber. user_id is threaded from engine scope because the
+        Milestone/Note models don't carry it."""
+        self._on_event(build_event(event_type, entity_type, entity,
+                                   user_id, source))
 
     # ── Workspaces ─────────────────────────────────────
     def create_workspace(self, user_id, title, template="generic",
@@ -93,11 +98,13 @@ class EntityEngine:
         ws = self._repo.create_workspace(
             user_id, title=title, template=tpl.key, icon=tpl.icon,
             metadata=metadata)
-        self._emit(EV_WORKSPACE_CREATED, "workspace", ws)
+        self._emit(EV_WORKSPACE_CREATED, "workspace", ws, user_id)
         if seed_milestones and tpl.default_milestones:
             for i, ms_title in enumerate(tpl.default_milestones):
                 ms = self._repo.add_milestone(ws.id, ms_title, sort_order=i)
-                self._emit(EV_MILESTONE_ADDED, "milestone", ms)
+                # Seeded from the template, not typed by the user.
+                self._emit(EV_MILESTONE_ADDED, "milestone", ms, user_id,
+                           source=SRC_SYSTEM)
         return ws
 
     def get_workspace(self, user_id, workspace_id) -> Workspace:
@@ -120,13 +127,13 @@ class EntityEngine:
             raise EntityValidationError("workspace title must not be empty")
         self.get_workspace(user_id, workspace_id)  # ownership check
         ws = self._repo.update_workspace(workspace_id, user_id, title=title)
-        self._emit(EV_WORKSPACE_UPDATED, "workspace", ws)
+        self._emit(EV_WORKSPACE_UPDATED, "workspace", ws, user_id)
         return ws
 
     def set_metadata(self, user_id, workspace_id, metadata: dict) -> Workspace:
         self.get_workspace(user_id, workspace_id)
         ws = self._repo.update_workspace(workspace_id, user_id, metadata=metadata)
-        self._emit(EV_WORKSPACE_UPDATED, "workspace", ws)
+        self._emit(EV_WORKSPACE_UPDATED, "workspace", ws, user_id)
         return ws
 
     def transition_workspace(self, user_id, workspace_id, to_status) -> Workspace:
@@ -139,7 +146,7 @@ class EntityEngine:
         lc.validate(ws.status, to_status)
         updated = self._repo.update_workspace(workspace_id, user_id,
                                               status=to_status)
-        self._emit(EV_WORKSPACE_STATUS, "workspace", updated)
+        self._emit(EV_WORKSPACE_STATUS, "workspace", updated, user_id)
         return updated
 
     def archive_workspace(self, user_id, workspace_id) -> Workspace:
@@ -157,7 +164,7 @@ class EntityEngine:
         existing = self._repo.list_milestones(workspace_id)
         ms = self._repo.add_milestone(workspace_id, title,
                                       sort_order=len(existing))
-        self._emit(EV_MILESTONE_ADDED, "milestone", ms)
+        self._emit(EV_MILESTONE_ADDED, "milestone", ms, user_id)
         return ms
 
     def list_milestones(self, user_id, workspace_id,
@@ -186,7 +193,7 @@ class EntityEngine:
         progress = 100 if to_status == MS_DONE else None
         updated = self._repo.update_milestone(milestone_id, status=to_status,
                                              progress=progress)
-        self._emit(EV_MILESTONE_STATUS, "milestone", updated)
+        self._emit(EV_MILESTONE_STATUS, "milestone", updated, user_id)
         return updated
 
     def complete_milestone(self, user_id, milestone_id) -> Milestone:
@@ -203,7 +210,7 @@ class EntityEngine:
             return ms
         lc.validate(ms.status, MS_ARCHIVED)
         updated = self._repo.update_milestone(milestone_id, status=MS_ARCHIVED)
-        self._emit(EV_MILESTONE_ARCHIVED, "milestone", updated)
+        self._emit(EV_MILESTONE_ARCHIVED, "milestone", updated, user_id)
         return updated
 
     def delete_milestone(self, user_id, milestone_id) -> Milestone:
@@ -214,7 +221,7 @@ class EntityEngine:
         milestone.deleted with the pre-delete snapshot. v15.0-alpha.4."""
         ms = self._owned_milestone(user_id, milestone_id)
         self._repo.soft_delete_milestone(milestone_id)
-        self._emit(EV_MILESTONE_DELETED, "milestone", ms)
+        self._emit(EV_MILESTONE_DELETED, "milestone", ms, user_id)
         return ms
 
     # ── Notes ──────────────────────────────────────────
@@ -225,7 +232,7 @@ class EntityEngine:
             raise EntityValidationError("note content must not be empty")
         self.get_workspace(user_id, workspace_id)  # ownership check
         note = self._repo.add_note(workspace_id, content, kind=kind, source=source)
-        self._emit(EV_NOTE_ADDED, "note", note)
+        self._emit(EV_NOTE_ADDED, "note", note, user_id, source=source)
         return note
 
     def list_notes(self, user_id, workspace_id, kind=None) -> list[Note]:

@@ -33,6 +33,8 @@ REQUIRED_TABLES = [
     # existing behaviour reads or writes them yet.
     "workspaces", "milestones", "notes", "attachments", "tags",
     "entity_tags",
+    # v15.0-alpha.5: append-only Knowledge Timeline (docs/v15/KTD.md).
+    "timeline_events",
 ]
 
 # (index_name, table, columns, why) -- documented per Sprint 3 task 2.
@@ -1276,6 +1278,12 @@ def reset_everything(user_id):
             counts[table] = c.rowcount
         except Exception:
             counts[table] = 0
+    # timeline_events is user_id-scoped (v15.0-alpha.5).
+    try:
+        c.execute("DELETE FROM timeline_events WHERE user_id=?", (user_id,))
+        counts["timeline_events"] = c.rowcount
+    except Exception:
+        counts["timeline_events"] = 0
     try:
         c.execute("DELETE FROM entity_tags WHERE tag_id IN "
                   "(SELECT id FROM tags WHERE user_id=?)", (user_id,))
@@ -1301,6 +1309,7 @@ def reset_everything(user_id):
         ("ai_observations", ["ai_observations"]),
         ("workspaces", ["workspaces", "milestones", "notes", "attachments"]),
         ("tags", ["tags", "entity_tags"]),
+        ("timeline_events", ["timeline_events"]),
     ):
         c.execute(f"SELECT COUNT(*) FROM {parent_table}")
         if c.fetchone()[0] == 0:
@@ -2331,6 +2340,8 @@ MILESTONE_COLS = ("id, workspace_id, goal_id, title, status, progress, "
                   "sort_order, created_at, completed_at, archived_at, "
                   "deleted_at")
 NOTE_COLS = "id, workspace_id, milestone_id, kind, content, source, created_at"
+TIMELINE_COLS = ("id, user_id, workspace_id, entity_type, entity_id, "
+                 "event_type, summary, payload, source, created_at, synced_at")
 
 
 def _init_workspace_tables(conn):
@@ -2412,6 +2423,28 @@ def _init_workspace_tables(conn):
     )""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags "
               "ON entity_tags(entity_type, entity_id)")
+
+    # v15.0-alpha.5: append-only Knowledge Timeline (docs/v15/KTD.md). One
+    # immutable row per meaningful mutation. Only synced_at is ever updated
+    # (by the future Telegram Sync); nothing here is edited or deleted in
+    # normal operation.
+    c.execute("""CREATE TABLE IF NOT EXISTS timeline_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        workspace_id INTEGER,
+        entity_type TEXT,
+        entity_id INTEGER,
+        event_type TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        payload TEXT,
+        source TEXT DEFAULT 'user',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        synced_at TEXT
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_timeline_user "
+              "ON timeline_events(user_id, workspace_id, id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_timeline_entity "
+              "ON timeline_events(entity_type, entity_id)")
 
     # Nullable FK columns on existing tables (NULL == Inbox / unassigned).
     _safe_add_column(c, "tasks", "workspace_id", "INTEGER")
@@ -2782,3 +2815,99 @@ def verify_project_migration(user_id):
         report["ok"] = False
         report["error"] = str(e)
     return report
+
+
+# ── Knowledge Timeline (v15.0-alpha.5, docs/v15/KTD.md) ─
+# Append-only event log. add_timeline_event INSERTs; the getters read; only
+# mark_timeline_synced updates (a single synced_at stamp, for the future
+# Telegram Sync). Nothing edits summary/payload or deletes rows in normal
+# operation -- immutability is what makes the timeline a trustworthy record.
+def add_timeline_event(user_id, event_type, summary, entity_type=None,
+                       entity_id=None, workspace_id=None, payload=None,
+                       source="user"):
+    """Append one immutable event; returns its id. `payload` may be a dict
+    (stored as JSON) or a string/None."""
+    payload_json = json.dumps(payload) if isinstance(payload, dict) else payload
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO timeline_events
+        (user_id, workspace_id, entity_type, entity_id, event_type,
+         summary, payload, source)
+        VALUES (?,?,?,?,?,?,?,?)""",
+        (user_id, workspace_id, entity_type, entity_id, event_type,
+         summary, payload_json, source))
+    event_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return event_id
+
+
+def get_timeline(user_id, workspace_id=None, limit=50):
+    """A user's timeline newest-first, optionally scoped to one workspace."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    if workspace_id is None:
+        c.execute(f"SELECT {TIMELINE_COLS} FROM timeline_events "
+                  "WHERE user_id=? ORDER BY id DESC LIMIT ?", (user_id, limit))
+    else:
+        c.execute(f"SELECT {TIMELINE_COLS} FROM timeline_events "
+                  "WHERE user_id=? AND workspace_id=? ORDER BY id DESC LIMIT ?",
+                  (user_id, workspace_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_entity_timeline(entity_type, entity_id, limit=50):
+    """One entity's history, newest-first."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {TIMELINE_COLS} FROM timeline_events "
+              "WHERE entity_type=? AND entity_id=? ORDER BY id DESC LIMIT ?",
+              (entity_type, entity_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def count_timeline(user_id, workspace_id=None):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    if workspace_id is None:
+        c.execute("SELECT COUNT(*) FROM timeline_events WHERE user_id=?",
+                  (user_id,))
+    else:
+        c.execute("SELECT COUNT(*) FROM timeline_events "
+                  "WHERE user_id=? AND workspace_id=?", (user_id, workspace_id))
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+
+def mark_timeline_synced(event_id, synced_at=None):
+    """Stamp synced_at on one event (the only mutation the timeline allows).
+    Used by the future Telegram Sync (alpha.6); harmless here."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE timeline_events SET synced_at=? WHERE id=?",
+              (synced_at or _now_ist_str(), event_id))
+    conn.commit()
+    conn.close()
+
+
+def get_unsynced_timeline(user_id, limit=100):
+    """Events not yet marked synced_at, oldest-first -- the drain order the
+    future outbox worker will use (TWID)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {TIMELINE_COLS} FROM timeline_events "
+              "WHERE user_id=? AND synced_at IS NULL ORDER BY id ASC LIMIT ?",
+              (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows

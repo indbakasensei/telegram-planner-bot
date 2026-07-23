@@ -29,7 +29,7 @@ OTHER = 313131313
 
 def make_engine():
     events = []
-    eng = EntityEngine(on_event=lambda et, kind, e: events.append((et, kind)))
+    eng = EntityEngine(on_event=lambda ev: events.append((ev.event_type, ev.entity_type)))
     return eng, events
 
 

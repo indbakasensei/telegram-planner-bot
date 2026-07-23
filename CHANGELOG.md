@@ -9,7 +9,56 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-alpha.4 — Milestone Management (archive + soft-delete) (current)
+## v15.0-alpha.5 — Timeline Engine (current)
+
+The **Knowledge Timeline** (docs/v15/KTD.md): append-only, persistent
+event infrastructure that subscribes to the Entity Engine's event hook and
+records one immutable row per mutation. **Purely persistence** — **no
+Telegram, no AI, and no aggregate/journal summaries** (the per-event
+`summary` is a short factual label the schema requires; the AI-written
+roll-up reports are out of scope). Telegram Sync (alpha.6) and the AI
+Orchestrator (alpha.7) become subscribers later. Gated behind `WORKSPACE`
+(default OFF); with no subscriber attached the engine's default hook is a
+no-op, so the bot stays byte-identical to alpha.4/v14.26. Full suite:
+**961 passing** (948 + 13).
+
+- **Event upgrade (`events.py`):** the engine's `on_event` seam now carries
+  a self-contained `EntityEvent` (event_type, entity_type, user_id,
+  workspace_id, entity_id, entity, source) instead of three loose args. A
+  `Milestone`/`Note` model has no `user_id`, but the engine knows it at
+  emit time and stamps it onto the event — so a subscriber can persist a
+  user-scoped row without reaching back into the engine. Engine `_emit`
+  call sites updated to thread `user_id` (seeded milestones marked
+  `source='system'`).
+- **Schema (database.py, additive):** `timeline_events` (id, user_id,
+  workspace_id, entity_type, entity_id, event_type, summary, payload,
+  source, created_at, synced_at) + two indexes. Append-only:
+  `add_timeline_event` inserts; `get_timeline`/`get_entity_timeline`/
+  `get_unsynced_timeline`/`count_timeline` read; only `mark_timeline_synced`
+  updates (a single `synced_at` stamp, for alpha.6). Added to
+  `REQUIRED_TABLES`; `reset_everything` clears it.
+- **Storage integration:** `TimelineStorage` facade domain (`storage.timeline`).
+- **Repository:** `TimelineRepository` (tuples → `TimelineEvent` models).
+- **Timeline Engine (`timeline.py`):** `TimelineEngine.record` is the event
+  hook — attach as `EntityEngine(on_event=TimelineEngine().record)` and
+  every mutation is persisted, with a deterministic per-event summary and a
+  small payload snapshot. Reads: `timeline()`, `entity_history()`, `count()`.
+
+**Tests:** `tests/test_workspace_timeline.py` (13) — schema, append-only DB
+layer (add/get/entity-history/unsynced/mark-synced), facade delegation,
+repository mapping, and the integration proof: Entity Engine + Timeline
+subscriber records correct user-scoped rows (incl. a milestone event
+carrying user_id/workspace_id/entity_id despite the model lacking user_id),
+pre-delete snapshot on delete, `source='system'` for seeded milestones, and
+flag-OFF neutrality (default engine records nothing). The alpha.2/alpha.4
+engine test helpers were updated for the `EntityEvent` hook. Files touched:
+`database.py`, `core/workspace/{events,engine,timeline,__init__}.py`,
+`core/storage/storage.py`, new test file, `tests/test_workspace_engine.py`,
+`tests/test_workspace_milestone_mgmt.py`, `main.py` (version), docs.
+
+---
+
+## v15.0-alpha.4 — Milestone Management (archive + soft-delete)
 
 Milestone management for the Entity Engine: **archive** and **soft-delete**
 (the CRUD + lifecycle already shipped in alpha.2). Backend only — **no

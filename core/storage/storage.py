@@ -283,6 +283,32 @@ class NoteStorage:
         return database.get_notes(workspace_id, kind)
 
 
+class TimelineStorage:
+    """Delegates to database.py's append-only Knowledge Timeline functions
+    (v15.0-alpha.5). One-line passthrough like every other domain."""
+
+    def add(self, user_id, event_type, summary, entity_type=None,
+            entity_id=None, workspace_id=None, payload=None, source="user"):
+        return database.add_timeline_event(
+            user_id, event_type, summary, entity_type, entity_id,
+            workspace_id, payload, source)
+
+    def list_for_user(self, user_id, workspace_id=None, limit=50):
+        return database.get_timeline(user_id, workspace_id, limit)
+
+    def list_for_entity(self, entity_type, entity_id, limit=50):
+        return database.get_entity_timeline(entity_type, entity_id, limit)
+
+    def count(self, user_id, workspace_id=None):
+        return database.count_timeline(user_id, workspace_id)
+
+    def unsynced(self, user_id, limit=100):
+        return database.get_unsynced_timeline(user_id, limit)
+
+    def mark_synced(self, event_id, synced_at=None):
+        return database.mark_timeline_synced(event_id, synced_at)
+
+
 class Storage:
     """
     The Storage Facade's single entry point: one Storage() instance
@@ -304,3 +330,5 @@ class Storage:
         self.workspaces = WorkspaceStorage()
         self.milestones = MilestoneStorage()
         self.notes = NoteStorage()
+        # v15.0-alpha.5 Knowledge Timeline.
+        self.timeline = TimelineStorage()

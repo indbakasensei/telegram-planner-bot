@@ -39,7 +39,7 @@ OTHER = 999888777  # a second user, to prove ownership scoping
 
 def make_engine():
     events = []
-    eng = EntityEngine(on_event=lambda et, kind, entity: events.append((et, kind)))
+    eng = EntityEngine(on_event=lambda ev: events.append((ev.event_type, ev.entity_type)))
     return eng, events
 
 
