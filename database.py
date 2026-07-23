@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import shutil
@@ -12,7 +13,7 @@ DB_NAME = "planner.db"
 # diagnostic marker (read by verify_schema_integrity() at startup) --
 # nothing branches on its value, so an out-of-date number here cannot
 # change runtime behavior, only what the startup integrity report says.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,13 @@ REQUIRED_TABLES = [
     "completions_log", "snooze_log", "interaction_log", "task_templates",
     "missed_capabilities", "ai_observations", "project_materials",
     "project_worklog",
+    # v15.0-alpha.1 Workspace Foundation. These ship in every database
+    # (additive, idempotent schema -- MIGRATION.md §4.1) but stay EMPTY
+    # and UNUSED while feature_flags.WORKSPACE is OFF, exactly as the v14
+    # Offline-Engine tables/flags shipped ahead of their consumers. No
+    # existing behaviour reads or writes them yet.
+    "workspaces", "milestones", "notes", "attachments", "tags",
+    "entity_tags",
 ]
 
 # (index_name, table, columns, why) -- documented per Sprint 3 task 2.
@@ -335,6 +343,15 @@ def init_db():
         _init_observations(conn)
     except sqlite3.Error as e:
         logger.error(f"Observations table migration failed: {e}")
+    # v15.0-alpha.1: Workspace Foundation schema. Additive and idempotent
+    # (MIGRATION.md). Runs on every startup; creates empty tables + adds
+    # nullable workspace_id/milestone_id columns to existing tables. No
+    # data is migrated here and no existing behaviour changes -- the tables
+    # stay dormant until feature_flags.WORKSPACE is enabled.
+    try:
+        _init_workspace_tables(conn)
+    except sqlite3.Error as e:
+        logger.error(f"Workspace tables migration failed: {e}")
     # v11.1: ai_usage analytics table. Deliberately left as a broad
     # try/except (not narrowed like the migration steps above) -- this is
     # an optional-dependency-availability guard for the known-incomplete
@@ -1234,12 +1251,38 @@ def reset_everything(user_id):
     _init_templates(conn)
     _init_missed_capabilities(conn)
     _init_observations(conn)
+    _init_workspace_tables(conn)
     c = conn.cursor()
     counts = {}
     for table in ["tasks", "memories", "goals", "habit_log",
                   "completions_log", "snooze_log", "interaction_log",
                   "project_materials", "project_worklog",
                   "task_templates", "missed_capabilities", "ai_observations"]:
+        try:
+            c.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
+            counts[table] = c.rowcount
+        except Exception:
+            counts[table] = 0
+    # v15.0-alpha.1: Workspace Foundation tables. The child tables
+    # (milestones/notes/attachments/entity_tags) are keyed by
+    # workspace_id/tag_id, not user_id, so they're scoped through their
+    # owning parent. Same anti-orphan reason as project_materials above:
+    # once workspaces exist and IDs are reused after a reset, un-cleared
+    # children would surface under a new workspace (finding E1).
+    for table in ["milestones", "notes", "attachments"]:
+        try:
+            c.execute(f"DELETE FROM {table} WHERE workspace_id IN "
+                      "(SELECT id FROM workspaces WHERE user_id=?)", (user_id,))
+            counts[table] = c.rowcount
+        except Exception:
+            counts[table] = 0
+    try:
+        c.execute("DELETE FROM entity_tags WHERE tag_id IN "
+                  "(SELECT id FROM tags WHERE user_id=?)", (user_id,))
+        counts["entity_tags"] = c.rowcount
+    except Exception:
+        counts["entity_tags"] = 0
+    for table in ["workspaces", "tags"]:
         try:
             c.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
             counts[table] = c.rowcount
@@ -1256,6 +1299,8 @@ def reset_everything(user_id):
         ("task_templates", ["task_templates"]),
         ("missed_capabilities", ["missed_capabilities"]),
         ("ai_observations", ["ai_observations"]),
+        ("workspaces", ["workspaces", "milestones", "notes", "attachments"]),
+        ("tags", ["tags", "entity_tags"]),
     ):
         c.execute(f"SELECT COUNT(*) FROM {parent_table}")
         if c.fetchone()[0] == 0:
@@ -2261,3 +2306,358 @@ def get_all_pending_materials(user_id):
     rows = c.fetchall()
     conn.close()
     return rows
+
+
+# ══════════════════════════════════════════════════════════════════════
+# v15.0-alpha.1 -- Workspace Foundation (docs/v15/WED.md, MIGRATION.md)
+#
+# Data layer for the Workspace OS. These tables + functions ship in every
+# database but stay empty and unused until feature_flags.WORKSPACE is
+# enabled -- the Storage Facade / Repository / Service on top of them are
+# the only callers, and no v14 handler touches them. Additive-and-
+# idempotent throughout: creating an existing workspace-schema is a no-op,
+# the migration helpers can run repeatedly without duplicating rows, and
+# flag-OFF startup leaves these tables empty so behaviour is byte-
+# identical to v14.26.
+#
+# Column orders below are FROZEN: the Repository maps tuples to models by
+# position, so every getter must SELECT in this exact order.
+# ══════════════════════════════════════════════════════════════════════
+
+WORKSPACE_COLS = ("id, user_id, template, title, status, icon, metadata, "
+                  "ai_summary, telegram_topic_id, sort_order, created_at, "
+                  "updated_at, archived_at")
+MILESTONE_COLS = ("id, workspace_id, goal_id, title, status, progress, "
+                  "sort_order, created_at, completed_at")
+NOTE_COLS = "id, workspace_id, milestone_id, kind, content, source, created_at"
+
+
+def _init_workspace_tables(conn):
+    """Create the Workspace Foundation tables and add the nullable FK
+    columns that link existing tasks/goals/memories to a workspace.
+
+    Idempotent (CREATE TABLE IF NOT EXISTS + _safe_add_column). Every new
+    FK column is nullable with no default, so existing rows remain valid
+    and flag-OFF operation is unchanged (NULL workspace_id == 'Inbox',
+    interpreted lazily at read time -- MIGRATION.md §4)."""
+    c = conn.cursor()
+
+    c.execute("""CREATE TABLE IF NOT EXISTS workspaces (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        template TEXT NOT NULL DEFAULT 'generic',
+        title TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        icon TEXT,
+        metadata TEXT,
+        ai_summary TEXT,
+        telegram_topic_id INTEGER,
+        sort_order INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        archived_at TEXT
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_user "
+              "ON workspaces(user_id, status)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS milestones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL,
+        goal_id INTEGER,
+        title TEXT NOT NULL,
+        status TEXT DEFAULT 'todo',
+        progress INTEGER DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_milestones_workspace "
+              "ON milestones(workspace_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL,
+        milestone_id INTEGER,
+        kind TEXT DEFAULT 'note',
+        content TEXT NOT NULL,
+        source TEXT DEFAULT 'user',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_notes_workspace "
+              "ON notes(workspace_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL,
+        note_id INTEGER,
+        telegram_file_id TEXT,
+        file_type TEXT,
+        file_name TEXT,
+        caption TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attachments_workspace "
+              "ON attachments(workspace_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS entity_tags (
+        tag_id INTEGER NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER NOT NULL
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags "
+              "ON entity_tags(entity_type, entity_id)")
+
+    # Nullable FK columns on existing tables (NULL == Inbox / unassigned).
+    _safe_add_column(c, "tasks", "workspace_id", "INTEGER")
+    _safe_add_column(c, "tasks", "milestone_id", "INTEGER")
+    _safe_add_column(c, "goals", "workspace_id", "INTEGER")
+    _safe_add_column(c, "memories", "workspace_id", "INTEGER")
+
+    conn.commit()
+
+
+def _now_ist_str():
+    """Timestamp string in IST (never a bare datetime.now() -- CLAUDE.md)."""
+    return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ── Workspaces ─────────────────────────────────────────
+def create_workspace(user_id, title, template="generic", icon=None,
+                     metadata=None, sort_order=0):
+    """Insert a workspace and return its id. `metadata` may be a dict
+    (stored as JSON) or None."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    meta_json = json.dumps(metadata) if isinstance(metadata, dict) else metadata
+    c.execute("""INSERT INTO workspaces
+        (user_id, template, title, icon, metadata, sort_order)
+        VALUES (?,?,?,?,?,?)""",
+        (user_id, template, title, icon, meta_json, sort_order))
+    ws_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return ws_id
+
+
+def get_workspace(workspace_id, user_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {WORKSPACE_COLS} FROM workspaces WHERE id=? AND user_id=?",
+              (workspace_id, user_id))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def get_workspaces(user_id, status="active"):
+    """List a user's workspaces, newest sort_order first. `status=None`
+    returns every status (active + archived + done)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    if status is None:
+        c.execute(f"SELECT {WORKSPACE_COLS} FROM workspaces WHERE user_id=? "
+                  "ORDER BY sort_order ASC, id ASC", (user_id,))
+    else:
+        c.execute(f"SELECT {WORKSPACE_COLS} FROM workspaces "
+                  "WHERE user_id=? AND status=? "
+                  "ORDER BY sort_order ASC, id ASC", (user_id, status))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_workspace_by_title(user_id, title):
+    """Exact (case-insensitive) title match -- used by migration idempotency
+    and later by the AI Orchestrator's workspace selection."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {WORKSPACE_COLS} FROM workspaces "
+              "WHERE user_id=? AND LOWER(title)=LOWER(?) "
+              "ORDER BY id ASC LIMIT 1", (user_id, title))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def update_workspace(workspace_id, user_id, title=None, status=None,
+                     icon=None, metadata=None, ai_summary=None,
+                     telegram_topic_id=None, sort_order=None):
+    """Update the given fields (only non-None ones). Always stamps
+    updated_at. Setting status='archived' also stamps archived_at."""
+    fields = {
+        "title": title, "status": status, "icon": icon,
+        "ai_summary": ai_summary, "telegram_topic_id": telegram_topic_id,
+        "sort_order": sort_order,
+    }
+    if metadata is not None:
+        fields["metadata"] = json.dumps(metadata) if isinstance(metadata, dict) else metadata
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    for field, value in fields.items():
+        if value is not None:
+            c.execute(f"UPDATE workspaces SET {field}=? WHERE id=? AND user_id=?",
+                      (value, workspace_id, user_id))
+    c.execute("UPDATE workspaces SET updated_at=? WHERE id=? AND user_id=?",
+              (_now_ist_str(), workspace_id, user_id))
+    if status == "archived":
+        c.execute("UPDATE workspaces SET archived_at=? WHERE id=? AND user_id=?",
+                  (_now_ist_str(), workspace_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+def archive_workspace(workspace_id, user_id):
+    """Convenience wrapper: soft-archive (never deletes rows)."""
+    update_workspace(workspace_id, user_id, status="archived")
+
+
+# ── Milestones ─────────────────────────────────────────
+def add_milestone(workspace_id, title, goal_id=None, sort_order=0):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO milestones (workspace_id, goal_id, title, sort_order)
+                 VALUES (?,?,?,?)""", (workspace_id, goal_id, title, sort_order))
+    ms_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return ms_id
+
+
+def get_milestone(milestone_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {MILESTONE_COLS} FROM milestones WHERE id=?", (milestone_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def get_milestones(workspace_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {MILESTONE_COLS} FROM milestones WHERE workspace_id=? "
+              "ORDER BY sort_order ASC, id ASC", (workspace_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def update_milestone(milestone_id, status=None, progress=None, title=None):
+    """Update a milestone's status/progress/title. Setting status='done'
+    stamps completed_at."""
+    fields = {"status": status, "progress": progress, "title": title}
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    for field, value in fields.items():
+        if value is not None:
+            c.execute(f"UPDATE milestones SET {field}=? WHERE id=?",
+                      (value, milestone_id))
+    if status == "done":
+        c.execute("UPDATE milestones SET completed_at=? WHERE id=?",
+                  (_now_ist_str(), milestone_id))
+    conn.commit()
+    conn.close()
+
+
+def count_milestones(workspace_id):
+    """Return (total, done) milestone counts -- the raw input for the
+    Service's workspace progress rollup."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*), COALESCE(SUM(status='done'),0) "
+              "FROM milestones WHERE workspace_id=?", (workspace_id,))
+    total, done = c.fetchone()
+    conn.close()
+    return total, done
+
+
+# ── Notes ──────────────────────────────────────────────
+def add_note(workspace_id, content, kind="note", milestone_id=None,
+             source="user"):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO notes
+        (workspace_id, milestone_id, kind, content, source)
+        VALUES (?,?,?,?,?)""",
+        (workspace_id, milestone_id, kind, content, source))
+    note_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return note_id
+
+
+def get_notes(workspace_id, kind=None):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    if kind is None:
+        c.execute(f"SELECT {NOTE_COLS} FROM notes WHERE workspace_id=? "
+                  "ORDER BY id ASC", (workspace_id,))
+    else:
+        c.execute(f"SELECT {NOTE_COLS} FROM notes WHERE workspace_id=? AND kind=? "
+                  "ORDER BY id ASC", (workspace_id, kind))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+# ── Migration helpers (MIGRATION.md) ───────────────────
+def ensure_default_workspace(user_id, title="Inbox", template="generic"):
+    """Return the id of the user's default workspace, creating it once if
+    absent. Idempotent -- a second call returns the same id, never a
+    duplicate (matched by title). MIGRATION.md §2."""
+    existing = get_workspace_by_title(user_id, title)
+    if existing:
+        return existing[0]
+    return create_workspace(user_id, title=title, template=template,
+                            icon="📥" if title == "Inbox" else None)
+
+
+def migrate_projects_to_workspaces(user_id):
+    """Convert each of the user's project-goals (a goal that has materials
+    or worklog -- get_active_projects()'s definition) into a workspace of
+    template 'project', and backfill workspace_id on the goal and its
+    tasks. Idempotent: a goal already linked to a workspace is skipped, so
+    re-running migrates only new projects. No row is moved or deleted --
+    the goal/material/worklog tables are referenced, not rewritten
+    (MIGRATION.md §3). Returns the number of workspaces created."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    # Project-goals: goals with materials or worklog and not yet linked.
+    c.execute("""SELECT DISTINCT g.id, g.title FROM goals g
+                 WHERE g.user_id=?
+                   AND (g.workspace_id IS NULL)
+                   AND (g.id IN (SELECT goal_id FROM project_materials WHERE user_id=?)
+                     OR g.id IN (SELECT goal_id FROM project_worklog WHERE user_id=?))""",
+              (user_id, user_id, user_id))
+    project_goals = c.fetchall()
+    created = 0
+    for goal_id, goal_title in project_goals:
+        c.execute("""INSERT INTO workspaces (user_id, template, title, icon)
+                     VALUES (?, 'project', ?, '🛠')""",
+                  (user_id, goal_title or "Project"))
+        ws_id = c.lastrowid
+        c.execute("UPDATE goals SET workspace_id=? WHERE id=? AND user_id=?",
+                  (ws_id, goal_id, user_id))
+        created += 1
+    # v14 has no task->goal foreign key, so a project's tasks can't be
+    # identified here; they remain in Inbox (workspace_id NULL) until a
+    # later phase (or the AI Orchestrator) associates them. No data lost.
+    conn.commit()
+    conn.close()
+    return created

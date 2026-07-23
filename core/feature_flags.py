@@ -31,3 +31,11 @@ OFFLINE_TASKS: bool = _flag("OFFLINE_TASKS")
 OFFLINE_HABITS: bool = _flag("OFFLINE_HABITS")
 OFFLINE_GOALS: bool = _flag("OFFLINE_GOALS")
 OFFLINE_PROJECTS: bool = _flag("OFFLINE_PROJECTS")
+
+# v15.0-alpha.1 -- Workspace OS master flag (docs/v15/). Default OFF: the
+# Workspace Foundation (schema, Repository, Service, Templates) ships
+# complete but dormant, exactly like the Offline flags above shipped ahead
+# of their engine. While OFF, nothing constructs or consumes the Workspace
+# stack, so the bot behaves byte-identically to v14.26. A canary flips this
+# in .env to begin rollout (docs/v15/MIGRATION.md §5).
+WORKSPACE: bool = _flag("WORKSPACE")

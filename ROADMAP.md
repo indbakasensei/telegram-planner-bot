@@ -4,14 +4,22 @@ This consolidates every "not yet built" idea found across the old
 `VERSION.md`'s planned-roadmap section, `feature_list.md`'s "Known
 Limitations", and gaps found during the 2026-07 documentation pass.
 
-> **v15.0 — Workspace OS** (architecture designed, not built): the next
-> major evolution unifies Tasks/Habits/Projects/Goals/Memory under a
-> single **Workspace** abstraction (Project/Book/Game/… = same engine,
-> different template), with a Milestone hierarchy, an append-only
-> Knowledge Timeline, Telegram-Topic sync, and an AI Orchestrator. Full
-> design: [docs/v15/](docs/v15/) (WED · TWID · KTD · AWOD · MIGRATION).
-> Built additively behind a `WORKSPACE` flag (ships dark, canary-enabled)
-> so no existing behaviour regresses — the v14 Autonomous Core playbook.
+> **v15.0 — Workspace OS**: the next major evolution unifies
+> Tasks/Habits/Projects/Goals/Memory under a single **Workspace**
+> abstraction (Project/Book/Game/… = same engine, different template),
+> with a Milestone hierarchy, an append-only Knowledge Timeline,
+> Telegram-Topic sync, and an AI Orchestrator. Full design:
+> [docs/v15/](docs/v15/) (WED · TWID · KTD · AWOD · MIGRATION). Built
+> additively behind a `WORKSPACE` flag (ships dark, canary-enabled) so no
+> existing behaviour regresses — the v14 Autonomous Core playbook.
+>
+> **Status:** `v15.0-alpha.1` — the **Workspace Foundation** is built
+> (schema, Storage Facade, Repository, Service, Template registry,
+> migration; `core/workspace/`), all dormant behind `WORKSPACE=off`. Still
+> to come, each additive & flag-gated: Workspace Engine CRUD/UI handlers,
+> the Knowledge Timeline (KTD), the Telegram sync outbox (TWID), and the
+> AI Orchestrator (AWOD) — see docs/v15/MIGRATION.md §7 for the phased
+> rollout.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

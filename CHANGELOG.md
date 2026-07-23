@@ -9,7 +9,58 @@ session can find the relevant code quickly.
 
 ---
 
-## v14.26 — Bug fix: memory duplicate keys (current)
+## v15.0-alpha.1 — Workspace Foundation (current)
+
+The first **code** milestone of the Workspace OS (designed in
+[docs/v15/](docs/v15/)). Ships the *infrastructure only* that later phases
+(Telegram sync, Knowledge Timeline, AI Orchestrator) build upon — **no
+user-facing Workspace features, no handlers, no UI, no Telegram/dashboard
+changes.** Everything is gated behind the new `WORKSPACE` feature flag
+(default **OFF**), so with the flag off the bot behaves **byte-identically
+to v14.26**: the full 892-test pytest suite passes, no database needs
+manual migration, and the new tables ship empty and unread — exactly how
+the v14 Offline-Engine flags/tables shipped ahead of their consumers.
+
+**Schema (database.py, additive & idempotent — MIGRATION.md §4):**
+- New tables: `workspaces`, `milestones`, `notes`, `attachments`, `tags`,
+  `entity_tags` (via `_init_workspace_tables()`, wired into `init_db()`).
+- New nullable FK columns (NULL = Inbox/unassigned): `tasks.workspace_id`,
+  `tasks.milestone_id`, `goals.workspace_id`, `memories.workspace_id`.
+- `SCHEMA_VERSION` → 2; the six tables added to `REQUIRED_TABLES` so
+  `verify_schema_integrity()` covers them.
+- Workspace/Milestone/Note CRUD + migration helpers
+  (`ensure_default_workspace()`, `migrate_projects_to_workspaces()` —
+  backfill-never-move, idempotent).
+- `reset_everything()` extended to also wipe workspace data (same
+  anti-orphan / ID-reuse guard as project_materials).
+
+**Layers (`core/workspace/`, `core/storage/`):**
+- Storage Facade: `WorkspaceStorage` / `MilestoneStorage` / `NoteStorage`
+  (thin one-line delegations), wired into `Storage()`.
+- `models.py` — frozen `Workspace` / `Milestone` / `Note` dataclasses
+  with `from_row()` mappers.
+- `repository.py` — `WorkspaceRepository`: typed CRUD over the facade
+  (tuples → models), no business logic.
+- `service.py` — `WorkspaceService`: template application, progress
+  rollup, flag-gated `bootstrap()` (no-op while `WORKSPACE` off).
+- `templates/` — `WorkspaceTemplate` registry (composition, not
+  inheritance) + 6 built-ins (generic, project, book, course, research,
+  game). Adding a template is one `register()` call; the engine never
+  changes (Open/Closed) — same pattern as ADR-012's ActionRegistry.
+
+**Feature flag:** `core/feature_flags.py` gains `WORKSPACE` (default OFF).
+
+**Tests:** `tests/test_workspace_foundation.py` — 32 tests covering
+schema, CRUD, facade delegation, repository mapping, service (template
+seeding, all progress models, flag gating), migration idempotency &
+no-data-loss, and the template registry. Files touched: `database.py`,
+`core/feature_flags.py`, `core/storage/storage.py`, new `core/workspace/`
+package, `tests/test_workspace_foundation.py`, `tests/test_database.py`
+(reset test extended), `main.py` (version), docs.
+
+---
+
+## v14.26 — Bug fix: memory duplicate keys
 
 Fixes the one genuine code defect surfaced by the manual regression run
 (MEM-002). The other reported items are AI-provider degradation

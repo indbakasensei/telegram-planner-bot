@@ -203,6 +203,70 @@ class LearningStorage:
         return database.log_snooze(user_id, task_id, title, category, snooze_minutes)
 
 
+class WorkspaceStorage:
+    """Delegates to database.py's Workspace Foundation functions
+    (v15.0-alpha.1). Like every other facade domain: one-line passthrough,
+    no logic, returns exactly what database.py returns (raw tuples -- the
+    Repository is what maps them to models). Dormant until
+    feature_flags.WORKSPACE is on; nothing in v14 calls it."""
+
+    def create(self, user_id, title, template="generic", icon=None,
+               metadata=None, sort_order=0):
+        return database.create_workspace(
+            user_id, title, template, icon, metadata, sort_order)
+
+    def get(self, workspace_id, user_id):
+        return database.get_workspace(workspace_id, user_id)
+
+    def list(self, user_id, status="active"):
+        return database.get_workspaces(user_id, status)
+
+    def get_by_title(self, user_id, title):
+        return database.get_workspace_by_title(user_id, title)
+
+    def update(self, workspace_id, user_id, **fields):
+        return database.update_workspace(workspace_id, user_id, **fields)
+
+    def archive(self, workspace_id, user_id):
+        return database.archive_workspace(workspace_id, user_id)
+
+    def ensure_default(self, user_id, title="Inbox", template="generic"):
+        return database.ensure_default_workspace(user_id, title, template)
+
+    def migrate_projects(self, user_id):
+        return database.migrate_projects_to_workspaces(user_id)
+
+
+class MilestoneStorage:
+    """Delegates to database.py's milestone functions (v15.0-alpha.1)."""
+
+    def add(self, workspace_id, title, goal_id=None, sort_order=0):
+        return database.add_milestone(workspace_id, title, goal_id, sort_order)
+
+    def get(self, milestone_id):
+        return database.get_milestone(milestone_id)
+
+    def list_for(self, workspace_id):
+        return database.get_milestones(workspace_id)
+
+    def update(self, milestone_id, status=None, progress=None, title=None):
+        return database.update_milestone(milestone_id, status, progress, title)
+
+    def counts(self, workspace_id):
+        return database.count_milestones(workspace_id)
+
+
+class NoteStorage:
+    """Delegates to database.py's note functions (v15.0-alpha.1)."""
+
+    def add(self, workspace_id, content, kind="note", milestone_id=None,
+            source="user"):
+        return database.add_note(workspace_id, content, kind, milestone_id, source)
+
+    def list_for(self, workspace_id, kind=None):
+        return database.get_notes(workspace_id, kind)
+
+
 class Storage:
     """
     The Storage Facade's single entry point: one Storage() instance
@@ -219,3 +283,8 @@ class Storage:
         self.goals = GoalStorage()
         self.projects = ProjectStorage()
         self.learning = LearningStorage()
+        # v15.0-alpha.1 Workspace Foundation domains (dormant while
+        # feature_flags.WORKSPACE is OFF).
+        self.workspaces = WorkspaceStorage()
+        self.milestones = MilestoneStorage()
+        self.notes = NoteStorage()

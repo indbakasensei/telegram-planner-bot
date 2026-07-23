@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v14.25** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-alpha.1** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -67,6 +67,25 @@ architecture deep-dive is [ARCHITECTURE.md](ARCHITECTURE.md). Behavioral
 equivalence with Legacy is enforced by a 700+-test suite
 ([TESTING.md](TESTING.md)) with query-count and row-level parity checks.
 
+### 🧱 Workspace Foundation (v15.0-alpha.1 — dormant)
+
+The next evolution, the **Workspace OS**, turns Projects/Books/Games/
+Courses/Goals/Memory into one **Workspace** abstraction differentiated
+only by a **Template** (full design: [docs/v15/](docs/v15/)). `alpha.1`
+lands the *foundation only* — no user-facing features yet — behind a new
+`WORKSPACE` flag (default **OFF**). With the flag off it is completely
+inert: empty tables, no handlers, byte-identical to v14.
+
+| Component | Where | What it does |
+|---|---|---|
+| Schema | `database.py` | `workspaces` / `milestones` / `notes` / `attachments` / `tags` (+ nullable `workspace_id` on tasks/goals/memories); additive & idempotent |
+| Storage Facade | `core/storage/` | `WorkspaceStorage` / `MilestoneStorage` / `NoteStorage` — thin delegation |
+| Models | `core/workspace/models.py` | Frozen `Workspace` / `Milestone` / `Note` dataclasses |
+| Repository | `core/workspace/repository.py` | Typed CRUD over the facade (tuples → models) |
+| Service | `core/workspace/service.py` | Template application, progress rollup, flag-gated migration/bootstrap |
+| Templates | `core/workspace/templates/` | `WorkspaceTemplate` registry (composition, not inheritance) + built-ins |
+| Feature flag | `core/feature_flags.py` | `WORKSPACE` — default OFF |
+
 ---
 
 ## 🚀 Quick Setup
@@ -113,6 +132,9 @@ AI_API_KEY=your_provider_key_here        # NVIDIA_API_KEY also still works
 # Offline Engine rollout flags (default OFF — Legacy behavior)
 # OFFLINE_TASKS=true
 # OFFLINE_HABITS=true
+
+# Workspace OS (v15) master flag (default OFF — dormant foundation)
+# WORKSPACE=true
 EOF
 ```
 

@@ -291,13 +291,21 @@ def test_reset_everything_covers_all_twelve_tables_no_orphans(temp_db, uid):
     db.save_template(uid, "tpl", "Template task")
     db.log_missed_capability(uid, "some input")
     db.add_observation(uid, "an observation")
+    # v15.0-alpha.1: workspace data must be cleared too (no orphans).
+    ws_id = db.create_workspace(uid, "WS", template="project")
+    db.add_milestone(ws_id, "M")
+    db.add_note(ws_id, "note")
 
     db.reset_everything(uid)
 
+    # REQUIRED_TABLES are scoped by different owning columns: most by
+    # user_id, the workspace child tables by workspace_id/tag_id. The temp
+    # DB holds only this one user's data, so every one of them must be
+    # globally empty after a full reset.
     conn = sqlite3.connect(temp_db)
     for table in db.REQUIRED_TABLES:
-        n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id=?", (uid,)).fetchone()[0]
-        assert n == 0, f"{table} still has rows for user after reset_everything()"
+        n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        assert n == 0, f"{table} still has rows after reset_everything()"
     conn.close()
 
 
