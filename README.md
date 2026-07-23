@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-alpha.6** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-alpha.7** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -67,7 +67,7 @@ architecture deep-dive is [ARCHITECTURE.md](ARCHITECTURE.md). Behavioral
 equivalence with Legacy is enforced by a 700+-test suite
 ([TESTING.md](TESTING.md)) with query-count and row-level parity checks.
 
-### 🧱 Workspace OS backend — Foundation · Engine · Projects · Timeline · Sync (v15.0-alpha.6 — dormant)
+### 🧱 Workspace OS backend — Foundation · Engine · Projects · Timeline · Sync · AI Orchestrator (v15.0-alpha.7 — dormant)
 
 The next evolution, the **Workspace OS**, turns Projects/Books/Games/
 Courses/Goals/Memory into one **Workspace** abstraction differentiated
@@ -91,6 +91,7 @@ inert: empty tables, no handlers, byte-identical to v14.
 | **Timeline** | `core/workspace/timeline.py` + `events.py` | **Append-only Knowledge Timeline: `TimelineEngine` subscribes to the engine's `EntityEvent` hook and persists one immutable `timeline_events` row per mutation** |
 | **Sync Engine** | `core/workspace/sync.py` | **Reliable outbound sync (TWID outbox): durable `sync_outbox`, idempotent enqueue, oldest-first drain with bounded retries; `SyncAdapter` contract** |
 | **Telegram Adapter** | `core/workspace/adapters/telegram.py` | **First `SyncAdapter` — renders a timeline event to Telegram HTML and delivers through an injected sender (no live-bot import)** |
+| **AI Orchestrator** | `core/workspace/orchestrator.py` | **Generic NL → validated engine op: interpret → select workspace → resolve entity → safety gate → apply. AI injected as an `Interpreter` (no live LLM import); template-agnostic** |
 | Feature flag | `core/feature_flags.py` | `WORKSPACE` — default OFF |
 
 When `WORKSPACE` is ON, a Project is a `template='project'` workspace whose

@@ -32,6 +32,15 @@ from core.workspace.sync import (  # noqa: F401
     SyncResult,
 )
 from core.workspace.adapters import TelegramAdapter  # noqa: F401
+from core.workspace.orchestrator import (  # noqa: F401
+    Action,
+    Interpreter,
+    OrchestratorResult,
+    Proposal,
+    RuleBasedInterpreter,
+    Status,
+    WorkspaceOrchestrator,
+)
 from core.workspace.models import (  # noqa: F401
     DEFAULT_WORKSPACE_TITLE,
     Milestone,

@@ -13,7 +13,7 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > additively behind a `WORKSPACE` flag (ships dark, canary-enabled) so no
 > existing behaviour regresses — the v14 Autonomous Core playbook.
 >
-> **Status:** `v15.0-alpha.6` — built in `core/workspace/`, all dormant
+> **Status:** `v15.0-alpha.7` — built in `core/workspace/`, all dormant
 > behind `WORKSPACE=off`: the **Workspace Foundation** (alpha.1: schema,
 > Storage Facade, Repository, Service, Template registry, migration), the
 > reusable **Entity Engine** (alpha.2: ownership + input validation,
@@ -22,14 +22,17 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > proven data equivalence — no data moved), **Milestone Management**
 > (alpha.4: archive + soft-delete), the append-only **Knowledge Timeline**
 > (alpha.5: `TimelineEngine` subscribes to the engine's `EntityEvent`
-> hook), and the **Synchronization Engine + Telegram Adapter** (alpha.6:
-> TWID outbox, idempotent enqueue, retrying drain — Telegram is the first
-> `SyncAdapter`, delivering through an injected sender). Still to come,
-> each additive & flag-gated: the **AI Workspace Orchestrator**
-> (alpha.7/AWOD, consuming the same Workspace + Timeline infrastructure),
-> and the user-facing wiring — the handler swap for Projects, Workspace
-> commands/UI, the job_queue drain worker, and the real Telegram sender —
-> see docs/v15/MIGRATION.md §7 for the phased rollout.
+> hook), the **Synchronization Engine + Telegram Adapter** (alpha.6: TWID
+> outbox, idempotent enqueue, retrying drain — Telegram is the first
+> `SyncAdapter`, delivering through an injected sender), and the generic
+> **AI Workspace Orchestrator** (alpha.7/AWOD: NL → validated engine op via
+> interpret → select → resolve → safety gate → apply, with the AI injected
+> as an `Interpreter` — no live LLM import, template-agnostic). The v15
+> backend is now feature-complete behind the flag. Still to come is the
+> **user-facing wiring**, each additive & flag-gated: the handler swap for
+> Projects, Workspace commands/UI, the job_queue drain worker, the real
+> Telegram sender, and the LLM-backed `Interpreter` — see
+> docs/v15/MIGRATION.md §7 for the phased rollout.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

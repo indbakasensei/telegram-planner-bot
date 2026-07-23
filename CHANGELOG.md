@@ -9,7 +9,55 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-alpha.6 — Synchronization Engine + Telegram Adapter (current)
+## v15.0-alpha.7 — AI Workspace Orchestrator (current)
+
+The **generic** orchestration layer (docs/v15/AWOD.md) that turns a
+natural-language utterance into a validated Entity Engine operation. It
+runs the AWOD resolver pipeline — interpret → select workspace → resolve
+entity → plan → safety gate → apply — over a fixed set of **generic**
+actions mapped to generic engine calls. **No template-specific logic**
+(no book/game/project branches), no new Telegram/UI/commands/templates, no
+automatic summaries, no conversational-memory changes. Every future
+Workspace template reuses this same orchestration unchanged. Gated behind
+`WORKSPACE` (default OFF); nothing constructs it, so the bot stays
+byte-identical to alpha.6/v14.26. Full suite: **1008 passing** (978 + 30).
+
+- **AI proposes, engine disposes:** the AI model is injected as an
+  `Interpreter` (`interpret(utterance, ctx) -> Proposal`); the orchestrator
+  **never calls the live LLM/NIM**, so it stays offline-testable. It
+  re-resolves and re-validates every proposal against real data and applies
+  it through the Entity Engine (which enforces ownership, lifecycle, and
+  emits events). A deterministic `RuleBasedInterpreter` ships as the
+  default/test interpreter — a generic verb→action parser; an LLM-backed
+  interpreter plugs into the same contract in a later, user-facing phase.
+- **Resolvers:** workspace selection (explicit title → exact/fuzzy match;
+  else the active workspace; else clarify — with options on ambiguity);
+  milestone resolution within the workspace (0/many → clarify with
+  options).
+- **Safety gate (AWOD §4):** irreversible actions (archive workspace,
+  archive/delete milestone) return `NEEDS_CONFIRMATION` until `confirm=True`;
+  reversible ones (create, rename, add milestone/note, complete milestone)
+  apply directly. Low-confidence/unknown proposals return
+  `NEEDS_CLARIFICATION` ("rephrase"). Engine refusals surface as
+  `REJECTED`/`FAILED`, never a crash.
+- **Generic actions:** create/rename/archive/complete workspace;
+  add/complete/archive/delete milestone; add note. `OrchestratorResult`
+  carries a status (`APPLIED`/`NEEDS_CONFIRMATION`/`NEEDS_CLARIFICATION`/
+  `REJECTED`/`FAILED`), a message, and the affected entity.
+
+**Tests:** `tests/test_workspace_orchestrator.py` (30) — rule-based parsing
+(incl. the "in <workspace>, …" prefix), create end-to-end, workspace/entity
+resolution and clarification (unknown/ambiguous → options), the safety gate
+(confirm applies; reversible applies directly), graceful degradation,
+AI-proposes/engine-validates (bad proposal → REJECTED), ownership
+enforcement, template-agnostic behaviour across generic/project/book/game,
+and the full orchestrator → engine → Timeline cascade. Files touched: new
+`core/workspace/orchestrator.py`, `core/workspace/__init__.py`, new test
+file, `main.py` (version), docs.
+
+---
+
+## v15.0-alpha.6 — Synchronization Engine + Telegram Adapter
 
 Reliable **outbound synchronization** via the TWID outbox pattern
 (docs/v15/TWID.md): a durable `sync_outbox`, a pluggable `SyncAdapter`
