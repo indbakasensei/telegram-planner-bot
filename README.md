@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-alpha.3** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-alpha.4** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -67,7 +67,7 @@ architecture deep-dive is [ARCHITECTURE.md](ARCHITECTURE.md). Behavioral
 equivalence with Legacy is enforced by a 700+-test suite
 ([TESTING.md](TESTING.md)) with query-count and row-level parity checks.
 
-### 🧱 Workspace Foundation + Entity Engine + Project Integration (v15.0-alpha.3 — dormant)
+### 🧱 Workspace Foundation + Entity Engine + Project Integration (v15.0-alpha.4 — dormant)
 
 The next evolution, the **Workspace OS**, turns Projects/Books/Games/
 Courses/Goals/Memory into one **Workspace** abstraction differentiated
@@ -82,8 +82,8 @@ inert: empty tables, no handlers, byte-identical to v14.
 | Storage Facade | `core/storage/` | `WorkspaceStorage` / `MilestoneStorage` / `NoteStorage` — thin delegation |
 | Models | `core/workspace/models.py` | Frozen `Workspace` / `Milestone` / `Note` dataclasses |
 | Repository | `core/workspace/repository.py` | Typed CRUD over the facade (tuples → models) |
-| **Entity Engine** | `core/workspace/engine.py` | **Reusable core: ownership + input validation, lifecycle enforcement, and an event seam — the single choke-point for entity mutations** |
-| Lifecycle | `core/workspace/lifecycle.py` | Declarative state machines (workspace / milestone transitions) |
+| **Entity Engine** | `core/workspace/engine.py` | **Reusable core: ownership + input validation, lifecycle enforcement, and an event seam — the single choke-point for entity mutations. Milestones support archive + soft-delete (`deleted_at`, row retained)** |
+| Lifecycle | `core/workspace/lifecycle.py` | Declarative state machines (workspace / milestone transitions, incl. `archived`) |
 | Errors | `core/workspace/errors.py` | Typed refusals: `EntityNotFound` / `EntityValidationError` / `InvalidTransition` |
 | Service | `core/workspace/service.py` | Use-cases on top of the engine: flag-gated migration/bootstrap, Inbox |
 | Templates | `core/workspace/templates/` | `WorkspaceTemplate` registry (composition, not inheritance) + built-ins |

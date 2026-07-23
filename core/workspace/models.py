@@ -28,6 +28,7 @@ MS_TODO = "todo"
 MS_IN_PROGRESS = "in_progress"
 MS_DONE = "done"
 MS_BLOCKED = "blocked"
+MS_ARCHIVED = "archived"  # v15.0-alpha.4: hidden from default views, reversible
 
 # The default workspace every user gets (MIGRATION.md §2). NULL
 # workspace_id on a task/goal/memory is interpreted as "belongs to Inbox".
@@ -92,20 +93,30 @@ class Milestone:
     sort_order: int = 0
     created_at: str | None = None
     completed_at: str | None = None
+    archived_at: str | None = None  # v15.0-alpha.4
+    deleted_at: str | None = None   # v15.0-alpha.4 (soft delete)
 
     @classmethod
     def from_row(cls, row) -> "Milestone | None":
+        # archived_at/deleted_at were appended to MILESTONE_COLS in
+        # alpha.4; tolerate an older 9-column row too.
         if row is None:
             return None
         return cls(
             id=row[0], workspace_id=row[1], goal_id=row[2], title=row[3],
             status=row[4], progress=row[5], sort_order=row[6],
             created_at=row[7], completed_at=row[8],
+            archived_at=row[9] if len(row) > 9 else None,
+            deleted_at=row[10] if len(row) > 10 else None,
         )
 
     @property
     def is_done(self) -> bool:
         return self.status == MS_DONE
+
+    @property
+    def is_archived(self) -> bool:
+        return self.status == MS_ARCHIVED
 
 
 @dataclass(frozen=True, slots=True)

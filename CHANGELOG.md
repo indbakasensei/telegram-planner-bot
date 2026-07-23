@@ -9,7 +9,49 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-alpha.3 — Project Integration (current)
+## v15.0-alpha.4 — Milestone Management (archive + soft-delete) (current)
+
+Milestone management for the Entity Engine: **archive** and **soft-delete**
+(the CRUD + lifecycle already shipped in alpha.2). Backend only — **no
+Telegram, no AI**, and **no Timeline consumer**: the operations emit
+through the existing Entity Engine event hook (still the default no-op
+sink), which the alpha.5 Timeline Engine will subscribe to. Gated behind
+`WORKSPACE` (default OFF); the new columns ship empty, so the bot stays
+byte-identical to v14.26. Full suite: **948 passing** (934 + 14).
+
+- **Schema (database.py, additive):** `milestones` gains `archived_at`
+  and `deleted_at` (nullable). `get_milestone()`/`get_milestones()` now
+  exclude soft-deleted rows (and, by default, archived ones —
+  `include_archived=True` to see them). `count_milestones()` excludes both
+  from the progress denominator (an archived/deleted milestone is no
+  longer part of the plan). New `soft_delete_milestone()` stamps
+  `deleted_at` and **never DROPs the row** (retained for recovery/audit).
+  `update_milestone()` stamps `archived_at` on status→archived.
+- **Lifecycle (`lifecycle.py`):** `archived` joins the milestone state
+  machine — reachable from any active state, `archived → todo` restores.
+  Soft-delete is orthogonal (a `deleted_at` flag), not a lifecycle move.
+- **Engine (`engine.py`):** `archive_milestone()` (lifecycle-validated,
+  no-op if already archived, emits `milestone.archived`) and
+  `delete_milestone()` (ownership-checked soft delete, raises
+  `EntityNotFound` on a double delete, emits `milestone.deleted` with the
+  pre-delete snapshot). `list_milestones()` gained `include_archived`.
+- **Facade / Repository:** `MilestoneStorage.soft_delete` +
+  `list_for(include_archived=…)`; matching `WorkspaceRepository` methods.
+- **Model:** `Milestone` gains `archived_at`/`deleted_at` + `is_archived`;
+  `MS_ARCHIVED` constant. `from_row` tolerates old 9-column rows.
+
+**Tests:** `tests/test_workspace_milestone_mgmt.py` (14) — schema,
+archive/restore lifecycle, archive & soft-delete hide from listings and
+progress, row retention (soft delete never DROPs), double-delete error,
+ownership, event emission, flag-OFF column neutrality. The alpha.2
+`test_lifecycle_states_complete` was updated for the new `archived` state.
+Files touched: `database.py`, `core/workspace/{models,lifecycle,engine,
+repository}.py`, `core/storage/storage.py`, new test file,
+`tests/test_workspace_engine.py`, `main.py` (version), docs.
+
+---
+
+## v15.0-alpha.3 — Project Integration
 
 Proves the Workspace architecture can **transparently replace the v14
 Project backend**. Backend integration only — **no Milestones, no

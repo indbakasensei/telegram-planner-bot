@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 from core.workspace.errors import InvalidTransition
 from core.workspace.models import (
+    MS_ARCHIVED,
     MS_BLOCKED,
     MS_DONE,
     MS_IN_PROGRESS,
@@ -76,15 +77,19 @@ WORKSPACE_LIFECYCLE = Lifecycle(
 )
 
 # Milestones: the todo -> in_progress -> done flow, plus blocked as a side
-# state, and reopen (done -> in_progress/todo).
+# state, reopen (done -> in_progress/todo), and archive from any active
+# state (archived -> todo restores). v15.0-alpha.4. Soft delete is NOT a
+# lifecycle transition -- it is an orthogonal deleted_at flag the engine
+# handles separately.
 MILESTONE_LIFECYCLE = Lifecycle(
     entity_type="milestone",
     initial=MS_TODO,
     transitions={
-        MS_TODO: (MS_IN_PROGRESS, MS_DONE, MS_BLOCKED),
-        MS_IN_PROGRESS: (MS_TODO, MS_DONE, MS_BLOCKED),
-        MS_BLOCKED: (MS_TODO, MS_IN_PROGRESS),
-        MS_DONE: (MS_IN_PROGRESS, MS_TODO),
+        MS_TODO: (MS_IN_PROGRESS, MS_DONE, MS_BLOCKED, MS_ARCHIVED),
+        MS_IN_PROGRESS: (MS_TODO, MS_DONE, MS_BLOCKED, MS_ARCHIVED),
+        MS_BLOCKED: (MS_TODO, MS_IN_PROGRESS, MS_ARCHIVED),
+        MS_DONE: (MS_IN_PROGRESS, MS_TODO, MS_ARCHIVED),
+        MS_ARCHIVED: (MS_TODO,),
     },
 )
 

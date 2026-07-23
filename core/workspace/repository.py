@@ -58,14 +58,17 @@ class WorkspaceRepository:
     def get_milestone(self, milestone_id) -> Milestone | None:
         return Milestone.from_row(self._s.milestones.get(milestone_id))
 
-    def list_milestones(self, workspace_id) -> list[Milestone]:
+    def list_milestones(self, workspace_id, include_archived=False) -> list[Milestone]:
         return [Milestone.from_row(r)
-                for r in self._s.milestones.list_for(workspace_id)]
+                for r in self._s.milestones.list_for(workspace_id, include_archived)]
 
     def update_milestone(self, milestone_id, status=None, progress=None,
                         title=None) -> Milestone | None:
         self._s.milestones.update(milestone_id, status, progress, title)
         return self.get_milestone(milestone_id)
+
+    def soft_delete_milestone(self, milestone_id) -> None:
+        self._s.milestones.soft_delete(milestone_id)
 
     def milestone_counts(self, workspace_id) -> tuple[int, int]:
         """(total, done) -- passthrough of the DB aggregate."""

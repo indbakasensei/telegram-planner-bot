@@ -2328,7 +2328,8 @@ WORKSPACE_COLS = ("id, user_id, template, title, status, icon, metadata, "
                   "ai_summary, telegram_topic_id, sort_order, created_at, "
                   "updated_at, archived_at")
 MILESTONE_COLS = ("id, workspace_id, goal_id, title, status, progress, "
-                  "sort_order, created_at, completed_at")
+                  "sort_order, created_at, completed_at, archived_at, "
+                  "deleted_at")
 NOTE_COLS = "id, workspace_id, milestone_id, kind, content, source, created_at"
 
 
@@ -2417,6 +2418,11 @@ def _init_workspace_tables(conn):
     _safe_add_column(c, "tasks", "milestone_id", "INTEGER")
     _safe_add_column(c, "goals", "workspace_id", "INTEGER")
     _safe_add_column(c, "memories", "workspace_id", "INTEGER")
+
+    # v15.0-alpha.4: milestone archive (status='archived' + stamp) and
+    # soft delete (deleted_at set, row kept). Additive/idempotent.
+    _safe_add_column(c, "milestones", "archived_at", "TEXT")
+    _safe_add_column(c, "milestones", "deleted_at", "TEXT")
 
     conn.commit()
 
@@ -2534,20 +2540,27 @@ def add_milestone(workspace_id, title, goal_id=None, sort_order=0):
 
 
 def get_milestone(milestone_id):
+    """A single milestone by id, excluding soft-deleted rows (a deleted
+    milestone reads as gone -- v15.0-alpha.4)."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
-    c.execute(f"SELECT {MILESTONE_COLS} FROM milestones WHERE id=?", (milestone_id,))
+    c.execute(f"SELECT {MILESTONE_COLS} FROM milestones "
+              "WHERE id=? AND deleted_at IS NULL", (milestone_id,))
     row = c.fetchone()
     conn.close()
     return row
 
 
-def get_milestones(workspace_id):
+def get_milestones(workspace_id, include_archived=False):
+    """A workspace's milestones. Excludes soft-deleted rows always, and
+    archived ones unless include_archived (v15.0-alpha.4)."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
-    c.execute(f"SELECT {MILESTONE_COLS} FROM milestones WHERE workspace_id=? "
+    archived_filter = "" if include_archived else " AND status!='archived'"
+    c.execute(f"SELECT {MILESTONE_COLS} FROM milestones "
+              f"WHERE workspace_id=? AND deleted_at IS NULL{archived_filter} "
               "ORDER BY sort_order ASC, id ASC", (workspace_id,))
     rows = c.fetchall()
     conn.close()
@@ -2556,7 +2569,7 @@ def get_milestones(workspace_id):
 
 def update_milestone(milestone_id, status=None, progress=None, title=None):
     """Update a milestone's status/progress/title. Setting status='done'
-    stamps completed_at."""
+    stamps completed_at; status='archived' stamps archived_at."""
     fields = {"status": status, "progress": progress, "title": title}
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -2567,18 +2580,37 @@ def update_milestone(milestone_id, status=None, progress=None, title=None):
     if status == "done":
         c.execute("UPDATE milestones SET completed_at=? WHERE id=?",
                   (_now_ist_str(), milestone_id))
+    elif status == "archived":
+        c.execute("UPDATE milestones SET archived_at=? WHERE id=?",
+                  (_now_ist_str(), milestone_id))
+    conn.commit()
+    conn.close()
+
+
+def soft_delete_milestone(milestone_id):
+    """Mark a milestone deleted without removing the row (stamps
+    deleted_at). It then reads as gone from get_milestone/get_milestones
+    but the record is retained for recovery/audit -- v15.0-alpha.4. No-op
+    on an already-deleted row."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE milestones SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
+              (_now_ist_str(), milestone_id))
     conn.commit()
     conn.close()
 
 
 def count_milestones(workspace_id):
     """Return (total, done) milestone counts -- the raw input for the
-    Service's workspace progress rollup."""
+    Service's workspace progress rollup. Excludes soft-deleted and
+    archived milestones: they are no longer part of the plan, so they
+    don't count toward the denominator (v15.0-alpha.4)."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
     c.execute("SELECT COUNT(*), COALESCE(SUM(status='done'),0) "
-              "FROM milestones WHERE workspace_id=?", (workspace_id,))
+              "FROM milestones WHERE workspace_id=? "
+              "AND deleted_at IS NULL AND status!='archived'", (workspace_id,))
     total, done = c.fetchone()
     conn.close()
     return total, done

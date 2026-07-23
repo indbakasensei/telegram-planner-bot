@@ -34,6 +34,7 @@ from core.workspace.errors import (
     EntityValidationError,
 )
 from core.workspace.models import (
+    MS_ARCHIVED,
     MS_DONE,
     STATUS_ARCHIVED,
     STATUS_DONE,
@@ -57,6 +58,8 @@ EV_WORKSPACE_UPDATED = "workspace.updated"
 EV_WORKSPACE_STATUS = "workspace.status_changed"
 EV_MILESTONE_ADDED = "milestone.added"
 EV_MILESTONE_STATUS = "milestone.status_changed"
+EV_MILESTONE_ARCHIVED = "milestone.archived"
+EV_MILESTONE_DELETED = "milestone.deleted"
 EV_NOTE_ADDED = "note.added"
 
 # on_event(event_type, entity_type, entity) -> None
@@ -157,9 +160,10 @@ class EntityEngine:
         self._emit(EV_MILESTONE_ADDED, "milestone", ms)
         return ms
 
-    def list_milestones(self, user_id, workspace_id) -> list[Milestone]:
+    def list_milestones(self, user_id, workspace_id,
+                       include_archived=False) -> list[Milestone]:
         self.get_workspace(user_id, workspace_id)  # ownership check
-        return self._repo.list_milestones(workspace_id)
+        return self._repo.list_milestones(workspace_id, include_archived)
 
     def _owned_milestone(self, user_id, milestone_id) -> Milestone:
         ms = self._repo.get_milestone(milestone_id)
@@ -187,6 +191,31 @@ class EntityEngine:
 
     def complete_milestone(self, user_id, milestone_id) -> Milestone:
         return self.transition_milestone(user_id, milestone_id, MS_DONE)
+
+    def archive_milestone(self, user_id, milestone_id) -> Milestone:
+        """Archive a milestone (lifecycle-validated transition to
+        'archived'; stamps archived_at; drops out of default listings and
+        the progress denominator). No-op if already archived. Emits
+        milestone.archived. v15.0-alpha.4."""
+        ms = self._owned_milestone(user_id, milestone_id)
+        lc = lifecycle.for_entity("milestone")
+        if lc.is_noop(ms.status, MS_ARCHIVED):
+            return ms
+        lc.validate(ms.status, MS_ARCHIVED)
+        updated = self._repo.update_milestone(milestone_id, status=MS_ARCHIVED)
+        self._emit(EV_MILESTONE_ARCHIVED, "milestone", updated)
+        return updated
+
+    def delete_milestone(self, user_id, milestone_id) -> Milestone:
+        """Soft-delete a milestone: it is stamped deleted_at and reads as
+        gone, but the row is retained (never DROPped). Ownership-checked;
+        raises EntityNotFound if it doesn't exist or was already deleted
+        (so a double delete is a clear error, not a silent no-op). Emits
+        milestone.deleted with the pre-delete snapshot. v15.0-alpha.4."""
+        ms = self._owned_milestone(user_id, milestone_id)
+        self._repo.soft_delete_milestone(milestone_id)
+        self._emit(EV_MILESTONE_DELETED, "milestone", ms)
+        return ms
 
     # ── Notes ──────────────────────────────────────────
     def add_note(self, user_id, workspace_id, content, kind="note",

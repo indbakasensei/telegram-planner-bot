@@ -70,8 +70,9 @@ def test_lifecycle_validate_raises():
 
 
 def test_lifecycle_states_complete():
+    # 'archived' joined the milestone machine in alpha.4.
     assert lifecycle.MILESTONE_LIFECYCLE.states() == frozenset(
-        {MS_TODO, MS_IN_PROGRESS, MS_DONE, MS_BLOCKED})
+        {MS_TODO, MS_IN_PROGRESS, MS_DONE, MS_BLOCKED, "archived"})
 
 
 # ── create_workspace ──────────────────────────────────────────────────────

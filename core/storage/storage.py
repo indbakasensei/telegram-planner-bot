@@ -259,11 +259,14 @@ class MilestoneStorage:
     def get(self, milestone_id):
         return database.get_milestone(milestone_id)
 
-    def list_for(self, workspace_id):
-        return database.get_milestones(workspace_id)
+    def list_for(self, workspace_id, include_archived=False):
+        return database.get_milestones(workspace_id, include_archived)
 
     def update(self, milestone_id, status=None, progress=None, title=None):
         return database.update_milestone(milestone_id, status, progress, title)
+
+    def soft_delete(self, milestone_id):
+        return database.soft_delete_milestone(milestone_id)
 
     def counts(self, workspace_id):
         return database.count_milestones(workspace_id)
