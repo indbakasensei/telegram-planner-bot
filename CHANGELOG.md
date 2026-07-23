@@ -9,7 +9,59 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-alpha.1 — Workspace Foundation (current)
+## v15.0-alpha.2 — Workspace Entity Engine (current)
+
+The reusable **Entity Engine** every future template will depend on.
+Backend infrastructure only — as with alpha.1, **no user-facing
+functionality: no commands, no Telegram, no UI, no AI.** Still fully
+dormant behind `WORKSPACE=off` (nothing in v14 constructs it), so the bot
+remains byte-identical to v14.26. Full suite: **920 passing** (892 + 28).
+
+The engine is the single choke-point through which entity mutations flow,
+adding the three things the raw Repository (alpha.1) does not:
+
+- **Ownership + input validation** — every operation is scoped to a
+  `user_id` and refuses with typed errors (`EntityNotFound` /
+  `EntityValidationError`) rather than silently touching another user's
+  data or writing junk. Milestone/note ownership is inherited from the
+  parent workspace.
+- **Lifecycle enforcement** — status changes go through declarative state
+  machines (`lifecycle.py`): `InvalidTransition` on an illegal move, a
+  silent no-op when already in the target state. Workspaces
+  (active↔done, →archived, archived→active) and milestones
+  (todo→in_progress→done, blocked, reopen).
+- **An event seam** — every mutation calls an `on_event(event_type,
+  entity_type, entity)` hook; the default is a no-op. This is where the
+  Knowledge Timeline (KTD, a later phase) plugs in, so "if a mutation
+  doesn't emit an event, it's a bug" becomes true without the engine
+  changing.
+
+Template-agnostic by construction: it reads a workspace's `template` key
+and asks the Template registry for defaults + the progress model, so
+adding a template never means editing the engine (Open/Closed, like
+ADR-012's ActionRegistry).
+
+**New files (`core/workspace/`):** `errors.py` (typed engine exceptions),
+`lifecycle.py` (declarative state machines), `engine.py` (`EntityEngine`:
+workspace/milestone/note CRUD + transitions + progress rollup).
+
+**Refactor (behaviour-preserving):** `service.py`'s `WorkspaceService` now
+composes an `EntityEngine` and delegates create/progress/completion to it
+instead of hitting the Repository directly — the engine is wired in, not
+dead scaffolding. `complete_milestone(user_id, milestone_id)` gained a
+`user_id` (ownership-checked); the one alpha.1 test calling it was updated.
+
+**Tests:** `tests/test_workspace_engine.py` — 28 tests (lifecycle state
+machines, validation, ownership scoping across two users, workspace &
+milestone transitions incl. illegal/no-op/reopen, notes, event emissions,
+progress models). Files touched: new `errors.py`/`lifecycle.py`/
+`engine.py`, `service.py`, `__init__.py`, `tests/test_workspace_engine.py`,
+`tests/test_workspace_foundation.py` (one call updated), `main.py`
+(version), docs.
+
+---
+
+## v15.0-alpha.1 — Workspace Foundation
 
 The first **code** milestone of the Workspace OS (designed in
 [docs/v15/](docs/v15/)). Ships the *infrastructure only* that later phases

@@ -11,6 +11,13 @@ is OFF -- the bot behaves byte-identically to v14.26.
 """
 from __future__ import annotations
 
+from core.workspace.engine import EntityEngine  # noqa: F401
+from core.workspace.errors import (  # noqa: F401
+    EntityError,
+    EntityNotFound,
+    EntityValidationError,
+    InvalidTransition,
+)
 from core.workspace.models import (  # noqa: F401
     DEFAULT_WORKSPACE_TITLE,
     Milestone,

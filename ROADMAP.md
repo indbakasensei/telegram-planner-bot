@@ -13,13 +13,15 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > additively behind a `WORKSPACE` flag (ships dark, canary-enabled) so no
 > existing behaviour regresses — the v14 Autonomous Core playbook.
 >
-> **Status:** `v15.0-alpha.1` — the **Workspace Foundation** is built
-> (schema, Storage Facade, Repository, Service, Template registry,
-> migration; `core/workspace/`), all dormant behind `WORKSPACE=off`. Still
-> to come, each additive & flag-gated: Workspace Engine CRUD/UI handlers,
-> the Knowledge Timeline (KTD), the Telegram sync outbox (TWID), and the
-> AI Orchestrator (AWOD) — see docs/v15/MIGRATION.md §7 for the phased
-> rollout.
+> **Status:** `v15.0-alpha.2` — the **Workspace Foundation** (alpha.1:
+> schema, Storage Facade, Repository, Service, Template registry,
+> migration) and the reusable **Entity Engine** (alpha.2: ownership +
+> input validation, lifecycle state machines, event seam) are built in
+> `core/workspace/`, all dormant behind `WORKSPACE=off`. Still to come,
+> each additive & flag-gated: user-facing Workspace commands/UI, the
+> Knowledge Timeline (KTD, plugging into the engine's event seam), the
+> Telegram sync outbox (TWID), and the AI Orchestrator (AWOD) — see
+> docs/v15/MIGRATION.md §7 for the phased rollout.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

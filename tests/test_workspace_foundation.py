@@ -213,8 +213,8 @@ def test_service_progress_milestones(temp_db, uid):
     ws = svc.create_workspace(uid, "P", template="project")  # 5 milestones
     assert svc.workspace_progress(uid, ws.id) == 0
     ms = svc._repo.list_milestones(ws.id)
-    svc.complete_milestone(ms[0].id)
-    svc.complete_milestone(ms[1].id)
+    svc.complete_milestone(uid, ms[0].id)
+    svc.complete_milestone(uid, ms[1].id)
     assert svc.workspace_progress(uid, ws.id) == 40  # 2/5
 
 
