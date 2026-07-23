@@ -35,6 +35,8 @@ REQUIRED_TABLES = [
     "entity_tags",
     # v15.0-alpha.5: append-only Knowledge Timeline (docs/v15/KTD.md).
     "timeline_events",
+    # v15.0-alpha.6: durable outbound sync outbox (docs/v15/TWID.md).
+    "sync_outbox",
 ]
 
 # (index_name, table, columns, why) -- documented per Sprint 3 task 2.
@@ -1278,12 +1280,13 @@ def reset_everything(user_id):
             counts[table] = c.rowcount
         except Exception:
             counts[table] = 0
-    # timeline_events is user_id-scoped (v15.0-alpha.5).
-    try:
-        c.execute("DELETE FROM timeline_events WHERE user_id=?", (user_id,))
-        counts["timeline_events"] = c.rowcount
-    except Exception:
-        counts["timeline_events"] = 0
+    # timeline_events + sync_outbox are user_id-scoped (v15.0-alpha.5/6).
+    for table in ["timeline_events", "sync_outbox"]:
+        try:
+            c.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
+            counts[table] = c.rowcount
+        except Exception:
+            counts[table] = 0
     try:
         c.execute("DELETE FROM entity_tags WHERE tag_id IN "
                   "(SELECT id FROM tags WHERE user_id=?)", (user_id,))
@@ -1310,6 +1313,7 @@ def reset_everything(user_id):
         ("workspaces", ["workspaces", "milestones", "notes", "attachments"]),
         ("tags", ["tags", "entity_tags"]),
         ("timeline_events", ["timeline_events"]),
+        ("sync_outbox", ["sync_outbox"]),
     ):
         c.execute(f"SELECT COUNT(*) FROM {parent_table}")
         if c.fetchone()[0] == 0:
@@ -2342,6 +2346,9 @@ MILESTONE_COLS = ("id, workspace_id, goal_id, title, status, progress, "
 NOTE_COLS = "id, workspace_id, milestone_id, kind, content, source, created_at"
 TIMELINE_COLS = ("id, user_id, workspace_id, entity_type, entity_id, "
                  "event_type, summary, payload, source, created_at, synced_at")
+SYNC_COLS = ("id, user_id, workspace_id, timeline_event_id, adapter, "
+             "target_id, payload, status, attempts, last_error, created_at, "
+             "sent_at, ref")
 
 
 def _init_workspace_tables(conn):
@@ -2445,6 +2452,30 @@ def _init_workspace_tables(conn):
               "ON timeline_events(user_id, workspace_id, id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_timeline_entity "
               "ON timeline_events(entity_type, entity_id)")
+
+    # v15.0-alpha.6: durable outbound sync outbox (docs/v15/TWID.md). One
+    # row per (timeline event, adapter); a worker drains 'pending' rows and
+    # marks them 'sent' (with the delivered ref) or 'failed' after retries.
+    # Decouples correctness (SQLite) from delivery (Telegram/etc.).
+    c.execute("""CREATE TABLE IF NOT EXISTS sync_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        workspace_id INTEGER,
+        timeline_event_id INTEGER,
+        adapter TEXT NOT NULL,
+        target_id INTEGER,
+        payload TEXT,
+        status TEXT DEFAULT 'pending',
+        attempts INTEGER DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        sent_at TEXT,
+        ref TEXT
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_sync_outbox_pending "
+              "ON sync_outbox(user_id, status, id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_sync_outbox_event "
+              "ON sync_outbox(timeline_event_id, adapter)")
 
     # Nullable FK columns on existing tables (NULL == Inbox / unassigned).
     _safe_add_column(c, "tasks", "workspace_id", "INTEGER")
@@ -2901,7 +2932,7 @@ def mark_timeline_synced(event_id, synced_at=None):
 
 def get_unsynced_timeline(user_id, limit=100):
     """Events not yet marked synced_at, oldest-first -- the drain order the
-    future outbox worker will use (TWID)."""
+    outbox worker uses (TWID)."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
@@ -2911,3 +2942,128 @@ def get_unsynced_timeline(user_id, limit=100):
     rows = c.fetchall()
     conn.close()
     return rows
+
+
+# ── Sync outbox (v15.0-alpha.6, docs/v15/TWID.md) ──────
+# Durable outbound-sync queue. enqueue_sync inserts a pending row;
+# get_pending_sync drains oldest-first; a row ends 'sent' (mark_sync_sent,
+# with the delivered ref) or 'failed' (mark_sync_failed, after retries).
+# One row per (timeline_event_id, adapter) -- sync_outbox_exists gives the
+# engine idempotency so re-enqueuing never double-posts.
+def enqueue_sync(user_id, adapter, payload, timeline_event_id=None,
+                 workspace_id=None, target_id=None):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO sync_outbox
+        (user_id, workspace_id, timeline_event_id, adapter, target_id, payload)
+        VALUES (?,?,?,?,?,?)""",
+        (user_id, workspace_id, timeline_event_id, adapter, target_id, payload))
+    outbox_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return outbox_id
+
+
+def sync_outbox_exists(timeline_event_id, adapter):
+    """Whether an outbox row already exists for this (event, adapter) --
+    the engine's idempotency guard. Always False when timeline_event_id is
+    None (ad-hoc rows are never deduped)."""
+    if timeline_event_id is None:
+        return False
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM sync_outbox "
+              "WHERE timeline_event_id=? AND adapter=? LIMIT 1",
+              (timeline_event_id, adapter))
+    exists = c.fetchone() is not None
+    conn.close()
+    return exists
+
+
+def get_pending_sync(user_id, limit=100):
+    """Pending outbox rows, oldest-first (the drain order)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {SYNC_COLS} FROM sync_outbox "
+              "WHERE user_id=? AND status='pending' ORDER BY id ASC LIMIT ?",
+              (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_sync_row(outbox_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {SYNC_COLS} FROM sync_outbox WHERE id=?", (outbox_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def mark_sync_sent(outbox_id, ref=None):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""UPDATE sync_outbox
+                 SET status='sent', sent_at=?, ref=?,
+                     attempts=attempts+1, last_error=NULL
+                 WHERE id=?""", (_now_ist_str(), ref, outbox_id))
+    conn.commit()
+    conn.close()
+
+
+def mark_sync_retry(outbox_id, error):
+    """A recoverable failure: bump attempts + record the error, keep the
+    row 'pending' so the next drain retries it."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""UPDATE sync_outbox
+                 SET attempts=attempts+1, last_error=?
+                 WHERE id=?""", (str(error)[:500], outbox_id))
+    conn.commit()
+    conn.close()
+
+
+def mark_sync_failed(outbox_id, error):
+    """A terminal failure (retries exhausted): mark 'failed' and stop."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""UPDATE sync_outbox
+                 SET status='failed', attempts=attempts+1, last_error=?
+                 WHERE id=?""", (str(error)[:500], outbox_id))
+    conn.commit()
+    conn.close()
+
+
+def sync_remaining_for_event(timeline_event_id):
+    """Count of not-yet-sent outbox rows for a timeline event -- lets the
+    engine mark the event synced only once every adapter delivered."""
+    if timeline_event_id is None:
+        return 0
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM sync_outbox "
+              "WHERE timeline_event_id=? AND status!='sent'",
+              (timeline_event_id,))
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+
+def count_sync(user_id, status=None):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    if status is None:
+        c.execute("SELECT COUNT(*) FROM sync_outbox WHERE user_id=?", (user_id,))
+    else:
+        c.execute("SELECT COUNT(*) FROM sync_outbox WHERE user_id=? AND status=?",
+                  (user_id, status))
+    n = c.fetchone()[0]
+    conn.close()
+    return n

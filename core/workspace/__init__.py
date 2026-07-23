@@ -24,6 +24,14 @@ from core.workspace.timeline import (  # noqa: F401
     TimelineEvent,
     TimelineRepository,
 )
+from core.workspace.sync import (  # noqa: F401
+    SyncAdapter,
+    SyncEngine,
+    SyncItem,
+    SyncOutboxRepository,
+    SyncResult,
+)
+from core.workspace.adapters import TelegramAdapter  # noqa: F401
 from core.workspace.models import (  # noqa: F401
     DEFAULT_WORKSPACE_TITLE,
     Milestone,

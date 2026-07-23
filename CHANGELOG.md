@@ -9,7 +9,56 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-alpha.5 — Timeline Engine (current)
+## v15.0-alpha.6 — Synchronization Engine + Telegram Adapter (current)
+
+Reliable **outbound synchronization** via the TWID outbox pattern
+(docs/v15/TWID.md): a durable `sync_outbox`, a pluggable `SyncAdapter`
+contract, a `SyncEngine` that drains the outbox with idempotency + bounded
+retries + error capture, and **Telegram as the first adapter**. Solely
+outbound sync — **no AI Orchestrator, no workspace summaries, no
+user-facing controls**, and it is **not wired into the bot's job_queue**.
+The Telegram adapter delivers through an *injected sender callable* and
+never imports python-telegram-bot, so the offline suite stays
+Telegram-free. Gated behind `WORKSPACE` (default OFF); nothing constructs
+it, so the bot stays byte-identical to alpha.5/v14.26. Full suite: **978
+passing** (961 + 17).
+
+- **Schema (database.py, additive):** `sync_outbox` (id, user_id,
+  workspace_id, timeline_event_id, adapter, target_id, payload, status,
+  attempts, last_error, created_at, sent_at, ref) + two indexes. Functions:
+  `enqueue_sync`, `sync_outbox_exists` (idempotency), `get_pending_sync`
+  (oldest-first drain order), `mark_sync_sent`/`mark_sync_retry`/
+  `mark_sync_failed`, `sync_remaining_for_event`, `count_sync`. Added to
+  `REQUIRED_TABLES`; `reset_everything` clears it.
+- **Storage integration:** `SyncStorage` facade domain (`storage.sync`).
+- **Repository:** `SyncOutboxRepository` (tuples → `SyncItem`).
+- **Sync Engine (`sync.py`):** `SyncAdapter` ABC (`render` + `deliver`),
+  `SyncResult`, `SyncItem`. `SyncEngine.enqueue(event)` creates one
+  outbox row per registered adapter (idempotent via `sync_outbox_exists`);
+  `enqueue_backlog(user_id)` reconciles all unsynced timeline events;
+  `drain(user_id)` delivers oldest-first — success → `sent` (+ delivered
+  ref) and, once every adapter delivered an event, the timeline event is
+  stamped `synced_at`; failure → retry (kept pending) until `max_attempts`
+  then `failed`; unexpected adapter exceptions are caught (offline-
+  tolerant). `sync()` = enqueue backlog + drain.
+- **Telegram Adapter (`adapters/telegram.py`):** renders a timeline event
+  to Telegram HTML via `fmt.b` (escaped) and delivers through an injected
+  `sender(user_id, text, target_id)`. No sender → clean failure, never a
+  crash. Real bot wiring is a later, user-facing step.
+
+**Tests:** `tests/test_workspace_sync.py` (17) — schema, DB layer
+(enqueue/pending/mark/idempotency/reset), Telegram adapter (escaping,
+no-sender failure, delivery), engine (idempotent enqueue, drain→sent with
+timeline synced, retry-then-succeed, give-up-after-max, exception
+tolerance, no re-delivery of sent rows), multi-adapter enqueue, and the
+full Entity Engine → Timeline → Sync pipeline. Files touched:
+`database.py`, `core/storage/storage.py`, new
+`core/workspace/{sync,adapters/…}`, `core/workspace/__init__.py`, new test
+file, `main.py` (version), docs.
+
+---
+
+## v15.0-alpha.5 — Timeline Engine
 
 The **Knowledge Timeline** (docs/v15/KTD.md): append-only, persistent
 event infrastructure that subscribes to the Entity Engine's event hook and

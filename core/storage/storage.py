@@ -309,6 +309,40 @@ class TimelineStorage:
         return database.mark_timeline_synced(event_id, synced_at)
 
 
+class SyncStorage:
+    """Delegates to database.py's sync-outbox functions (v15.0-alpha.6).
+    One-line passthrough like every other domain."""
+
+    def enqueue(self, user_id, adapter, payload, timeline_event_id=None,
+                workspace_id=None, target_id=None):
+        return database.enqueue_sync(user_id, adapter, payload,
+                                     timeline_event_id, workspace_id, target_id)
+
+    def exists(self, timeline_event_id, adapter):
+        return database.sync_outbox_exists(timeline_event_id, adapter)
+
+    def pending(self, user_id, limit=100):
+        return database.get_pending_sync(user_id, limit)
+
+    def get(self, outbox_id):
+        return database.get_sync_row(outbox_id)
+
+    def mark_sent(self, outbox_id, ref=None):
+        return database.mark_sync_sent(outbox_id, ref)
+
+    def mark_retry(self, outbox_id, error):
+        return database.mark_sync_retry(outbox_id, error)
+
+    def mark_failed(self, outbox_id, error):
+        return database.mark_sync_failed(outbox_id, error)
+
+    def remaining_for_event(self, timeline_event_id):
+        return database.sync_remaining_for_event(timeline_event_id)
+
+    def count(self, user_id, status=None):
+        return database.count_sync(user_id, status)
+
+
 class Storage:
     """
     The Storage Facade's single entry point: one Storage() instance
@@ -332,3 +366,5 @@ class Storage:
         self.notes = NoteStorage()
         # v15.0-alpha.5 Knowledge Timeline.
         self.timeline = TimelineStorage()
+        # v15.0-alpha.6 outbound sync outbox.
+        self.sync = SyncStorage()
