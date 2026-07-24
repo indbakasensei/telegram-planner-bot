@@ -16,13 +16,15 @@ from core.ai.reliability import backoff_delay
 
 # ── Provider config ───────────────────────────────────────────────────────
 
-def test_empty_env_is_byte_identical_nim_defaults():
+def test_default_nim_config():
+    # v15.1.0-alpha.4: GLM 5.2 is the default main + reasoning model on NIM;
+    # fast stays Llama-8b (reliable fallback), vision stays Llama-vision.
     cfg = resolve_config(env={})
     assert cfg.provider == "nvidia-nim"
     assert cfg.base_url == "https://integrate.api.nvidia.com/v1"
-    assert cfg.model_main == "meta/llama-3.3-70b-instruct"
+    assert cfg.model_main == "z-ai/glm-5.2"
+    assert cfg.model_reasoning == "z-ai/glm-5.2"
     assert cfg.model_fast == "meta/llama-3.1-8b-instruct"
-    assert cfg.model_reasoning == "meta/llama-3.3-70b-instruct"
     assert cfg.model_vision == "meta/llama-3.2-90b-vision-instruct"
     assert cfg.timeout == 30.0 and cfg.max_retries == 3
 

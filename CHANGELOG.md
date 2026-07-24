@@ -9,7 +9,32 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.3 — Cognitive Engine, Phase 1 (planner & tool orchestration) (current)
+## v15.1.0-alpha.4 — GLM 5.2 is now the default model on NVIDIA NIM (current)
+
+Completes the alpha.2 GLM 5.2 migration: alpha.2 made GLM 5.2 *available*
+but left the default as Llama (opt-in via `.env`), so the running bot still
+used Llama. This makes **`z-ai/glm-5.2` the default main + reasoning model
+on the `nvidia-nim` provider** — no env change needed; the owner's core
+model is now active out of the box.
+
+- `core/ai/provider.py` — the `nvidia-nim` preset's `model_main` and
+  `model_reasoning` default to `z-ai/glm-5.2`. `model_fast` stays
+  `meta/llama-3.1-8b-instruct` (the reliable **auto-fallback** if glm-5.2 is
+  briefly degraded), and `model_vision` stays the Llama vision model
+  (glm-5.2 is text-only on NIM). Every value remains env-overridable.
+- `baka_brain.py` — matching defensive fallback defaults + updated model
+  history note.
+- Verify: `/selftest → AI → AI Configuration` now shows
+  `nvidia-nim · z-ai/glm-5.2 · …` (offline), and `AI Provider` confirms live
+  reachability (a WARNING there means glm-5.2 is degraded and the Llama-8b
+  fallback is serving — the bot keeps working).
+
+Docs (README AI table + `.env` note + `docs/ai_system.md`) updated; the
+provider-config test now asserts the GLM-5.2 default.
+
+---
+
+## v15.1.0-alpha.3 — Cognitive Engine, Phase 1 (planner & tool orchestration)
 
 Turns BAKA into an assistant that **reasons over the existing Workspace OS**
 — answering questions about your projects/games/goals **without new

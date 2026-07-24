@@ -10,10 +10,13 @@ guard (a resolution failure falls back to the historical NIM constants, so
 startup can never break). An empty/NIM environment reproduces the old
 defaults byte-for-byte.
 
-**GLM 5.2 migration is configuration only:** `MODEL_MAIN=z-ai/glm-5.2`
-(GLM 5.2 hosted on NVIDIA NIM) or `AI_PROVIDER=glm` + `GLM_API_KEY`
-(GLM-native Zhipu endpoint). Verify offline via `/selftest → AI → AI
-Configuration`.
+**GLM 5.2 is the default main + reasoning model on NVIDIA NIM**
+(`z-ai/glm-5.2`) as of v15.1.0-alpha.4 — no env change needed. `MODEL_FAST`
+stays `meta/llama-3.1-8b-instruct` as the reliable auto-fallback if glm-5.2
+is briefly degraded, and vision stays on the Llama vision model (glm-5.2 is
+text-only on NIM). Pin a different model with `MODEL_MAIN=...`, or switch to
+GLM-native with `AI_PROVIDER=glm` + `GLM_API_KEY`. Verify via `/selftest →
+AI → AI Configuration` (offline) and `AI Provider` (live).
 
 Also shipped as **foundation** (interfaces only, consumed by later
 milestones — not yet wired into the planner):

@@ -46,13 +46,18 @@ PRESETS: dict[str, ProviderPreset] = {
     # same endpoint as the model id `z-ai/glm-5.2`.
     "nvidia-nim": ProviderPreset(
         name="nvidia-nim",
+        # v15.1.0-alpha.4: GLM 5.2 is the default main + reasoning model on
+        # NVIDIA NIM (the owner's core model). MODEL_FAST stays a small,
+        # proven Llama so the automatic fallback path is reliable if GLM 5.2
+        # is briefly degraded; vision stays on the Llama vision model
+        # (z-ai/glm-5.2 is text-only on NIM). Override any of these via env.
         base_url="https://integrate.api.nvidia.com/v1",
-        model_main="meta/llama-3.3-70b-instruct",
+        model_main="z-ai/glm-5.2",
         model_fast="meta/llama-3.1-8b-instruct",
-        model_reasoning="meta/llama-3.3-70b-instruct",
+        model_reasoning="z-ai/glm-5.2",
         model_vision="meta/llama-3.2-90b-vision-instruct",
         api_key_env=("AI_API_KEY", "NVIDIA_API_KEY"),
-        note="OpenAI-compatible NVIDIA NIM. GLM 5.2 lives here as z-ai/glm-5.2.",
+        note="OpenAI-compatible NVIDIA NIM. Default main model: z-ai/glm-5.2.",
     ),
     # GLM-native (Zhipu) OpenAI-compatible endpoint.
     "glm": ProviderPreset(

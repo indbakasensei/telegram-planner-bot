@@ -362,7 +362,7 @@ switching providers is one env var:
 
 | `AI_PROVIDER` | Endpoint | Key | Default model |
 |---|---|---|---|
-| `nvidia-nim` (default) | NVIDIA NIM | `AI_API_KEY` / `NVIDIA_API_KEY` | `meta/llama-3.3-70b-instruct` |
+| `nvidia-nim` (default) | NVIDIA NIM | `AI_API_KEY` / `NVIDIA_API_KEY` | **`z-ai/glm-5.2`** (fast-fallback: Llama-8b) |
 | `glm` | Zhipu GLM (native) | `GLM_API_KEY` / `ZHIPU_API_KEY` | `glm-4.6` |
 | `local` | Ollama / LM Studio / vLLM (`localhost:11434`) | none | `llama3.1` |
 
@@ -370,14 +370,11 @@ Every value stays overridable (`AI_BASE_URL`, `MODEL_MAIN`, `MODEL_FAST`,
 `MODEL_REASONING`, `MODEL_VISION`, `AI_TIMEOUT`, `AI_MAX_RETRIES`); an unset
 environment reproduces the historical NVIDIA-NIM defaults exactly.
 
-**Migrating to GLM 5.2** — two ways:
+**GLM 5.2 is the default main model on NVIDIA NIM** (`z-ai/glm-5.2`) as of
+v15.1.0-alpha.4 — no env change needed. To pin a different model or provider:
 ```bash
-# GLM 5.2 hosted on NVIDIA NIM (keep your NIM key):
-MODEL_MAIN=z-ai/glm-5.2
-# …or GLM-native (Zhipu):
-AI_PROVIDER=glm
-GLM_API_KEY=your_zhipu_key
-# MODEL_MAIN=glm-5.2   # pin the exact model if desired
+# Different model on NIM:      MODEL_MAIN=meta/llama-3.3-70b-instruct
+# GLM-native (Zhipu) instead:  AI_PROVIDER=glm  and  GLM_API_KEY=your_zhipu_key
 ```
 Verify with `/selftest → AI → AI Configuration` (offline — shows the active
 provider/model) and `AI Provider` (live liveness). Image and video

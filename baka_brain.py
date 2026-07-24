@@ -66,19 +66,21 @@ NIM_BASE_URL = (_AI_CFG.base_url if _AI_CFG
 #
 # History of MODEL_MAIN defaults:
 #   z-ai/glm-5.1  — EOL'd by NVIDIA on 2026-07-02 (HTTP 410 Gone)
-#   z-ai/glm-5.2  — released same day, currently DEGRADED (HTTP 400)
-#   meta/llama-3.3-70b-instruct  — 22M uses, most popular, PROVEN STABLE ← default
+#   meta/llama-3.3-70b-instruct  — interim default while glm-5.2 stabilized
+#   z-ai/glm-5.2  — the owner's core model; default main + reasoning as of
+#                   v15.1.0-alpha.4. MODEL_FAST stays Llama-8b as the reliable
+#                   auto-fallback if glm-5.2 is briefly degraded.
 # ─────────────────────────────────────────────────────────────
 
 # Primary models (env-overridable; MODEL_REASONING is the public name
 # for what this module historically calls MODEL_THINK)
 MODEL_MAIN   = (_AI_CFG.model_main if _AI_CFG
-                else os.getenv("MODEL_MAIN", "meta/llama-3.3-70b-instruct"))
+                else os.getenv("MODEL_MAIN", "z-ai/glm-5.2"))
 MODEL_FAST   = (_AI_CFG.model_fast if _AI_CFG
                 else os.getenv("MODEL_FAST", "meta/llama-3.1-8b-instruct"))
 MODEL_THINK  = (_AI_CFG.model_reasoning if _AI_CFG
                 else os.getenv("MODEL_REASONING", os.getenv("MODEL_THINK",
-                               "meta/llama-3.3-70b-instruct")))
+                               "z-ai/glm-5.2")))
 MODEL_VISION = (_AI_CFG.model_vision if _AI_CFG
                 else os.getenv("MODEL_VISION", "meta/llama-3.2-90b-vision-instruct"))
 MODEL_IMAGE  = os.getenv("MODEL_IMAGE", "black-forest-labs/flux.1-schnell")
