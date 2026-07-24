@@ -9,7 +9,49 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-beta.5 — Project Workspace Template (current)
+## v15.0-rc.1 — Release-candidate hardening (current)
+
+The final Release Candidate before v15 Stable: a repository-wide cleanup and
+documentation-quality pass making BAKA production-ready as an open-source
+project. **Zero Workspace-OS behavior changes, no public import-path
+changes**; the suite stays green (**1117 passing** — 1115 + 2 hygiene
+tests). Full details: [docs/v15/RC1_AUDIT.md](docs/v15/RC1_AUDIT.md).
+
+- **Documentation consolidation & folder org:** top-level Markdown reduced
+  **27 → 13** (permanent docs + standard OSS root files kept at root). v14
+  subsystem deep-dives moved to `docs/architecture/` (AI_ROUTER,
+  COMMAND_PIPELINE, DATA_FLOW, INTENT_ENGINE, OFFLINE_ENGINE, PLUGIN_SYSTEM,
+  STATE_MACHINE); point-in-time v14 design/audit records moved to
+  `docs/history/` (DESIGN_SPEC_v14_AUTONOMOUS_CORE, DRG-001, ENGINEERING_AUDIT,
+  AI_DIAGNOSTIC_REPORT, RC_v14_ARCHITECTURE_VALIDATION, TEST_CHECKLIST,
+  feature_list). All `](…)` links to moved targets were rewritten to correct
+  relative paths and verified. Deleted two obsolete files: `REPOSITORY_CLEANUP.md`
+  (a completed cleanup checklist) and `VERSION.md` (a stub already superseded
+  by this CHANGELOG). Historical records were **relocated, not removed**.
+- **Repository cleanup:** removed 7 tracked runtime artifacts
+  (`planner{1,2,3}.{out,err}`, `planner.lock`) — provably unreferenced — and
+  added `.gitignore` patterns so they cannot return.
+- **README rewrite:** production-ready for GitHub — added a Supported
+  Workspace Templates table, a Feature Flags section, Testing, Roadmap,
+  Contributing, and Acknowledgements; fixed the broken screenshot
+  placeholders; refreshed the file-structure and version history.
+- **Help system:** added a concise Workspace-mode / `WORKSPACE`-flag note to
+  the admin-only help card (operator-facing; no end-user Workspace commands
+  exist yet).
+- **Testing:** new `tests/test_repo_hygiene.py` (2) asserting no broken
+  Markdown links and no tracked runtime artifacts — the RC audit encoded as
+  a regression.
+- **Code quality:** removed genuinely unused imports from files touched this
+  cycle. Pre-existing lint in `main.py`/`baka_brain.py` is documented as a
+  post-Stable follow-up rather than churning the behavior-critical hot path.
+
+Files touched: doc moves/deletes across the tree, `.gitignore`, `README.md`,
+`ui.py` (help card), new `tests/test_repo_hygiene.py`, new
+`docs/v15/RC1_AUDIT.md`, `main.py` (version), ROADMAP.
+
+---
+
+## v15.0-beta.5 — Project Workspace Template
 
 Adds the **Project** Workspace template — the fourth application of the
 beta.2 drop-in pattern, validating the extension model against an
@@ -1612,7 +1654,7 @@ this sprint (verified by collecting on the pre-refactor commit).
 Review-only sprint validating the entire v14.0–v14.7 architecture before
 any canary enablement of `OFFLINE_TASKS`. Zero `.py` files changed.
 Full findings, canary deployment plan, and three-phase Legacy removal
-plan in [RC_v14_ARCHITECTURE_VALIDATION.md](RC_v14_ARCHITECTURE_VALIDATION.md).
+plan in [RC_v14_ARCHITECTURE_VALIDATION.md](docs/history/RC_v14_ARCHITECTURE_VALIDATION.md).
 
 Headline results: **no architectural defect requiring code found**;
 pyflakes reports zero findings across all of `core/` (vs. 49 stale-import
@@ -2329,7 +2371,7 @@ this sprint's scope.
 
 Informally self-designated "v14.1A" by its own task brief — **not a shipped
 release**; no `.py` file changed. A Design Review Gate document,
-[DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md), specifying
+[DRG-001_Intent_Aware_Routing.md](docs/history/DRG-001_Intent_Aware_Routing.md), specifying
 how the Intent Engine's (v14.0, Shadow Mode) classification output should
 eventually drive real routing decisions among the Offline Engine, a
 transitional Legacy Handler path, and the AI Router — without yet building

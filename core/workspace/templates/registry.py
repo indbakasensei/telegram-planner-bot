@@ -16,7 +16,7 @@ each template once.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 # Progress models a template can declare (how a workspace's % is derived).

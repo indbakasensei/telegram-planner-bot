@@ -67,8 +67,16 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > out of `builtin.py` into its own module (as beta.2 did for `game`), shape
 > preserved so the alpha.3 `ProjectAdapter` bridge is unaffected. Four
 > independent drop-in templates now coexist. **The Workspace OS is frozen.**
-> **Next templates** (Finance, Personal Knowledge, …) follow this exact
-> pattern, plus Workspace UI/commands.
+>
+> **`v15.0-rc.1` — release-candidate hardening:** the final RC before v15
+> Stable. A repository-wide cleanup + documentation-quality pass (top-level
+> Markdown 27 → 13, v14 docs relocated to `docs/architecture` + `docs/history`,
+> tracked runtime artifacts removed, README rewritten for GitHub, help
+> polished, hygiene regression tests added) with **zero Workspace-OS behavior
+> change**. See [docs/v15/RC1_AUDIT.md](docs/v15/RC1_AUDIT.md).
+> **Next:** canary-enable `WORKSPACE` → default-on, user-facing Workspace
+> commands/UI, and further templates (Finance, Personal Knowledge, …)
+> following this exact pattern.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written
@@ -98,7 +106,7 @@ what actually shipped; the authoritative design doc itself uses Stage
   See [CHANGELOG.md](CHANGELOG.md).
 - ◐ **Stage 2 — Offline Engine** for already-offline commands (in progress).
   The Intent-Aware Routing piece of this stage has an approved design
-  ([DRG-001_Intent_Aware_Routing.md](DRG-001_Intent_Aware_Routing.md),
+  ([DRG-001_Intent_Aware_Routing.md](docs/history/DRG-001_Intent_Aware_Routing.md),
   informally "v14.1A"; see [ADR-006](docs/adr/ADR-006-intent-aware-routing.md))
   and its Sub-stage B ("Decision") is now shipped as v14.1B — a real
   Routing Layer (`core/routing/`) runs on every message and logs a
@@ -168,7 +176,7 @@ what actually shipped; the authoritative design doc itself uses Stage
   architecture** — every deterministic, message-path Task operation
   Legacy supports now exists behind the flag. v14.7.1 completed the
   Release Candidate architecture validation
-  ([RC_v14_ARCHITECTURE_VALIDATION.md](RC_v14_ARCHITECTURE_VALIDATION.md)
+  ([RC_v14_ARCHITECTURE_VALIDATION.md](docs/history/RC_v14_ARCHITECTURE_VALIDATION.md)
   — review only, no defects requiring code found; includes the canary
   deployment plan and the three-phase Legacy removal plan). **v14.8
   executed the RC's required pre-Habits refactor**: `OfflineEngine`'s

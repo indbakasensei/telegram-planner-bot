@@ -1,8 +1,12 @@
 # BAKA v15.0 — Workspace OS (Architecture Milestone)
 
-**Status:** Design & planning only. No production code. These documents
-define how BAKA evolves from a Telegram productivity bot into a
-**Personal Workspace Operating System** while preserving 100% of
+**Status:** Implemented and shipping dark. As of **v15.0-rc.1** the
+Workspace OS backend is built, wired into production behind the `WORKSPACE`
+flag (default OFF ⇒ byte-identical to v14.26), and carries four drop-in
+templates (Game, Knowledge, Asset, Project) on top of the built-ins. These
+documents remain the authoritative design; the RC audit is
+[RC1_AUDIT.md](RC1_AUDIT.md). BAKA evolves from a Telegram productivity bot
+into a **Personal Workspace Operating System** while preserving 100% of
 existing functionality.
 
 ## The five design documents
@@ -14,6 +18,10 @@ existing functionality.
 | 3 | [KTD.md](KTD.md) — Knowledge Timeline | timeline architecture, event model, auto-generation, storage, retention, search |
 | 4 | [AWOD.md](AWOD.md) — AI Workspace Orchestrator | intent recognition, workspace selection, entity resolution, auto-updates, conflict handling, safety |
 | 5 | [MIGRATION.md](MIGRATION.md) — Migration Strategy | how Projects/Goals/Tasks/Memory/Habits become Workspaces with no data loss |
+
+**Release-candidate report:** [RC1_AUDIT.md](RC1_AUDIT.md) — the v15.0-rc.1
+engineering audit (documentation consolidation, repository cleanup, folder
+organization, README/help polish) before v15 Stable.
 
 ## The seven load-bearing decisions
 

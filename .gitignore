@@ -20,6 +20,10 @@ debugbot.log.*
 
 # Runtime state
 bot.pid
+planner.lock
+# Process supervisor stdout/stderr artifacts (run.sh / nohup)
+planner*.out
+planner*.err
 
 # Automatic pre-migration backups (database.py's backup_database())
 backups/

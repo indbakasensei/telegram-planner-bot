@@ -13,7 +13,7 @@ the AI's date/time guesses (`ARCHITECTURE.md`'s message-lifecycle section).
 **Stage 1 (this document's own scope — the tiered classifier, Shadow
 Mode) has shipped**, in `core/intent/`. See `docs/adr/ADR-002-intent-engine.md`'s
 "Implementation Note" for what was learned building it, and
-[CHANGELOG.md](CHANGELOG.md) for the release entry. This document remains
+[CHANGELOG.md](../../CHANGELOG.md) for the release entry. This document remains
 the design record (not rewritten to match the implementation line-for-line)
 — three deltas worth knowing if you're reading this design doc and the
 real code side by side:

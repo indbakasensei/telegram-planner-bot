@@ -25,7 +25,7 @@ registered `WorkspaceTemplate`, and a thin validating create helper.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from core.workspace.errors import EntityValidationError
 from core.workspace.templates.registry import (

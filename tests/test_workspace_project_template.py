@@ -11,7 +11,6 @@ alpha.3 ProjectAdapter bridge still works.
 """
 import pytest
 
-import database as db
 from core import feature_flags
 from core.workspace import templates
 from core.workspace.engine import EntityEngine

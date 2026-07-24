@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-beta.5** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-rc.1** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -55,7 +55,7 @@ Legacy bot; each flag moves one domain onto the deterministic path.
 | Component | Where | What it does |
 |---|---|---|
 | Intent Engine | `core/intent/` | Tiered deterministic classification (11 intents) |
-| Routing Layer | `core/routing/` | Confidence policy + decision logging ([DRG-001](DRG-001_Intent_Aware_Routing.md)) |
+| Routing Layer | `core/routing/` | Confidence policy + decision logging ([DRG-001](docs/history/DRG-001_Intent_Aware_Routing.md)) |
 | Offline Engine | `core/offline/` | Registry-based dispatch to pure actions ([ADR-012](docs/adr/ADR-012-registry-based-dispatch.md)) |
 | Action Registry | `core/offline/registry.py` | Per-intent ordered specs; per-domain construction ([ADR-013](docs/adr/ADR-013-per-domain-registry-construction.md)) |
 | Actions | `core/actions/` | Task + Habit domains, feature-complete, Legacy-equivalent |
@@ -130,6 +130,42 @@ so `ProjectAdapter` returns values identical to the legacy `/projects`
 path (proven by `tests/test_workspace_project_integration.py`). The
 production handler swap that consumes this is a later, user-facing phase.
 
+### Supported Workspace templates
+
+Each template is one self-contained module in
+`core/workspace/templates/`; adding one requires **no change to the
+Workspace OS** (schema, engine, orchestrator, timeline, sync).
+
+| Template | Icon | Domain | Progress model | Where |
+|---|---|---|---|---|
+| Generic | 📁 | Fallback / Inbox | milestones | `builtin.py` |
+| Project | 🛠 | Execution (milestone pipeline) | milestones | `project.py` |
+| Book | 📖 | Reading tracker | chapters | `builtin.py` |
+| Course | 🎓 | Study / modules | checklist | `builtin.py` |
+| Research | 🔬 | Questions & findings | manual | `builtin.py` |
+| Game | 🎮 | Playthrough tracker (reference) | manual | `game.py` |
+| Knowledge | 🧠 | Learning / mastery | manual | `knowledge.py` |
+| Asset | 📦 | Any physical asset (kind = metadata) | milestones | `asset.py` |
+
+---
+
+## 🚩 Feature flags
+
+Every major capability ships **dark behind a flag** (default OFF) so a new
+release is byte-identical to the previous one until explicitly enabled —
+the same rollout discipline used since v14. Set them in `.env`.
+
+| Flag | Default | Enables |
+|---|---|---|
+| `WORKSPACE` | OFF | The entire v15 Workspace OS pipeline (Interpreter → Orchestrator → Entity Engine → Timeline → Sync). OFF ⇒ dormant, empty tables, byte-identical to v14.26. |
+| `OFFLINE_TASKS` | OFF | Deterministic offline handling of task commands (no AI round-trip). |
+| `OFFLINE_HABITS` | OFF | Deterministic offline handling of habit commands. |
+| `OFFLINE_GOALS` / `OFFLINE_PROJECTS` | OFF | Reserved for the goals/projects offline migration. |
+
+With all flags OFF the bot runs the proven v14 Legacy paths. Enable one at
+a time and re-run the suite in both states — the acceptance gate is that
+every existing test stays green with the flag OFF **and** ON.
+
 ---
 
 ## 🚀 Quick Setup
@@ -196,12 +232,13 @@ In Telegram, send `/claimadmin` — this locks admin access permanently to your 
 
 ## 📸 Screenshots
 
-> *(placeholders — add before public release)*
-
-| | |
-|---|---|
-| ![Dashboard](docs/img/dashboard.png) *Dashboard* | ![Help](docs/img/help.png) *Redesigned /help* |
-| ![Streak grid](docs/img/streak.png) *Habit streaks* | ![Selftest](docs/img/selftest.png) */selftest diagnostics* |
+> _Placeholder — screenshots to be added before public release. Drop PNGs
+> in `docs/img/` and reference them here:_
+>
+> - `docs/img/dashboard.png` — the interactive dashboard hub
+> - `docs/img/help.png` — the grouped `/help` reference
+> - `docs/img/streak.png` — the 14-day habit streak grid
+> - `docs/img/selftest.png` — the `/selftest` diagnostics report
 
 ---
 
@@ -292,13 +329,16 @@ its stranded source files were removed in v14.12. `status` /
 ```
 telegram-planner-bot/
 ├── main.py               — Handlers, dashboard, state machine, integration point
-├── core/                 — v14 Autonomous Core
+├── core/                 — v14 Autonomous Core + v15 Workspace OS
 │   ├── intent/           — Intent Engine (deterministic classifier)
 │   ├── routing/          — Routing Layer (decision logging)
 │   ├── offline/          — Offline Engine + ActionRegistry + registrations
 │   ├── actions/          — Task + Habit action modules (pure, facade-only)
 │   ├── storage/          — Storage Facade
-│   └── feature_flags.py  — Per-domain rollout flags
+│   ├── selftest/         — Live health-probe framework (/selftest)
+│   ├── regression/       — Manual Quick Release Suite specs
+│   ├── workspace/        — v15 Workspace OS (engine, timeline, sync, templates/)
+│   └── feature_flags.py  — Per-domain + WORKSPACE rollout flags
 ├── baka_brain.py         — AI client (provider-agnostic config), reasoning
 ├── database.py           — SQLite CRUD + all migrations
 ├── date_parser.py        — Regex date/time parser (EN/Hindi/Hinglish)
@@ -307,8 +347,12 @@ telegram-planner-bot/
 ├── log_sanitizer.py      — Secret masking for bot.log
 ├── fmt.py                — Telegram HTML helpers
 ├── ui.py / debug_system.py / preferences.py / notification_service.py
-├── tests/                — 700+ offline tests
-├── docs/adr/             — ADR-001 … ADR-013
+├── tests/                — 1100+ offline tests (pytest)
+├── docs/
+│   ├── adr/              — ADR-001 … ADR-013 (design decisions)
+│   ├── architecture/     — Subsystem deep-dives (intent, routing, offline, …)
+│   ├── history/          — Point-in-time v14 design & audit records
+│   └── v15/              — Workspace OS design docs (WED · TWID · KTD · AWOD · MIGRATION)
 ├── .env                  — Secrets (gitignored)
 └── planner.db            — Main database (gitignored)
 ```
@@ -328,11 +372,14 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v14.8 | Registry-based dispatch (ADR-012) |
 | v14.9–14.11 | Habit domain migrated: views, create/skip, completion |
 | v14.12 | Production readiness: ADR-011 state priority, rich UI, token masking, cleanup |
+| v15.0-alpha.1–7 | Workspace OS backend (ships dark): schema, Entity Engine, Project integration, Milestones, Timeline, Sync, AI Orchestrator |
+| v15.0-beta.1–5 | Workspace OS wired into production (flag-gated) + Game/Knowledge/Asset/Project templates |
+| v15.0-rc.1 | Release-candidate hardening: documentation consolidation, repository cleanup, README + help polish |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)
-(next: canary enablement of the offline flags, then v15 — AI Router,
-Goals/Projects domains, plugins).
+(next: canary-enable `WORKSPACE` → default-on, then user-facing Workspace
+commands/UI and more templates).
 
 ---
 
@@ -343,6 +390,63 @@ Goals/Projects domains, plugins).
 - **`.env` is gitignored** — never commit it; re-create after cloning
 - **`admin_id.txt` is gitignored** — run `/claimadmin` after fresh deploy
 - **Offline flags default OFF** — flag-off behavior is byte-identical to Legacy
+
+---
+
+## 🧪 Testing
+
+```bash
+source venv/bin/activate
+pytest -q                       # full offline suite (~20s)
+pytest tests/test_workspace_*   # just the Workspace OS suites
+```
+
+- **1100+ offline unit/integration tests** — deterministic, and they
+  **never touch Telegram or a live AI provider** (senders and the AI
+  interpreter are dependency-injected in tests). See [TESTING.md](TESTING.md).
+- **`/selftest`** — a live health probe (database, scheduler, storage,
+  routing, AI provider) run in-app by the owner; see
+  [docs/selftest.md](docs/selftest.md).
+- **Manual Quick Release Suite** — the owner-run `/debug → Run Tests`
+  regression walk; specs in `core/regression/` ([docs/regression.md](docs/regression.md)).
+- **Acceptance gate:** the suite must stay green with every feature flag
+  **OFF and ON**, so a dark-shipped capability provably changes nothing
+  until enabled.
+
+---
+
+## 🗺 Roadmap
+
+Near-term work and the full backlog live in [ROADMAP.md](ROADMAP.md).
+Highlights: canary-enable the `WORKSPACE` flag → default-on, add
+user-facing Workspace commands/UI, and more Workspace templates
+(Finance, Personal Knowledge, …) following the frozen extension pattern.
+
+---
+
+## 🤝 Contributing
+
+1. Read [CLAUDE.md](CLAUDE.md) (project conventions) and
+   [ARCHITECTURE.md](ARCHITECTURE.md) (how the pieces fit).
+2. Follow the **Definition of Done** in [CLAUDE.md](CLAUDE.md): a
+   user-visible feature ships with production code, regression + self-test
+   coverage, `/help` + `/start` updates, and CHANGELOG/README/docs — in one
+   change-set.
+3. Keep new capabilities **additive and flag-gated** so flag-OFF behavior
+   is byte-identical to the prior release.
+4. Run `pytest -q` before every commit; add tests for new behavior (never
+   rewrite the regression suite — grow it).
+5. House rules: all datetime is **IST**; user-facing text is **Telegram
+   HTML via `fmt.py`** (never hand-rolled); every DB write goes through
+   `database.py`; secrets stay in `.env`; `httpx` stays pinned to `0.25.2`.
+
+---
+
+## 🙏 Acknowledgements
+
+- [python-telegram-bot](https://python-telegram-bot.org/) — the Telegram framework (pinned to 20.7).
+- [NVIDIA NIM](https://build.nvidia.com) — the default OpenAI-compatible AI provider (free tier).
+- SQLite — the single-file, zero-config datastore the whole bot runs on.
 
 ---
 
