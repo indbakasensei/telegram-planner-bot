@@ -49,10 +49,18 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > time, to an educational/knowledge domain
 > (`templates/knowledge.py`: 🧠 concepts → milestones, sources/notes →
 > notes, mastery% via `PROGRESS_MANUAL`), again with **zero OS changes** and
-> coexisting with the Game template. Two independent drop-in templates now
-> validate the extension model. **Next templates** (Courses, Research,
-> Vehicles, Finance, Personal Knowledge) follow this exact pattern, plus
-> Workspace UI/commands.
+> coexisting with the Game template.
+>
+> **`v15.0-beta.4` — Asset template:** the pattern applied a third time and
+> at its broadest — **one reusable template for any physical asset**
+> (`templates/asset.py`: 📦 vehicle/computer/drone/robot/…, the kind is just
+> `metadata['asset_type']`; maintenance → milestones, service records →
+> notes, components → tags, ownership/maintenance history → Timeline,
+> maintenance completion via `PROGRESS_MILESTONES`), with no per-type logic
+> and **zero OS changes**. Three independent drop-in templates now coexist,
+> firmly validating the extension model. **The Workspace OS is frozen.**
+> **Next templates** (Finance, Personal Knowledge, …) follow this exact
+> pattern, plus Workspace UI/commands.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

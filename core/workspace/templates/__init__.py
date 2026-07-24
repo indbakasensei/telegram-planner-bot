@@ -32,3 +32,6 @@ from core.workspace.templates import game  # noqa: E402,F401
 # v15.0-beta.3: the Knowledge template -- second drop-in module, same
 # pattern, proving educational/knowledge domains need no OS change either.
 from core.workspace.templates import knowledge  # noqa: E402,F401
+# v15.0-beta.4: the Asset template -- one reusable module for ANY physical
+# asset (vehicle/computer/drone/...), still zero OS change.
+from core.workspace.templates import asset  # noqa: E402,F401

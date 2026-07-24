@@ -205,7 +205,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.0-beta.3"
+BAKA_VERSION = "15.0-beta.4"
 
 
 # ── Menus ─────────────────────────────────────────────

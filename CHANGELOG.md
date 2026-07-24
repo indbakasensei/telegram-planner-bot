@@ -9,7 +9,61 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-beta.3 — Knowledge Workspace Template (current)
+## v15.0-beta.4 — Asset Workspace Template (current)
+
+Adds the **Asset** Workspace — the third and broadest application of the
+beta.2 drop-in pattern: **one reusable template for any owned physical
+asset** (vehicles, computers, drones, cameras, robots, manufacturing
+equipment, electronics, appliances, tools). There is deliberately **no
+per-type template and no hardcoded vehicle/drone/laptop logic** — the asset
+kind is just `metadata['asset_type']`. Still **zero OS changes**: no edit to
+the Entity Engine, Orchestrator, Timeline, Sync Engine, repositories,
+models, or the database schema. Full suite: **1092 passing** (1064 + 28).
+
+- **One drop-in module (`core/workspace/templates/asset.py`)**, same shape
+  as `game.py`/`knowledge.py`: its **entity/metadata schema** (`FieldSpec`
+  list — required `asset_type` enum; `status` and `condition` enums; and
+  optional strings manufacturer/model/serial_number/purchase_date/
+  warranty_expiry/location), **validation rules** (`validate_asset_metadata`
+  — required asset_type, enum membership, string types; dates free-form),
+  **normalization** (`normalize_asset_metadata` — fills enum defaults,
+  lowercases/trims enums, trims strings), the registered `WorkspaceTemplate`
+  (📦, sections maintenance/service_records/notes/components/history,
+  `PROGRESS_MILESTONES`), and a validating
+  `create_asset_workspace(engine, …)` helper that **normalizes then
+  validates** (so `'Vehicle'` / `' active '` are accepted) and raises the
+  OS's own `EntityValidationError` on bad input.
+- **Maps asset concepts onto the generic entities** the OS already
+  provides: maintenance/inspections/repairs/upgrades → milestones,
+  service records/observations/issues/config → notes,
+  categories/components → tags, ownership + maintenance history → the
+  append-only Timeline, and **maintenance/lifecycle completion → the
+  generic `PROGRESS_MILESTONES` rollup** (% of maintenance milestones done).
+  **No new tables, no new entity types.** Enums: types
+  vehicle/computer/drone/robot/equipment/electronics/appliance/tool/other;
+  statuses active/maintenance/stored/retired/sold; conditions
+  excellent/good/fair/poor.
+- **Registration:** `templates/__init__.py` imports `asset`
+  (self-registers), alongside `game` and `knowledge` — three independent
+  drop-in templates now coexist. The engine/orchestrator/sync/timeline/
+  builtin templates are untouched.
+
+**Tests:** `tests/test_workspace_asset_template.py` (28) — registration &
+discovery, coexistence with Game + Knowledge, the one-template-covers-all
+guarantee, metadata schema/defaults, validation (required/type/enum/string,
+free-form dates), normalization (enum lowercasing + string trimming +
+defaults), the create helper (valid, mixed-case enums, rejects
+missing/unknown asset_type), the generic-engine proof points (maintenance
+as milestones, progress as maintenance completion), the **generic AI
+orchestrator** driving an asset workspace (add maintenance milestone / add
+service note / create), the full create → Timeline → Sync pipeline, and an
+AST check that `asset.py` imports only the public registry + error surface.
+Files touched: new `asset.py`, `templates/__init__.py`, new test file,
+`main.py` (version), docs.
+
+---
+
+## v15.0-beta.3 — Knowledge Workspace Template
 
 Adds the **Knowledge** Workspace — a second application of the beta.2
 pattern, this time for an **educational/knowledge domain** ("learn a
