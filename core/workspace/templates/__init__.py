@@ -29,3 +29,6 @@ from core.workspace.templates import builtin  # noqa: E402,F401
 # v15.0-beta.2: the Game reference template registers itself on import
 # (a full new Workspace added as one drop-in module, no OS change).
 from core.workspace.templates import game  # noqa: E402,F401
+# v15.0-beta.3: the Knowledge template -- second drop-in module, same
+# pattern, proving educational/knowledge domains need no OS change either.
+from core.workspace.templates import knowledge  # noqa: E402,F401

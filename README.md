@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-beta.2** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-beta.3** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -102,7 +102,7 @@ inert: empty tables, no handlers, byte-identical to v14.
 | **AI Orchestrator** | `core/workspace/orchestrator.py` | **Generic NL → validated engine op: interpret → select workspace → resolve entity → safety gate → apply. AI injected as an `Interpreter` (no live LLM import); template-agnostic** |
 | **LLM Interpreter** | `core/workspace/llm_interpreter.py` | Production `Interpreter` over `baka_brain` (lazy) → JSON `Proposal`; falls back to `RuleBasedInterpreter` on any AI failure |
 | **Production wiring** | `core/workspace/app.py` | `process_message` (handler entry), `SyncWorker` + `register_workers` (scheduler), `make_telegram_sender` (async bridge) — all flag-gated |
-| **Templates** (reference: Game) | `core/workspace/templates/*.py` | Each Workspace type is one drop-in module — schema + validation + a registered `WorkspaceTemplate` — added **without touching the OS**. `game.py` (🎮) is the reference; future ones (Books, Courses, Research, …) follow the same shape |
+| **Templates** (Game 🎮, Knowledge 🧠) | `core/workspace/templates/*.py` | Each Workspace type is one drop-in module — schema + validation + a registered `WorkspaceTemplate` — added **without touching the OS**. `game.py` (🎮) is the reference; `knowledge.py` (🧠) applies the same shape to an educational domain; future ones (Courses, Research, …) follow it too |
 | Feature flag | `core/feature_flags.py` | `WORKSPACE` — default OFF (activates the whole pipeline when ON) |
 
 **Adding a Workspace type** (the beta.2 pattern, `game.py`): declare a
@@ -111,6 +111,10 @@ a thin validating `create_*` helper that calls the unchanged
 `engine.create_workspace(..., template=<key>)`. Game concepts reuse the
 generic entities (objectives → milestones, notes → notes, completion% →
 `metadata` via the `PROGRESS_MANUAL` model) — no new tables, no OS changes.
+**`knowledge.py` (beta.3)** is the second application of this exact pattern
+to an educational/knowledge domain (concepts → milestones, sources/notes →
+notes, mastery% → `metadata`) — two independent drop-in templates now
+coexist, confirming the extension model.
 
 When `WORKSPACE` is ON, a Project is a `template='project'` workspace whose
 backing goal (via `goals.workspace_id`) still owns its materials/worklog —

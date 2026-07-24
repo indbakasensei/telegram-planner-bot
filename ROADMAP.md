@@ -43,9 +43,16 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > **`v15.0-beta.2` — Game template (reference implementation):** the first
 > new Workspace type added on the production platform, proving a full
 > Workspace drops in as one module (`templates/game.py`: schema +
-> validation + registration) with **zero OS changes**. **Next templates**
-> (Books, Courses, Research, Vehicles, Finance, Personal Knowledge) follow
-> this exact pattern, plus Workspace UI/commands.
+> validation + registration) with **zero OS changes**.
+>
+> **`v15.0-beta.3` — Knowledge template:** the pattern applied a second
+> time, to an educational/knowledge domain
+> (`templates/knowledge.py`: 🧠 concepts → milestones, sources/notes →
+> notes, mastery% via `PROGRESS_MANUAL`), again with **zero OS changes** and
+> coexisting with the Game template. Two independent drop-in templates now
+> validate the extension model. **Next templates** (Courses, Research,
+> Vehicles, Finance, Personal Knowledge) follow this exact pattern, plus
+> Workspace UI/commands.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

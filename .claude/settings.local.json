@@ -21,7 +21,8 @@
       "Bash(python3 -m py_compile main.py)",
       "Bash(wsl --version)",
       "Bash(wsl -e bash -c \"cd /home/baka/telegram-planner-bot && ls venv/bin/python*\")",
-      "Bash(wsl *)"
+      "Bash(wsl *)",
+      "Bash(python -m pytest tests/test_workspace_knowledge_template.py -q)"
     ]
   }
 }

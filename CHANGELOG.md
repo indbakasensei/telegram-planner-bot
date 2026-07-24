@@ -9,7 +9,50 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-beta.2 — Game Workspace Template (reference implementation) (current)
+## v15.0-beta.3 — Knowledge Workspace Template (current)
+
+Adds the **Knowledge** Workspace — a second application of the beta.2
+pattern, this time for an **educational/knowledge domain** ("learn a
+subject, capture what you know, track your mastery"). It is the second
+proof that a full Workspace drops in as **one module with zero OS
+changes**: no edit to the Entity Engine, Orchestrator, Timeline, Sync
+Engine, repositories, models, or the database schema. Full suite:
+**1064 passing** (1044 + 20).
+
+- **One drop-in module (`core/workspace/templates/knowledge.py`)** with the
+  whole template, structurally identical to `game.py`: its
+  **entity/metadata schema** (`FieldSpec` list — domain, source, status,
+  items_reviewed, mastery `progress`), **validation rules**
+  (`validate_knowledge_metadata` — required/type/enum/range),
+  `normalize_knowledge_metadata` (defaults + int coercion), the registered
+  `WorkspaceTemplate` (🧠, sections concepts/sources/notes/reviews/progress,
+  `PROGRESS_MANUAL`), and a validating
+  `create_knowledge_workspace(engine, …)` helper that raises the OS's own
+  `EntityValidationError` on bad input.
+- **Maps knowledge concepts onto the generic entities** the OS already
+  provides: concepts/topics → milestones, sources/notes → notes, mastery% →
+  the workspace `metadata` (read by the engine's `PROGRESS_MANUAL` model).
+  **No new tables, no new entity types.** Learning lifecycle statuses:
+  exploring → learning → reviewing → mastered → archived.
+- **Registration:** `templates/__init__.py` imports `knowledge`
+  (self-registers on import), alongside `game`. The
+  engine/orchestrator/sync/timeline/builtin templates are untouched, and
+  the two drop-in templates coexist without collision.
+
+**Tests:** `tests/test_workspace_knowledge_template.py` (20) — registration
+& discovery (including coexistence with the game template), metadata
+schema/defaults, validation (status/items/progress/type/bool/str),
+normalization, the validating create helper (valid + rejects bad
+metadata), and the proof points: mastery via the generic manual model,
+concepts as generic milestones, the full create → Timeline → Sync pipeline
+for a knowledge workspace, and an AST check that `knowledge.py` imports
+only the public registry + error surface (never the OS internals). Files
+touched: new `knowledge.py`, `templates/__init__.py`, new test file,
+`main.py` (version), docs.
+
+---
+
+## v15.0-beta.2 — Game Workspace Template (reference implementation)
 
 Adds the **Game** Workspace as the **reference implementation** for new
 Workspace types. The point is not a game tracker — it's proof that an
