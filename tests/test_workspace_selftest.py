@@ -39,3 +39,10 @@ def test_selftest_engine_check_passes_and_cleans_up(temp_db):
     assert "100%" in msg
     # round-trip cleaned up after itself: no residue under the selftest user
     assert db.get_workspaces(SELFTEST_USER_ID) == []
+
+
+def test_selftest_groups_check_passes_and_cleans_up(temp_db):
+    from core.selftest.tests.test_workspace import check_workspace_groups
+    msg = check_workspace_groups()
+    assert "groups ok" in msg
+    assert db.get_workspaces(SELFTEST_USER_ID) == []

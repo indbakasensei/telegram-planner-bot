@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-rc.2** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.1.0-alpha.1** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -146,6 +146,30 @@ Workspace OS** (schema, engine, orchestrator, timeline, sync).
 | Game | 🎮 | Playthrough tracker (reference) | manual | `game.py` |
 | Knowledge | 🧠 | Learning / mastery | manual | `knowledge.py` |
 | Asset | 📦 | Any physical asset (kind = metadata) | milestones | `asset.py` |
+
+---
+
+## 📔 Project Groups — your Telegram photo journal (v15.1)
+
+Mirror a **project / game / goal** to a **private Telegram forum group**,
+where **each entity is its own topic** and the **photos + notes you send
+become a scrollable progress journal**. The database is the source of
+truth; the group is the human-readable mirror.
+
+```
+/newgame Genshin          → creates the workspace, makes it active
+(make a private group, enable Topics, add the bot as admin)
+/linkhere                 → (sent in the group) binds it to Genshin
+/add Hu Tao               → creates a "Hu Tao" topic in the group
+📷 + "got her crown"      → logs it to Hu Tao's topic (photo + note)
+/open Nahida  ·  /current ·  /workspaces  ·  /note <text>
+```
+
+Architecture note: the Workspace OS never learns about Telegram — chat/topic
+ids live only in the adapter's binding tables, and topics are a
+*visualization* of entities created by the projection adapter. These
+commands are always available and are **not** tied to the `WORKSPACE` flag
+below. First slice; editing/removal and richer entities come next.
 
 ---
 

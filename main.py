@@ -91,6 +91,12 @@ from core import feature_flags
 # and offline; nothing here runs unless feature_flags.WORKSPACE is ON, so
 # the flag-OFF path stays byte-identical to v14.26.
 from core.workspace import app as workspace_app
+# v15.1: Workspace groups -- usable project/game/goal ↔ private Telegram
+# forum-group projection. These commands are always available (not gated by
+# the WORKSPACE orchestrator flag); they only act when the owner invokes them.
+import asyncio
+from core.workspace import groups_app as ws_groups
+from core.workspace.adapters.projection import TelegramProjection
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -205,7 +211,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.0-rc.2"
+BAKA_VERSION = "15.1.0-alpha.1"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -3749,13 +3755,205 @@ async def think_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── v11.0: Photo/Image Handler ────────────────────────
+# ══ v15.1 Workspace groups (project/game/goal ↔ private Telegram forum) ══
+# One workspace = one private group; each entity = a topic; photos + notes
+# land in the active entity's topic (or General). All Telegram bindings live
+# in the adapter layer -- the Workspace OS stays Telegram-agnostic.
+_WS_GROUPS = ws_groups.WorkspaceGroups()
+
+
+def _ws_projection(context):
+    """A live Telegram projection bound to the running loop (its client calls
+    are bridged from the worker thread we run the app service on)."""
+    client = workspace_app.make_projection_client(
+        context.bot, asyncio.get_running_loop())
+    return TelegramProjection(client)
+
+
+async def _newws_cmd(update, context, kind):
+    user_id = update.message.from_user.id
+    title = " ".join(context.args).strip() if context.args else ""
+    if not title:
+        await update.message.reply_text(f"Usage: <code>/new{kind} &lt;title&gt;</code>",
+                                        parse_mode=HTML)
+        return
+    ws = await asyncio.to_thread(_WS_GROUPS.create, user_id, kind, title)
+    await update.message.reply_text(
+        f"{ws.icon} Created {kind} {b(esc(ws.title))} (#{ws.id}) and made it active.\n\n"
+        f"Next: make a private Telegram group with {b('Topics enabled')}, add me as "
+        f"admin, then send {code('/linkhere')} in that group. After that, add entities "
+        f"with {code('/add <name>')} and send a photo + note to log progress.",
+        parse_mode=HTML)
+
+
+async def newproject_cmd(update, context):
+    await _newws_cmd(update, context, "project")
+
+
+async def newgame_cmd(update, context):
+    await _newws_cmd(update, context, "game")
+
+
+async def newgoal_cmd(update, context):
+    await _newws_cmd(update, context, "goal")
+
+
+async def workspaces_cmd(update, context):
+    user_id = update.message.from_user.id
+    wss = await asyncio.to_thread(_WS_GROUPS.list_workspaces, user_id)
+    if not wss:
+        await update.message.reply_text(
+            "No workspaces yet. Try /newproject, /newgame, or /newgoal.")
+        return
+    lines = [f"{w.icon} {b(esc(w.title))} — #{w.id} ({esc(w.template)})" for w in wss]
+    await update.message.reply_text(
+        "🗂 " + b("Your workspaces") + "\n" + "\n".join(lines) +
+        "\n\nOpen one with " + code("/use <name>") + ".", parse_mode=HTML)
+
+
+async def useworkspace_cmd(update, context):
+    user_id = update.message.from_user.id
+    ref = " ".join(context.args).strip()
+    if not ref:
+        await update.message.reply_text("Usage: <code>/use &lt;workspace name or #id&gt;</code>",
+                                        parse_mode=HTML)
+        return
+    ws = await asyncio.to_thread(_WS_GROUPS.open_workspace, user_id, ref)
+    if not ws:
+        await update.message.reply_text(f"No workspace matches {b(esc(ref))}.", parse_mode=HTML)
+        return
+    await update.message.reply_text(f"{ws.icon} Active workspace: {b(esc(ws.title))}.",
+                                    parse_mode=HTML)
+
+
+async def linkhere_cmd(update, context):
+    user_id = update.message.from_user.id
+    chat = update.effective_chat
+    if chat.type not in ("group", "supergroup"):
+        await update.message.reply_text(
+            "Send /linkhere inside the private group you want to link "
+            "(create it, enable Topics, and add me as an admin first).")
+        return
+    proj = _ws_projection(context)
+    try:
+        ws = await asyncio.to_thread(_WS_GROUPS.link_group, user_id, chat.id, proj)
+    except Exception as e:
+        await update.message.reply_text(f"Couldn't link: {esc(str(e))}")
+        return
+    if not ws:
+        await update.message.reply_text(
+            "Open a workspace first (in our private chat): /newproject, /newgame, "
+            "/newgoal, or /use <name>.")
+        return
+    await update.message.reply_text(
+        f"🔗 Linked this group to {b(esc(ws.title))}. Add entities with "
+        f"{code('/add <name>')}; send a photo + note to log progress.", parse_mode=HTML)
+
+
+async def addentity_cmd(update, context):
+    user_id = update.message.from_user.id
+    name = " ".join(context.args).strip()
+    if not name:
+        await update.message.reply_text("Usage: <code>/add &lt;entity name&gt;</code>  "
+                                        "(e.g. <code>/add Hu Tao</code>)", parse_mode=HTML)
+        return
+    proj = _ws_projection(context)
+    try:
+        m, topic = await asyncio.to_thread(_WS_GROUPS.add_entity, user_id, name, proj)
+    except Exception as e:
+        await update.message.reply_text(
+            f"Couldn't create the topic: {esc(str(e))}\n"
+            "Make sure the linked group has Topics enabled and I'm an admin.")
+        return
+    if not m:
+        await update.message.reply_text(
+            "Open a workspace first: /newproject, /newgame, /newgoal, or /use <name>.")
+        return
+    extra = " · topic created" if topic else " · (link a group with /linkhere for a topic)"
+    await update.message.reply_text(
+        f"➕ Added {b(esc(m.title))}{extra} and made it active. Send a photo + note "
+        f"to log progress there.", parse_mode=HTML)
+
+
+async def openentity_cmd(update, context):
+    user_id = update.message.from_user.id
+    ref = " ".join(context.args).strip()
+    if not ref:
+        await update.message.reply_text("Usage: <code>/open &lt;entity name&gt;</code>",
+                                        parse_mode=HTML)
+        return
+    m = await asyncio.to_thread(_WS_GROUPS.open_entity, user_id, ref)
+    if not m:
+        await update.message.reply_text(
+            f"No entity matches {b(esc(ref))} in the active workspace.", parse_mode=HTML)
+        return
+    await update.message.reply_text(
+        f"🎯 Active entity: {b(esc(m.title))}. Photos + notes now go to its topic.",
+        parse_mode=HTML)
+
+
+async def current_cmd(update, context):
+    user_id = update.message.from_user.id
+    ctx = await asyncio.to_thread(_WS_GROUPS.current, user_id)
+    if not ctx.workspace_id:
+        await update.message.reply_text(
+            "No active workspace. Try /newproject, /newgame, or /newgoal.")
+        return
+    entity = f"{b(esc(ctx.entity_title))}" if ctx.entity_title else "— (General)"
+    await update.message.reply_text(
+        "🗂 Workspace: " + b(esc(ctx.workspace_title)) + "\n"
+        "🔗 Group linked: " + ("yes" if ctx.linked else "no (use /linkhere in the group)") + "\n"
+        "🎯 Active entity: " + entity, parse_mode=HTML)
+
+
+async def note_cmd(update, context):
+    user_id = update.message.from_user.id
+    text = " ".join(context.args).strip()
+    if not text:
+        await update.message.reply_text("Usage: <code>/note &lt;progress note&gt;</code>",
+                                        parse_mode=HTML)
+        return
+    await _ws_do_log(update, context, user_id, text, None)
+
+
+async def _ws_do_log(update, context, user_id, text, photo_file_id):
+    proj = _ws_projection(context)
+    try:
+        res = await asyncio.to_thread(
+            _WS_GROUPS.log_progress, user_id, text, proj, photo_file_id)
+    except Exception as e:
+        await update.message.reply_text(
+            f"Saved locally, but posting to the group failed: {esc(str(e))}\n"
+            "Make sure the group has Topics enabled and I'm an admin.")
+        return
+    if not res.ok:
+        await update.message.reply_text(
+            "Open a workspace first: /newproject, /newgame, /newgoal, or /use <name>.")
+        return
+    where = f"→ {esc(res.entity_title)}" if res.entity_title else "→ General"
+    posted = ("posted to your group" if res.posted
+              else "saved (link a group with /linkhere to mirror it)")
+    await update.message.reply_text(f"📝 Progress {where}: {posted}.", parse_mode=HTML)
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     When user sends a photo, use Llama 3.2 Vision to understand it.
     Common use cases: handwritten todo lists, screenshots of schedules,
     photos of whiteboards/notes, receipts to track.
+
+    v15.1: if the user has an ACTIVE workspace, a photo is instead treated as
+    a progress log -> stored + posted to the active entity's Telegram topic.
     """
     user_id = update.message.from_user.id
+
+    # Workspace groups: an active workspace turns photos into progress logs.
+    if _WS_GROUPS.has_active(user_id):
+        photo = update.message.photo[-1]
+        caption = (update.message.caption or "").strip()
+        await _ws_do_log(update, context, user_id, caption, photo.file_id)
+        return
+
     if not ENABLE_VISION:
         await update.message.reply_text(
             "📷 Image understanding is currently disabled. "
@@ -4674,6 +4872,17 @@ def main() -> None:
     app.add_handler(CommandHandler("project", project_cmd))
     app.add_handler(CommandHandler("projects", project_cmd))
     app.add_handler(CommandHandler("shopping", shopping_cmd))
+    # v15.1 Workspace groups (project/game/goal ↔ private Telegram forum group)
+    app.add_handler(CommandHandler("newproject", newproject_cmd))
+    app.add_handler(CommandHandler("newgame", newgame_cmd))
+    app.add_handler(CommandHandler("newgoal", newgoal_cmd))
+    app.add_handler(CommandHandler("workspaces", workspaces_cmd))
+    app.add_handler(CommandHandler("use", useworkspace_cmd))
+    app.add_handler(CommandHandler("linkhere", linkhere_cmd))
+    app.add_handler(CommandHandler("add", addentity_cmd))
+    app.add_handler(CommandHandler("open", openentity_cmd))
+    app.add_handler(CommandHandler("current", current_cmd))
+    app.add_handler(CommandHandler("note", note_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)

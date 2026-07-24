@@ -49,3 +49,37 @@ def check_workspace_engine():
         return f"engine ok · created ws #{ws.id}, milestone rollup 100%"
     finally:
         db.delete_workspace(ws.id, SELFTEST_USER_ID)
+
+
+@selftest(name="Workspace Groups", category="Workspace")
+def check_workspace_groups():
+    """The Telegram-groups projection round-trips with a fake client: create
+    a workspace, link a group, add an entity (→ topic), and log a progress
+    note routed to that topic -- all without touching Telegram. Cleans up."""
+    import database as db
+    from core.workspace.adapters.projection import TelegramClient, TelegramProjection
+    from core.workspace.groups_app import WorkspaceGroups
+
+    class _Fake(TelegramClient):
+        def create_forum_topic(self, chat_id, name):
+            return 4242
+        def send_message(self, chat_id, topic_id, text):
+            return 1
+        def send_photo(self, chat_id, topic_id, file_id, caption):
+            return 2
+
+    app = WorkspaceGroups()
+    proj = TelegramProjection(_Fake())
+    ws = app.create(SELFTEST_USER_ID, "game", "[selftest] group")
+    try:
+        app.link_group(SELFTEST_USER_ID, -100123, proj)
+        m, topic = app.add_entity(SELFTEST_USER_ID, "[selftest] entity", proj)
+        if topic != 4242:
+            raise SelfTestFail(f"entity topic not created (got {topic})")
+        res = app.log_progress(SELFTEST_USER_ID, "probe", proj)
+        if not (res.ok and res.posted and res.topic_id == 4242):
+            raise SelfTestFail(f"progress not routed to entity topic: {res}")
+        return "groups ok · workspace→group, entity→topic, note routed"
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)

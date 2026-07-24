@@ -282,6 +282,14 @@ class NoteStorage:
     def list_for(self, workspace_id, kind=None):
         return database.get_notes(workspace_id, kind)
 
+    def add_attachment(self, workspace_id, note_id, telegram_file_id,
+                       file_type="photo", file_name=None, caption=None):
+        return database.add_attachment(workspace_id, note_id, telegram_file_id,
+                                       file_type, file_name, caption)
+
+    def attachments(self, workspace_id, note_id=None):
+        return database.get_attachments(workspace_id, note_id)
+
 
 class TimelineStorage:
     """Delegates to database.py's append-only Knowledge Timeline functions
@@ -343,6 +351,47 @@ class SyncStorage:
         return database.count_sync(user_id, status)
 
 
+class TelegramBindingStorage:
+    """Delegates to database.py's Telegram-adapter binding functions
+    (v15.1). One-line passthrough. These map Workspace entities to Telegram
+    groups/topics and hold the user's active context -- read only by the
+    Telegram projection adapter, never by the Workspace OS."""
+
+    def link_workspace(self, user_id, workspace_id, chat_id, general_topic_id=None):
+        return database.tg_link_workspace(user_id, workspace_id, chat_id, general_topic_id)
+
+    def get_binding(self, workspace_id):
+        return database.tg_get_binding(workspace_id)
+
+    def workspace_for_chat(self, chat_id):
+        return database.tg_get_workspace_for_chat(chat_id)
+
+    def set_general_topic(self, workspace_id, topic_id):
+        return database.tg_set_general_topic(workspace_id, topic_id)
+
+    def unlink_workspace(self, workspace_id):
+        return database.tg_unlink_workspace(workspace_id)
+
+    def set_entity_topic(self, user_id, workspace_id, entity_type, entity_id, topic_id):
+        return database.tg_set_entity_topic(user_id, workspace_id, entity_type,
+                                            entity_id, topic_id)
+
+    def get_entity_topic(self, entity_type, entity_id):
+        return database.tg_get_entity_topic(entity_type, entity_id)
+
+    def get_entity_topics(self, workspace_id):
+        return database.tg_get_entity_topics(workspace_id)
+
+    def set_active(self, user_id, workspace_id, entity_type=None, entity_id=None):
+        return database.tg_set_active(user_id, workspace_id, entity_type, entity_id)
+
+    def get_active(self, user_id):
+        return database.tg_get_active(user_id)
+
+    def clear_active(self, user_id):
+        return database.tg_clear_active(user_id)
+
+
 class Storage:
     """
     The Storage Facade's single entry point: one Storage() instance
@@ -368,3 +417,5 @@ class Storage:
         self.timeline = TimelineStorage()
         # v15.0-alpha.6 outbound sync outbox.
         self.sync = SyncStorage()
+        # v15.1 Telegram-adapter-owned bindings (entity↔topic, active context).
+        self.tg_bindings = TelegramBindingStorage()

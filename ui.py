@@ -742,6 +742,16 @@ def help_cards(version, user_is_admin):
         f"{code('started <id>')} · {code('worklog <id> <text>')} · {code('finished <id>')}",
         f"{code('shopping')} — auto shopping list across projects",
     ])
+    groups = "\n".join([
+        "Mirror a project/game/goal to a private Telegram group — each",
+        "entity gets its own topic, and photos+notes log your progress.",
+        f"{code('newproject <title>')} · {code('newgame <title>')} · {code('newgoal <title>')} — create",
+        f"{code('workspaces')} — list them   {code('use <name>')} — switch active",
+        f"{code('linkhere')} — (send inside the group) link it; enable Topics + add me as admin",
+        f"{code('add <name>')} — add an entity (its own topic)   {code('open <name>')} — focus one",
+        f"📷 send a photo + caption — logs progress to the active topic",
+        f"{code('note <text>')} — text-only progress   {code('current')} — what's active",
+    ])
     ai_planning = "\n".join([
         f"{code('think <question>')} — reasoning over your data",
         f"{code('plan today')} / {code('plan week')} — time-blocked plans",
@@ -782,6 +792,7 @@ def help_cards(version, user_is_admin):
     ])
     msg2_parts = [
         _sec("🎯", "GOALS & PROJECTS", goals_projects),
+        _sec("📔", "PROJECT GROUPS (photo journal)", groups),
         _sec("🧠", "AI & PLANNING", ai_planning),
         _sec("🖼", "MEDIA", media),
         _sec("🗂", "MEMORY, SEARCH & TEMPLATES", memory_search),

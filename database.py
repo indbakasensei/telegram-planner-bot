@@ -2418,6 +2418,47 @@ def _init_workspace_tables(conn):
     c.execute("CREATE INDEX IF NOT EXISTS idx_attachments_workspace "
               "ON attachments(workspace_id)")
 
+    # ── Telegram-adapter-owned bindings (v15.1) ──────────────────────────
+    # These map Workspace entities to Telegram groups/topics WITHOUT putting
+    # any Telegram id on the core workspace/milestone rows -- the Workspace OS
+    # stays Telegram-agnostic; only the adapter reads these.
+    c.execute("""CREATE TABLE IF NOT EXISTS tg_workspace_bindings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        workspace_id INTEGER NOT NULL UNIQUE,
+        chat_id INTEGER NOT NULL,
+        general_topic_id INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tgbind_user "
+              "ON tg_workspace_bindings(user_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tgbind_chat "
+              "ON tg_workspace_bindings(chat_id)")
+
+    # One Telegram forum topic per workspace entity (entity_type+entity_id).
+    c.execute("""CREATE TABLE IF NOT EXISTS tg_entity_topics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        workspace_id INTEGER NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER NOT NULL,
+        topic_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(entity_type, entity_id)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tgtopic_ws "
+              "ON tg_entity_topics(workspace_id)")
+
+    # The user's active workspace + entity (where the next photo/note lands).
+    c.execute("""CREATE TABLE IF NOT EXISTS tg_active_context (
+        user_id INTEGER PRIMARY KEY,
+        workspace_id INTEGER,
+        entity_type TEXT,
+        entity_id INTEGER,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+
     c.execute("""CREATE TABLE IF NOT EXISTS tags (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -2605,13 +2646,160 @@ def delete_workspace(workspace_id, user_id):
     if c.fetchone() is None:
         conn.close()
         return False
+    c.execute("DELETE FROM attachments WHERE workspace_id=?", (workspace_id,))
     c.execute("DELETE FROM notes WHERE workspace_id=?", (workspace_id,))
     c.execute("DELETE FROM milestones WHERE workspace_id=?", (workspace_id,))
+    c.execute("DELETE FROM tg_entity_topics WHERE workspace_id=?", (workspace_id,))
+    c.execute("DELETE FROM tg_workspace_bindings WHERE workspace_id=?", (workspace_id,))
     c.execute("DELETE FROM workspaces WHERE id=? AND user_id=?",
               (workspace_id, user_id))
     conn.commit()
     conn.close()
     return True
+
+
+# ── Telegram-adapter-owned bindings (v15.1) ───────────────────────────────
+# Pure storage for the Telegram projection adapter. The Workspace OS never
+# reads these -- topic/chat ids live here, not on core entities.
+
+def tg_link_workspace(user_id, workspace_id, chat_id, general_topic_id=None):
+    """Bind a workspace to a Telegram group chat (idempotent by workspace)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO tg_workspace_bindings
+                 (user_id, workspace_id, chat_id, general_topic_id)
+                 VALUES (?,?,?,?)
+                 ON CONFLICT(workspace_id) DO UPDATE SET
+                   chat_id=excluded.chat_id,
+                   general_topic_id=COALESCE(excluded.general_topic_id,
+                                             tg_workspace_bindings.general_topic_id),
+                   updated_at=?""",
+              (user_id, workspace_id, chat_id, general_topic_id, _now_ist_str()))
+    conn.commit()
+    conn.close()
+
+
+def tg_get_binding(workspace_id):
+    """(chat_id, general_topic_id) for a workspace, or None if unbound."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT chat_id, general_topic_id FROM tg_workspace_bindings "
+              "WHERE workspace_id=?", (workspace_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def tg_get_workspace_for_chat(chat_id):
+    """The workspace_id bound to a chat, or None (used by /linkhere replies)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT workspace_id FROM tg_workspace_bindings WHERE chat_id=?",
+              (chat_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def tg_set_general_topic(workspace_id, topic_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("UPDATE tg_workspace_bindings SET general_topic_id=?, updated_at=? "
+              "WHERE workspace_id=?", (topic_id, _now_ist_str(), workspace_id))
+    conn.commit()
+    conn.close()
+
+
+def tg_unlink_workspace(workspace_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM tg_workspace_bindings WHERE workspace_id=?", (workspace_id,))
+    c.execute("DELETE FROM tg_entity_topics WHERE workspace_id=?", (workspace_id,))
+    conn.commit()
+    conn.close()
+
+
+def tg_set_entity_topic(user_id, workspace_id, entity_type, entity_id, topic_id):
+    """Record the Telegram topic created for an entity (idempotent)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO tg_entity_topics
+                 (user_id, workspace_id, entity_type, entity_id, topic_id)
+                 VALUES (?,?,?,?,?)
+                 ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                   topic_id=excluded.topic_id""",
+              (user_id, workspace_id, entity_type, entity_id, topic_id))
+    conn.commit()
+    conn.close()
+
+
+def tg_get_entity_topic(entity_type, entity_id):
+    """The topic_id for an entity, or None if no topic has been created."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT topic_id FROM tg_entity_topics "
+              "WHERE entity_type=? AND entity_id=?", (entity_type, entity_id))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def tg_get_entity_topics(workspace_id):
+    """All (entity_type, entity_id, topic_id) rows for a workspace."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT entity_type, entity_id, topic_id FROM tg_entity_topics "
+              "WHERE workspace_id=? ORDER BY id ASC", (workspace_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def tg_set_active(user_id, workspace_id, entity_type=None, entity_id=None):
+    """Set the user's active workspace (+ optional active entity)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO tg_active_context
+                 (user_id, workspace_id, entity_type, entity_id, updated_at)
+                 VALUES (?,?,?,?,?)
+                 ON CONFLICT(user_id) DO UPDATE SET
+                   workspace_id=excluded.workspace_id,
+                   entity_type=excluded.entity_type,
+                   entity_id=excluded.entity_id,
+                   updated_at=excluded.updated_at""",
+              (user_id, workspace_id, entity_type, entity_id, _now_ist_str()))
+    conn.commit()
+    conn.close()
+
+
+def tg_get_active(user_id):
+    """(workspace_id, entity_type, entity_id) for the user, or None."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT workspace_id, entity_type, entity_id FROM tg_active_context "
+              "WHERE user_id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def tg_clear_active(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM tg_active_context WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
 
 
 # ── Milestones ─────────────────────────────────────────
@@ -2718,6 +2906,40 @@ def add_note(workspace_id, content, kind="note", milestone_id=None,
     conn.commit()
     conn.close()
     return note_id
+
+
+def add_attachment(workspace_id, note_id, telegram_file_id, file_type="photo",
+                   file_name=None, caption=None):
+    """Persist a file attachment (e.g. a Telegram photo file_id) against a
+    note. Keeps the raw file_id so the image can be re-posted or re-fetched
+    later without re-uploading (v15.1)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("""INSERT INTO attachments
+        (workspace_id, note_id, telegram_file_id, file_type, file_name, caption)
+        VALUES (?,?,?,?,?,?)""",
+        (workspace_id, note_id, telegram_file_id, file_type, file_name, caption))
+    att_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return att_id
+
+
+def get_attachments(workspace_id, note_id=None):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    if note_id is None:
+        c.execute("SELECT id, note_id, telegram_file_id, file_type, caption "
+                  "FROM attachments WHERE workspace_id=? ORDER BY id ASC",
+                  (workspace_id,))
+    else:
+        c.execute("SELECT id, note_id, telegram_file_id, file_type, caption "
+                  "FROM attachments WHERE note_id=? ORDER BY id ASC", (note_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 
 def get_notes(workspace_id, kind=None):

@@ -9,7 +9,56 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-rc.2 — Workspace self-test coverage + DoD tightening (current)
+## v15.1.0-alpha.1 — Workspace groups: Telegram photo-journal (current)
+
+The **first genuinely usable** Workspace feature, and the one the owner
+actually asked for: mirror a project / game / goal to a **private Telegram
+forum group**, where **each entity is a topic** and the **photos + notes you
+send become a scrollable progress journal**. The database stays the source
+of truth; Telegram is the human-readable mirror.
+
+**Architecture (owner directive honored):** the Workspace OS stays
+**completely Telegram-agnostic** — no chat/topic id is stored on any
+workspace or milestone row. All Telegram bindings live in three new
+**adapter-owned** tables (`tg_workspace_bindings`, `tg_entity_topics`,
+`tg_active_context`), read only by a new **projection adapter**. Topics are
+a *visualization of entities*, created by the adapter for whatever entities
+exist; a permanent **General topic** (the group's built-in one) holds
+workspace-level notes. These commands are **always available** and are
+**not** gated by the `WORKSPACE` orchestrator flag — they only act when the
+owner invokes them.
+
+- **New commands (`main.py`):** `/newproject`, `/newgame`, `/newgoal`
+  (create + make active), `/workspaces` (list), `/use <name>` (switch),
+  `/linkhere` (run inside the group to bind it — enable Topics + add the bot
+  as admin), `/add <name>` (add an entity → its own topic), `/open <name>`
+  (focus an entity), `/current` (show active context), `/note <text>`
+  (text-only progress). **Sending a photo + caption** while a workspace is
+  active logs progress to the active entity's topic (or General).
+- **New layers:** `core/workspace/adapters/projection.py` (the
+  `TelegramProjection`, with an **injected** `TelegramClient` so it imports
+  no PTB and is offline-testable), `core/workspace/groups_app.py` (the
+  use-case service), a `TelegramBindingStorage` facade, and
+  `app.make_projection_client()` (bridges the sync projection to the async
+  bot via the running loop, like `make_telegram_sender`).
+- **Persistence:** `database.add_attachment`/`get_attachments` (Telegram
+  photo `file_id` kept against a note); binding CRUD; `delete_workspace`
+  now also clears notes/attachments/bindings.
+- **Definition of Done, honored this time:** `/help` gains a **PROJECT
+  GROUPS** card; `/selftest` gains a **Workspace** → *Workspace Groups*
+  live probe (fake client, no Telegram) alongside *Templates* and *Engine*;
+  README documents the feature.
+
+**Tests:** `tests/test_workspace_groups.py` (9) — full flow with a fake
+Telegram client (create → link → entity→topic → photo/note routing →
+General fallback → unlinked-still-persists → topic reuse → cleanup) and
+`tests/test_workspace_selftest.py` (+1). Full suite **1131 passing**
+(1121 + 10). Live Telegram posting (forum topic create + send) is verified
+by `/selftest` + manual use, per the offline-suite convention.
+
+---
+
+## v15.0-rc.2 — Workspace self-test coverage + DoD tightening
 
 Closes a real gap flagged by the owner: the v15 Workspace OS shipped with
 pytest coverage but **no live `/selftest` health check**, so there was no

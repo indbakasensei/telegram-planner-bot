@@ -77,6 +77,15 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > **Next:** canary-enable `WORKSPACE` → default-on, user-facing Workspace
 > commands/UI, and further templates (Finance, Personal Knowledge, …)
 > following this exact pattern.
+>
+> **`v15.1.0-alpha.1` — Workspace groups (the first usable Workspace
+> feature):** mirror a project/game/goal to a **private Telegram forum
+> group** — each entity is a topic, photos+notes are a progress journal.
+> New commands (`/newproject|newgame|newgoal`, `/linkhere`, `/add`,
+> `/open`, `/note`, photo → progress), always available (not tied to the
+> `WORKSPACE` flag). The core stays Telegram-agnostic; bindings live in a
+> separate **projection adapter** layer. First slice; next: editing/removal,
+> richer entities, and per-entity views.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

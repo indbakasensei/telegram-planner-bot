@@ -140,6 +140,40 @@ def build_sync_engine(sender) -> SyncEngine:
     return SyncEngine(adapters=[TelegramAdapter(sender)])
 
 
+def make_projection_client(bot, loop, timeout=30):
+    """A synchronous `TelegramClient` for the Workspace-groups projection
+    (v15.1) that bridges to the async bot via the running loop. Call it only
+    from a worker thread (e.g. `asyncio.to_thread`) so `.result()` never
+    blocks the event loop -- the same pattern as make_telegram_sender.
+    User-supplied note text is sent as plain text (no parse_mode) so it can
+    never break HTML parsing."""
+    from core.workspace.adapters.projection import TelegramClient
+
+    class _LiveProjectionClient(TelegramClient):
+        def create_forum_topic(self, chat_id, name):
+            fut = asyncio.run_coroutine_threadsafe(
+                bot.create_forum_topic(chat_id=chat_id, name=(name or "Entity")[:128]),
+                loop)
+            topic = fut.result(timeout=timeout)
+            return getattr(topic, "message_thread_id", None)
+
+        def send_message(self, chat_id, topic_id, text):
+            kwargs = {"chat_id": chat_id, "text": text or "(note)"}
+            if topic_id is not None:
+                kwargs["message_thread_id"] = topic_id
+            fut = asyncio.run_coroutine_threadsafe(bot.send_message(**kwargs), loop)
+            return getattr(fut.result(timeout=timeout), "message_id", None)
+
+        def send_photo(self, chat_id, topic_id, file_id, caption):
+            kwargs = {"chat_id": chat_id, "photo": file_id, "caption": caption or None}
+            if topic_id is not None:
+                kwargs["message_thread_id"] = topic_id
+            fut = asyncio.run_coroutine_threadsafe(bot.send_photo(**kwargs), loop)
+            return getattr(fut.result(timeout=timeout), "message_id", None)
+
+    return _LiveProjectionClient()
+
+
 # ── background worker ──────────────────────────────────────────────────────
 def worker_user_ids():
     """Users the sync worker drains for: everyone with data, plus the
