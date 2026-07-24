@@ -104,24 +104,30 @@ ENABLE_VIDEO_GEN    = True   # Stable Video Diffusion via NVIDIA NIM (always on)
 # separate httpx.Client instances (120s / 300s respectively, see
 # generate_image()/generate_video()), never the shared `client` object
 # below, so they were never affected by the chat timeout to begin with.
-TIMEOUT_FAST_CHAT       = 8.0   # ordinary chat / intent detection (get_baka_response) —
-                                 # the dominant, most latency-sensitive, highest-frequency path
-TIMEOUT_NORMAL_REASONING = 15.0  # plan/breakdown/suggestion generation — longer structured
-                                 # output, called less often and more tolerant of extra time
-TIMEOUT_LONG_REASONING  = 25.0  # /think — deliberately the most tolerant of the chat-completion
-                                 # tiers; still under the original 30s ceiling
-TIMEOUT_VISION          = 30.0  # unchanged from the original client default — no evidence
-                                 # vision has the same problem, so left exactly as it was
+# v15.1.0-alpha.6: the old 8s fast-chat timeout was tuned for the fast
+# Llama-3.3-70b. GLM 5.2 (z-ai/glm-5.2) is a REASONING model whose first
+# response commonly takes >8s even for a trivial "hey", so an 8s cap made
+# EVERY message falsely trip "MAIN model unavailable" and fall back to
+# Llama-8b — the core model was never actually used, and every reply ate an
+# 8s stall first. These are now sized for a reasoning main model, and are
+# env-overridable so they can be tuned per provider without a code change.
+# (All chat AI runs off the event loop via async_bridge.run_blocking, so a
+# longer per-call timeout never blocks the bot.)
+TIMEOUT_FAST_CHAT        = float(os.getenv("TIMEOUT_FAST_CHAT", "30"))    # ordinary chat / intent
+TIMEOUT_NORMAL_REASONING = float(os.getenv("TIMEOUT_NORMAL_REASONING", "45"))  # plans / breakdown
+TIMEOUT_LONG_REASONING   = float(os.getenv("TIMEOUT_LONG_REASONING", "90"))    # /think, deep reasoning
+TIMEOUT_VISION           = float(os.getenv("TIMEOUT_VISION", "45"))      # photo understanding
 
 client = OpenAI(
     base_url=NIM_BASE_URL,
     api_key=_api_key or "missing-key-check-env-file",
     # v12.1: bug fix — was blocking the event loop for 9 minutes on NVIDIA 504.
-    # 30s timeout is generous for chat completions but stops the SDK from silently
-    # retrying with exponential backoff. Our own retry loop (3 attempts, 2s sleep)
-    # controls behavior instead. v13.3.2: this remains the default/ceiling for any
-    # call that doesn't pass its own `timeout=` override — see TIMEOUT_* above.
-    timeout=30.0,
+    # This is the ceiling for any call that doesn't pass its own `timeout=`
+    # override. v15.1.0-alpha.6: raised 30→120 so it sits above the longest
+    # per-call tier (TIMEOUT_LONG_REASONING) now that GLM 5.2 is the slower
+    # reasoning main model. Our own retry loop controls behavior; the SDK's
+    # built-in retry stays disabled (max_retries=0).
+    timeout=float(os.getenv("AI_CLIENT_TIMEOUT", "120")),
     max_retries=0,
 )
 

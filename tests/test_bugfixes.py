@@ -68,3 +68,15 @@ def test_smart_memory_search_empty_when_truly_absent(temp_db, uid):
     db.save_memory(uid, "exam", "on 8 Aug")
     # keywords car/registration match nothing -> empty (caller must NOT dump all)
     assert db.search_memories_smart(uid, "what is my car registration?") == []
+
+
+# ── GLM 5.2 timeout fix (reasoning model needs headroom) ──────────────────
+
+def test_chat_timeout_has_headroom_for_reasoning_model():
+    # GLM 5.2 is a reasoning model whose replies exceed the old 8s cap, which
+    # made every message falsely fall back to Llama-8b. Lock in the headroom.
+    import baka_brain
+    assert baka_brain.TIMEOUT_FAST_CHAT >= 20
+    assert baka_brain.TIMEOUT_LONG_REASONING >= baka_brain.TIMEOUT_FAST_CHAT
+    # the SDK ceiling must sit at/above the longest per-call tier
+    assert baka_brain.client.timeout >= baka_brain.TIMEOUT_LONG_REASONING

@@ -254,6 +254,8 @@ AI_API_KEY=your_provider_key_here        # NVIDIA_API_KEY also still works
 # Local (Ollama/LM Studio/vLLM):              AI_PROVIDER=local
 #
 # Reliability (optional): AI_TIMEOUT=30   AI_MAX_RETRIES=3
+# Chat timeouts — raise if a slow (reasoning) model like GLM 5.2 times out,
+# lower for snappier fallback: TIMEOUT_FAST_CHAT=30  TIMEOUT_LONG_REASONING=90
 
 # Offline Engine rollout flags (default OFF — Legacy behavior)
 # OFFLINE_TASKS=true

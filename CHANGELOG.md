@@ -9,7 +9,32 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.5 — Bug-database fixes + manual regression coverage (current)
+## v15.1.0-alpha.6 — Fix GLM 5.2 chat timeouts (current)
+
+**Fixes GLM 5.2 timing out on every message.** After alpha.4 made
+`z-ai/glm-5.2` the default model, ordinary chat began falling back to
+Llama-8b on *every* message with `MAIN model ... unavailable (Request timed
+out.)`. Root cause: the fast-chat timeout was **8s**, tuned long ago for the
+fast Llama-3.3-70b. GLM 5.2 is a **reasoning** model whose first response
+routinely takes >8s even for a trivial "hey", so the 8s cap falsely marked
+it dead — the core model was never actually used, and every reply stalled
+8s before falling back.
+
+- `baka_brain.py` — the per-workload timeouts are resized for a reasoning
+  main model and made **env-overridable**: `TIMEOUT_FAST_CHAT` 8 → **30s**,
+  `TIMEOUT_NORMAL_REASONING` 15 → **45s**, `TIMEOUT_LONG_REASONING` 25 →
+  **90s**, `TIMEOUT_VISION` 30 → **45s**; the shared client ceiling 30 →
+  **120s** (`AI_CLIENT_TIMEOUT`). All chat AI runs off the event loop via
+  `run_blocking`, so the longer timeouts never block the bot.
+- Tune per provider without code changes, e.g. `TIMEOUT_FAST_CHAT=20` in
+  `.env`. The Llama-8b fallback still applies if GLM 5.2 genuinely exceeds
+  the (now realistic) limit.
+- Test: `tests/test_bugfixes.py` locks in the headroom (fast-chat ≥ 20s, and
+  the client ceiling ≥ the longest tier).
+
+---
+
+## v15.1.0-alpha.5 — Bug-database fixes + manual regression coverage
 
 Fixes the genuine defects logged in the bug database (`DBG-####`) during the
 2026-07-22 regression run, and grows the manual Quick Release Suite to cover
