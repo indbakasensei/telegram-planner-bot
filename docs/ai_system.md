@@ -1,5 +1,31 @@
 # AI System
 
+## AI foundation (`core/ai/`, v15.1.0-alpha.2)
+
+Provider/model configuration is resolved centrally by
+`core/ai/provider.py` — `resolve_config(env)` returns a `ProviderConfig`
+from the environment, filling gaps from a named **preset**
+(`nvidia-nim`, `glm`, `local`). `baka_brain.py` consumes this behind a
+guard (a resolution failure falls back to the historical NIM constants, so
+startup can never break). An empty/NIM environment reproduces the old
+defaults byte-for-byte.
+
+**GLM 5.2 migration is configuration only:** `MODEL_MAIN=z-ai/glm-5.2`
+(GLM 5.2 hosted on NVIDIA NIM) or `AI_PROVIDER=glm` + `GLM_API_KEY`
+(GLM-native Zhipu endpoint). Verify offline via `/selftest → AI → AI
+Configuration`.
+
+Also shipped as **foundation** (interfaces only, consumed by later
+milestones — not yet wired into the planner):
+- `core/ai/reliability.py` — typed errors (`AITimeout`/`AIRateLimited`/
+  `AIUnavailable`/`AIBadRequest`), `classify_status()`, and
+  `call_with_retry()` (exponential backoff + jitter, injectable sleep).
+- `core/ai/retrieval.py` — `Retriever` interface + `NullRetriever`.
+- `core/ai/tools.py` — `Tool`/`ToolSpec`/`ToolRegistry` (with `to_openai()`).
+
+The live chat path below still uses `baka_brain.py`'s own retry/fallback
+loop; adopting `core/ai/reliability.py` there is a later step.
+
 ## Provider
 
 Single provider: **NVIDIA NIM**, accessed through the OpenAI-compatible

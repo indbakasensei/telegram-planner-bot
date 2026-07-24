@@ -86,6 +86,15 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > `WORKSPACE` flag). The core stays Telegram-agnostic; bindings live in a
 > separate **projection adapter** layer. First slice; next: editing/removal,
 > richer entities, and per-entity views.
+>
+> **`v15.1.0-alpha.2` — GLM 5.2 migration & AI foundation:** a reliable,
+> cleanly-abstracted AI base in `core/ai/` — provider presets
+> (`nvidia-nim`/`glm`/`local`, config-only GLM 5.2 migration), a
+> reliability retry/backoff + typed-error taxonomy, and the retrieval + tool
+> *interfaces* (foundation only). Byte-identical for NIM. The full **AI
+> Intelligence Layer** (planner, tool orchestration, memory, retrieval,
+> offline intelligence) builds on this in subsequent milestones — explicitly
+> NOT in this one.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

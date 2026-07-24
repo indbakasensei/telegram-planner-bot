@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.1.0-alpha.1** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.1.0-alpha.2** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -227,11 +227,18 @@ BOT_TOKEN=your_telegram_bot_token_here
 
 # AI provider (defaults shown; all optional — unset = NVIDIA NIM)
 AI_PROVIDER=nvidia-nim
-AI_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_API_KEY=your_provider_key_here        # NVIDIA_API_KEY also still works
+# AI_BASE_URL=...                         # only needed to override a preset
 # MODEL_MAIN=meta/llama-3.3-70b-instruct
 # MODEL_FAST=meta/llama-3.1-8b-instruct
 # MODEL_REASONING=meta/llama-3.3-70b-instruct
+#
+# --- Migrate to GLM 5.2 (pick one) ---
+# GLM 5.2 on NVIDIA NIM (keep your NIM key):   MODEL_MAIN=z-ai/glm-5.2
+# GLM-native (Zhipu):    AI_PROVIDER=glm  and  GLM_API_KEY=your_zhipu_key
+# Local (Ollama/LM Studio/vLLM):              AI_PROVIDER=local
+#
+# Reliability (optional): AI_TIMEOUT=30   AI_MAX_RETRIES=3
 
 # Offline Engine rollout flags (default OFF — Legacy behavior)
 # OFFLINE_TASKS=true
@@ -334,11 +341,36 @@ obscurity) — the admin sees them in `/help`.
 
 All chat/reasoning AI goes through one OpenAI-compatible client in
 `baka_brain.py`; the provider, endpoint, key, and every model id are
-environment-configurable (`AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`,
-`MODEL_MAIN`, `MODEL_FAST`, `MODEL_REASONING`, `MODEL_VISION`, …).
-Unset variables fall back to the verified NVIDIA NIM defaults. Image and
-video generation still use NVIDIA's genai endpoints directly — making
-media provider-agnostic is v15 AI Router scope.
+environment-configurable. As of **v15.1.0-alpha.2** the config is resolved
+centrally by `core/ai/provider.py`, which ships named **presets** so
+switching providers is one env var:
+
+| `AI_PROVIDER` | Endpoint | Key | Default model |
+|---|---|---|---|
+| `nvidia-nim` (default) | NVIDIA NIM | `AI_API_KEY` / `NVIDIA_API_KEY` | `meta/llama-3.3-70b-instruct` |
+| `glm` | Zhipu GLM (native) | `GLM_API_KEY` / `ZHIPU_API_KEY` | `glm-4.6` |
+| `local` | Ollama / LM Studio / vLLM (`localhost:11434`) | none | `llama3.1` |
+
+Every value stays overridable (`AI_BASE_URL`, `MODEL_MAIN`, `MODEL_FAST`,
+`MODEL_REASONING`, `MODEL_VISION`, `AI_TIMEOUT`, `AI_MAX_RETRIES`); an unset
+environment reproduces the historical NVIDIA-NIM defaults exactly.
+
+**Migrating to GLM 5.2** — two ways:
+```bash
+# GLM 5.2 hosted on NVIDIA NIM (keep your NIM key):
+MODEL_MAIN=z-ai/glm-5.2
+# …or GLM-native (Zhipu):
+AI_PROVIDER=glm
+GLM_API_KEY=your_zhipu_key
+# MODEL_MAIN=glm-5.2   # pin the exact model if desired
+```
+Verify with `/selftest → AI → AI Configuration` (offline — shows the active
+provider/model) and `AI Provider` (live liveness). Image and video
+generation still use NVIDIA's genai endpoints directly — making media
+provider-agnostic is later AI-Router scope. The reliability primitives
+(`core/ai/reliability.py`) and the retrieval/tool interfaces
+(`core/ai/retrieval.py`, `core/ai/tools.py`) are foundations for the
+upcoming AI Intelligence Layer.
 
 The old stored-analytics commands (`usage`, `performance`, `errors`)
 return empty data — the pipeline behind them was never assembled, and

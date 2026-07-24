@@ -43,8 +43,20 @@ logger = logging.getLogger(__name__)
 # (Image/video generation still use NVIDIA's genai endpoints directly --
 # see generate_image()/generate_video(); making media provider-agnostic
 # is v15 AI Router scope, not this preparation pass.)
-AI_PROVIDER = os.getenv("AI_PROVIDER", "nvidia-nim")
-NIM_BASE_URL = os.getenv("AI_BASE_URL", "https://integrate.api.nvidia.com/v1")
+# v15.1.0-alpha.2: provider config is resolved centrally by
+# core.ai.provider (GLM / NVIDIA-NIM / local presets, env-overridable).
+# Guarded so a resolution problem can never block startup -- it falls back
+# to the historical NIM defaults, which resolve_config() also returns for an
+# empty/NIM environment (byte-identical). Set AI_PROVIDER=glm (or
+# MODEL_MAIN=z-ai/glm-5.2 on NIM) to migrate to GLM 5.2.
+try:
+    from core.ai.provider import resolve_config as _resolve_ai_config
+    _AI_CFG = _resolve_ai_config()
+except Exception:   # pragma: no cover - defensive: never block startup
+    _AI_CFG = None
+AI_PROVIDER = _AI_CFG.provider if _AI_CFG else os.getenv("AI_PROVIDER", "nvidia-nim")
+NIM_BASE_URL = (_AI_CFG.base_url if _AI_CFG
+                else os.getenv("AI_BASE_URL", "https://integrate.api.nvidia.com/v1"))
 
 # ─────────────────────────────────────────────────────────────
 # Default models: NVIDIA NIM — verified working as of July 2026
@@ -60,11 +72,15 @@ NIM_BASE_URL = os.getenv("AI_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 # Primary models (env-overridable; MODEL_REASONING is the public name
 # for what this module historically calls MODEL_THINK)
-MODEL_MAIN   = os.getenv("MODEL_MAIN", "meta/llama-3.3-70b-instruct")
-MODEL_FAST   = os.getenv("MODEL_FAST", "meta/llama-3.1-8b-instruct")
-MODEL_THINK  = os.getenv("MODEL_REASONING", os.getenv("MODEL_THINK",
-                          "meta/llama-3.3-70b-instruct"))
-MODEL_VISION = os.getenv("MODEL_VISION", "meta/llama-3.2-90b-vision-instruct")
+MODEL_MAIN   = (_AI_CFG.model_main if _AI_CFG
+                else os.getenv("MODEL_MAIN", "meta/llama-3.3-70b-instruct"))
+MODEL_FAST   = (_AI_CFG.model_fast if _AI_CFG
+                else os.getenv("MODEL_FAST", "meta/llama-3.1-8b-instruct"))
+MODEL_THINK  = (_AI_CFG.model_reasoning if _AI_CFG
+                else os.getenv("MODEL_REASONING", os.getenv("MODEL_THINK",
+                               "meta/llama-3.3-70b-instruct")))
+MODEL_VISION = (_AI_CFG.model_vision if _AI_CFG
+                else os.getenv("MODEL_VISION", "meta/llama-3.2-90b-vision-instruct"))
 MODEL_IMAGE  = os.getenv("MODEL_IMAGE", "black-forest-labs/flux.1-schnell")
 MODEL_VIDEO  = os.getenv("MODEL_VIDEO", "stabilityai/stable-video-diffusion")
 

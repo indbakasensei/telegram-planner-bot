@@ -69,3 +69,24 @@ _t(
     failure_conditions=("Uses the raw message as the title",
                         "Saves without asking", "Gathering loop never resolves"),
 )
+
+_t(
+    test_id="AI-010", category="AI", feature="Provider migration (GLM 5.2)",
+    introduced_version="v15.1.0-alpha.2", priority=Priority.HIGH,
+    scenario=ScenarioClass.NORMAL, estimated_seconds=45, suites=_QUICK,
+    objective="Switching the AI provider/model in .env takes effect with no "
+              "code change, and the bot still replies.",
+    preconditions="Set the target in .env — GLM native: AI_PROVIDER=glm + "
+                  "GLM_API_KEY; or GLM on NIM: MODEL_MAIN=z-ai/glm-5.2. Restart.",
+    steps=("Run /selftest → AI → 'AI Configuration'",
+           "Run /selftest → AI → 'AI Provider'",
+           "Send: What should I focus on today?"),
+    expected=("'AI Configuration' shows the NEW provider + model + endpoint",
+              "'AI Provider' is online (or WARNING with a working fallback)",
+              "A coherent reply arrives"),
+    failure_conditions=("Config still shows the old provider/model",
+                        "No reply / raw error surfaced"),
+    notes="Provider config is centralized in core/ai/provider.py — flip .env "
+          "only. 'AI Configuration' is an offline probe; 'AI Provider' hits the "
+          "network.",
+)

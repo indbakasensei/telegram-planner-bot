@@ -9,7 +9,52 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.1 — Workspace groups: Telegram photo-journal (current)
+## v15.1.0-alpha.2 — GLM 5.2 migration & AI foundation stabilization (current)
+
+Establishes a reliable, cleanly-abstracted **AI foundation** before the AI
+Intelligence Layer is built on top of it. **Intentionally limited scope:**
+configuration, reliability, and the retrieval + tool *interfaces* — **no
+planner, no tool orchestration** (those are later milestones). Byte-identical
+for existing NVIDIA-NIM deployments; suite **1151 passing** (1131 + 20).
+
+- **New `core/ai/` package (foundation, pure/offline-testable):**
+  - `provider.py` — env → `ProviderConfig` with named **presets**
+    (`nvidia-nim`, `glm`, `local`). Centralizes the provider/model config
+    that was scattered through `baka_brain.py`. Resolving an empty/NIM env
+    returns the historical defaults **byte-for-byte**.
+  - `reliability.py` — a typed error taxonomy (`AITimeout`/`AIRateLimited`/
+    `AIUnavailable`/`AIBadRequest`), `classify_status()`, and
+    `call_with_retry()` with exponential backoff + jitter (injectable
+    sleep/rng, no SDK import).
+  - `retrieval.py` — `Retriever` interface + `NullRetriever` (foundation for
+    future RAG; no implementation yet).
+  - `tools.py` — `Tool` + `ToolSpec` (with `to_openai()`) + `ToolRegistry`
+    (registration-based, ADR-012 style; contract only, no orchestration).
+- **GLM 5.2 migration = configuration, not code.** Two supported paths:
+  set `MODEL_MAIN=z-ai/glm-5.2` on NVIDIA NIM, or `AI_PROVIDER=glm`
+  (+ `GLM_API_KEY`) for the GLM-native endpoint. `baka_brain.py` now
+  resolves provider/model through `core.ai.provider` behind a guard that
+  falls back to the historical NIM defaults, so a config problem can never
+  block startup.
+- **Local provider abstraction:** a `local` preset (Ollama/LM Studio/vLLM at
+  `localhost:11434/v1`, key optional) — swap providers with one env var.
+- **DoD:** `/selftest` → AI gains an offline **AI Configuration** probe
+  (shows the active provider/model/endpoint at a glance — verify a migration
+  without a network call) alongside the live **AI Provider** probe; a new
+  **AI-010** regression spec walks a provider migration; README + `.env`
+  example + `docs/ai_system.md` document GLM 5.2 and the presets.
+
+**Tests:** `tests/test_ai_foundation.py` (20) — provider presets +
+byte-identical NIM defaults + env overrides + key priority; the reliability
+retry/backoff/taxonomy; and the retrieval + tool interfaces.
+
+> **Deliberately deferred to later milestones:** the AI planner, tool
+> orchestration/execution loop, real retrieval (RAG), memory, and offline
+> intelligence. This milestone is the stable base they plug into.
+
+---
+
+## v15.1.0-alpha.1 — Workspace groups: Telegram photo-journal
 
 The **first genuinely usable** Workspace feature, and the one the owner
 actually asked for: mirror a project / game / goal to a **private Telegram

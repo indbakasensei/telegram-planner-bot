@@ -11,6 +11,21 @@ from core.selftest.models import SelfTestFail, SelfTestWarning
 from core.selftest.registry import selftest
 
 
+@selftest(name="AI Configuration", category="AI")
+def check_ai_configuration():
+    """Offline: the provider config resolves cleanly (endpoint + model + a
+    key). Reports the active provider/model so a GLM 5.2 migration is visible
+    at a glance -- no network call."""
+    from core.ai.provider import resolve_config
+    cfg = resolve_config()
+    if not cfg.base_url or not cfg.model_main:
+        raise SelfTestFail("provider config missing base_url or model")
+    if not cfg.has_key:
+        raise SelfTestWarning(
+            f"{cfg.provider} · {cfg.model_main} · no API key set (AI calls will fail)")
+    return f"{cfg.provider} · {cfg.model_main} · {cfg.base_url}"
+
+
 @selftest(name="AI Provider", category="AI")
 def check_ai_provider():
     from baka_brain import check_api_status
