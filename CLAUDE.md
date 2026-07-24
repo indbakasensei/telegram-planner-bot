@@ -87,6 +87,19 @@ stale or broken during the 2026-07 documentation pass.**
 
 ## Definition of Done (v14.23 — permanent rule)
 
+> **⛔ NON-NEGOTIABLE (owner directive, v15.0-rc.2).** Every time you add a
+> **command, capability, or user feature**, you MUST — in the same
+> change-set — update **(a) the README**, **(b) the `/help` menu**
+> (`ui.help_cards`), and **(c) a `/selftest` check** (`core/selftest/tests/`)
+> so the owner can *see how it works* and *run a live test to confirm the
+> bot behaves as planned*. Do not report a feature "done" without these.
+> **This applies even to backend/flag-gated work:** if it has no user
+> command yet, it still needs a Self-Test probe so its health is verifiable
+> from `/selftest`, and README/CHANGELOG must state plainly that it is
+> dormant and how to enable it (the flag) — never imply a dormant feature
+> is usable. The owner should never have to discover a missing help entry or
+> self-test by running the bot.
+
 A **user-visible feature is not complete** until ALL of these exist in
 the same change-set (see [QA_SYSTEM_DESIGN.md](QA_SYSTEM_DESIGN.md) R2):
 

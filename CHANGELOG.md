@@ -9,7 +9,45 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-rc.1 — Release-candidate hardening (current)
+## v15.0-rc.2 — Workspace self-test coverage + DoD tightening (current)
+
+Closes a real gap flagged by the owner: the v15 Workspace OS shipped with
+pytest coverage but **no live `/selftest` health check**, so there was no
+in-bot way to confirm it works as planned. This release adds that, plus a
+hard-delete primitive and a tightened Definition of Done.
+
+- **Live Self-Test checks (`core/selftest/tests/test_workspace.py`)** — a new
+  **Workspace** category in `/selftest`: *Workspace Templates* (all 8
+  built-in + drop-in templates are registered) and *Workspace Engine* (a
+  create → milestone → progress-rollup round-trip against the live DB,
+  cleaned up after itself). Auto-discovered by the runner; run `/selftest`
+  and "Run All" to see them.
+- **`database.delete_workspace(workspace_id, user_id)`** — an additive,
+  ownership-scoped hard delete (workspace + its milestones + notes), so the
+  self-test round-trip leaves no residue. Nothing else calls it and the
+  `WORKSPACE` flag stays OFF, so behavior is unchanged.
+- **Definition of Done tightened (CLAUDE.md):** an explicit owner directive
+  that **every** command/feature must update README + `/help` + a `/selftest`
+  check in the same change-set — and that even backend/flag-gated work needs
+  a Self-Test probe and a plain statement that it is dormant + how to enable
+  it, never implying a dormant feature is usable.
+
+**Status note (important):** the Workspace OS (engine, timeline, sync, and
+the Game/Knowledge/Asset/Project templates) remains **backend-only and
+dormant behind `WORKSPACE=off`** — there are **no user-facing Workspace
+commands yet**, which is why `/help` shows none. Creating/among workspaces
+from Telegram, and any multi-account storage, are **not yet built** and are
+the next user-facing milestone.
+
+**Tests:** `tests/test_workspace_selftest.py` (4) — `delete_workspace` hard
+delete + ownership, and both self-test checks pass and leave no residue.
+Full suite **1121 passing** (1117 + 4). Files: `database.py`,
+`core/selftest/tests/test_workspace.py`, `CLAUDE.md`, `main.py` (version),
+README, new test file.
+
+---
+
+## v15.0-rc.1 — Release-candidate hardening
 
 The final Release Candidate before v15 Stable: a repository-wide cleanup and
 documentation-quality pass making BAKA production-ready as an open-source

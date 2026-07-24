@@ -2590,6 +2590,30 @@ def archive_workspace(workspace_id, user_id):
     update_workspace(workspace_id, user_id, status="archived")
 
 
+def delete_workspace(workspace_id, user_id):
+    """Hard-delete a workspace and its milestones + notes, scoped to the
+    owner. Ownership-checked: removes nothing if the workspace isn't the
+    user's. Returns True iff a workspace row was removed. Unlike
+    archive_workspace (soft), this removes rows -- used by the Self-Test
+    round-trip so it leaves no residue, and available for genuine hard
+    deletes. (v15.0-rc.2)"""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?",
+              (workspace_id, user_id))
+    if c.fetchone() is None:
+        conn.close()
+        return False
+    c.execute("DELETE FROM notes WHERE workspace_id=?", (workspace_id,))
+    c.execute("DELETE FROM milestones WHERE workspace_id=?", (workspace_id,))
+    c.execute("DELETE FROM workspaces WHERE id=? AND user_id=?",
+              (workspace_id, user_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
 # ── Milestones ─────────────────────────────────────────
 def add_milestone(workspace_id, title, goal_id=None, sort_order=0):
     conn = sqlite3.connect(DB_NAME)

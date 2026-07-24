@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-rc.1** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-rc.2** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
