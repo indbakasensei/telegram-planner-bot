@@ -211,7 +211,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.1.0-alpha.2"
+BAKA_VERSION = "15.1.0-alpha.3"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -3761,6 +3761,31 @@ async def think_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # in the adapter layer -- the Workspace OS stays Telegram-agnostic.
 _WS_GROUPS = ws_groups.WorkspaceGroups()
 
+# v15.1.0-alpha.3 Cognitive Engine (Phase 1): /ask reasons over the Workspace
+# via grounded tools (LLM planner routes; answers come only from real data).
+_COGNITIVE = None
+
+
+def _cognitive():
+    global _COGNITIVE
+    if _COGNITIVE is None:
+        from core.ai.cognition import CognitiveEngine
+        from core.ai.llm_planner import LLMPlanner
+        _COGNITIVE = CognitiveEngine(planner=LLMPlanner())
+    return _COGNITIVE
+
+
+async def ask_cmd(update, context):
+    user_id = update.message.from_user.id
+    query = " ".join(context.args).strip()
+    if not query:
+        await update.message.reply_text(
+            "Usage: <code>/ws &lt;question about your workspaces&gt;</code>\n"
+            "e.g. <code>/ws which component is blocked in Drone?</code>", parse_mode=HTML)
+        return
+    res = await asyncio.to_thread(_cognitive().handle, user_id, query)
+    await update.message.reply_text(esc(res.answer), parse_mode=HTML)
+
 
 def _ws_projection(context):
     """A live Telegram projection bound to the running loop (its client calls
@@ -4883,6 +4908,9 @@ def main() -> None:
     app.add_handler(CommandHandler("open", openentity_cmd))
     app.add_handler(CommandHandler("current", current_cmd))
     app.add_handler(CommandHandler("note", note_cmd))
+    # v15.1.0-alpha.3 Cognitive Engine: ask questions about your workspaces
+    app.add_handler(CommandHandler("ws", ask_cmd))
+    app.add_handler(CommandHandler("query", ask_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)

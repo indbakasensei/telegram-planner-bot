@@ -33,3 +33,17 @@ from core.ai.reliability import (  # noqa: F401
 )
 from core.ai.retrieval import Document, NullRetriever, Retriever  # noqa: F401
 from core.ai.tools import Tool, ToolRegistry, ToolSpec  # noqa: F401
+# v15.1.0-alpha.3 Cognitive Engine (Phase 1: planner + tool orchestration).
+from core.ai.cognition import (  # noqa: F401
+    CognitiveContext,
+    CognitiveEngine,
+    CognitiveResult,
+    Plan,
+    Planner,
+    PlanStep,
+    RuleBasedPlanner,
+    ToolResult,
+    execute,
+)
+from core.ai.llm_planner import KNOWN_TOOLS, LLMPlanner  # noqa: F401
+from core.ai.workspace_tools import build_workspace_registry  # noqa: F401

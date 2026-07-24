@@ -9,7 +9,57 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.2 — GLM 5.2 migration & AI foundation stabilization (current)
+## v15.1.0-alpha.3 — Cognitive Engine, Phase 1 (planner & tool orchestration) (current)
+
+Turns BAKA into an assistant that **reasons over the existing Workspace OS**
+— answering questions about your projects/games/goals **without new
+feature-specific commands** — while being structurally unable to make data
+up. Built on the alpha.2 `Tool`/`ToolRegistry` foundation. Suite **1164
+passing** (1151 + 13).
+
+**Separation of responsibilities (the design principle, enforced by
+construction):** the **Planner reasons** (picks which tool answers a
+question), the **Executor executes** (runs it against the Workspace APIs),
+and the **tools ground** (every fact comes from real Workspace state). The
+model only *routes* — it never writes the factual answer — so it **cannot
+hallucinate Workspace data**. The Workspace OS stays the source of truth;
+the AI is the reasoning layer only, never the database or the business logic.
+
+- **`core/ai/workspace_tools.py`** — grounded, read-mostly tools over the
+  Entity Engine: `list_workspaces`, `workspace_overview`, `list_entities`
+  (incl. `status=blocked`), `recent_notes`, and `open_workspace` (the
+  conversation-context write). A tool never invents data — when nothing
+  exists it says so.
+- **`core/ai/cognition.py`** — the Cognitive Engine: `Planner` contract +
+  a deterministic `RuleBasedPlanner`, an `execute()` step runner, and
+  `CognitiveEngine.handle()` which plans → executes → composes the answer
+  **only from tool facts** (empty ⇒ "I don't have that information yet",
+  PART 8). Uses the active workspace (`tg_active_context`) so follow-ups
+  resolve without renaming it (PART 7: "open Drone" → "which component is
+  blocked?").
+- **`core/ai/llm_planner.py`** — production `LLMPlanner` over baka_brain that
+  emits only a `{"tool","args"}` choice (JSON); any AI failure, bad output,
+  or unknown tool falls back to `RuleBasedPlanner`. Injected AI ⇒
+  offline-testable, no live LLM in tests.
+- **New command `/ws` (alias `/query`):** ask a natural-language question
+  about your workspaces — e.g. `/ws which component is blocked in Drone?`.
+- **DoD:** `/help` documents `/ws`; `/selftest` → Workspace gains a
+  **Cognitive Engine** offline probe (grounded answer from seeded data);
+  README + ROADMAP updated.
+
+**Tests:** `tests/test_ai_cognition.py` (12) — grounded tool reads,
+planner routing, end-to-end grounding, conversation-context inference,
+no-fabrication on absent/unknown data, and the LLM planner's route-only +
+safe-fallback behavior; `tests/test_workspace_selftest.py` (+1).
+
+> **Still deferred (later phases):** natural-language routing of *all*
+> free-text (Phase 1 uses the explicit `/ws`), write-action planning,
+> multi-step plans, memory, and real retrieval. This phase is reasoning +
+> tool orchestration over reads.
+
+---
+
+## v15.1.0-alpha.2 — GLM 5.2 migration & AI foundation stabilization
 
 Establishes a reliable, cleanly-abstracted **AI foundation** before the AI
 Intelligence Layer is built on top of it. **Intentionally limited scope:**

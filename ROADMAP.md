@@ -93,8 +93,16 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > reliability retry/backoff + typed-error taxonomy, and the retrieval + tool
 > *interfaces* (foundation only). Byte-identical for NIM. The full **AI
 > Intelligence Layer** (planner, tool orchestration, memory, retrieval,
-> offline intelligence) builds on this in subsequent milestones — explicitly
-> NOT in this one.
+> offline intelligence) builds on this in subsequent milestones.
+>
+> **`v15.1.0-alpha.3` — Cognitive Engine, Phase 1:** planner + tool
+> orchestration over the Workspace OS. `/ws <question>` reasons over real
+> Workspace data via grounded tools (`core/ai/workspace_tools.py`,
+> `cognition.py`, `llm_planner.py`) — the model routes, the tools ground, so
+> answers can't be fabricated; conversation context (active workspace) makes
+> follow-ups work without renaming. **Next phases:** write-action planning,
+> full free-text routing (drop the `/ws` prefix), multi-step plans, memory,
+> and real retrieval (RAG) using the `Retriever` interface.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

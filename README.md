@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.1.0-alpha.2** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.1.0-alpha.3** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -170,6 +170,21 @@ ids live only in the adapter's binding tables, and topics are a
 *visualization* of entities created by the projection adapter. These
 commands are always available and are **not** tied to the `WORKSPACE` flag
 below. First slice; editing/removal and richer entities come next.
+
+### 🧠 Ask about your workspaces (Cognitive Engine, v15.1.0-alpha.3)
+
+```
+/ws which component is blocked in Drone?
+/ws how far along is Drone?
+open Drone   →   /ws what's left to do?      (remembers the active workspace)
+```
+
+`/ws` (alias `/query`) reasons over your **real** Workspace data: an LLM
+**planner** picks which grounded tool answers the question, the **executor**
+runs it against the Workspace APIs, and the answer is composed **only from
+facts** — so it can't make Workspace data up (if something doesn't exist, it
+says so). No feature-specific commands needed. Phase 1 covers read
+questions; write-action planning and full free-text routing come next.
 
 ---
 

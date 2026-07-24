@@ -83,3 +83,28 @@ def check_workspace_groups():
     finally:
         db.delete_workspace(ws.id, SELFTEST_USER_ID)
         db.tg_clear_active(SELFTEST_USER_ID)
+
+
+@selftest(name="Cognitive Engine", category="Workspace")
+def check_cognitive_engine():
+    """The Cognitive Engine answers a question grounded in real Workspace
+    data (offline, deterministic RuleBasedPlanner -- no live LLM): create a
+    blocked entity, then confirm 'what is blocked?' names it. Cleans up."""
+    import database as db
+    from core.ai.cognition import CognitiveEngine
+    from core.workspace.engine import EntityEngine
+    from core.workspace.groups_app import WorkspaceGroups
+
+    app = WorkspaceGroups()
+    eng = EntityEngine()
+    ws = app.create(SELFTEST_USER_ID, "project", "[selftest] cognition")
+    try:
+        m = eng.add_milestone(SELFTEST_USER_ID, ws.id, "[selftest] blocker")
+        eng.transition_milestone(SELFTEST_USER_ID, m.id, "blocked")
+        res = CognitiveEngine().handle(SELFTEST_USER_ID, "what is blocked?")
+        if "[selftest] blocker" not in res.answer:
+            raise SelfTestFail(f"answer not grounded in data: {res.answer!r}")
+        return "cognitive ok · grounded answer routed to a Workspace tool"
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)

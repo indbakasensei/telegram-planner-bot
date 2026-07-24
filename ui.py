@@ -751,6 +751,8 @@ def help_cards(version, user_is_admin):
         f"{code('add <name>')} — add an entity (its own topic)   {code('open <name>')} — focus one",
         f"📷 send a photo + caption — logs progress to the active topic",
         f"{code('note <text>')} — text-only progress   {code('current')} — what's active",
+        f"{code('ws <question>')} — ask about your workspaces (grounded in real",
+        f"data): {i('which component is blocked?')} · {i('how far along is Drone?')}",
     ])
     ai_planning = "\n".join([
         f"{code('think <question>')} — reasoning over your data",
