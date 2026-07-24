@@ -26,3 +26,6 @@ from core.workspace.templates.registry import (  # noqa: F401
 
 # Register the built-ins (side effect on import).
 from core.workspace.templates import builtin  # noqa: E402,F401
+# v15.0-beta.2: the Game reference template registers itself on import
+# (a full new Workspace added as one drop-in module, no OS change).
+from core.workspace.templates import game  # noqa: E402,F401

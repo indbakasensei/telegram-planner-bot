@@ -9,7 +9,45 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-beta.1 — Workspace Activation & Production Wiring (current)
+## v15.0-beta.2 — Game Workspace Template (reference implementation) (current)
+
+Adds the **Game** Workspace as the **reference implementation** for new
+Workspace types. The point is not a game tracker — it's proof that an
+entire new Workspace can be added **without changing the Workspace OS**:
+no edit to the Entity Engine, Orchestrator, Timeline, Sync Engine,
+repositories, models, or the database schema. It plugs in only through the
+existing extension points. Full suite: **1044 passing** (1026 + 18).
+
+- **One drop-in module (`core/workspace/templates/game.py`)** containing
+  the whole template: its **entity/metadata schema** (`FieldSpec` list —
+  platform, status, hours_played, completion `progress`), **validation
+  rules** (`validate_game_metadata` — required/type/enum/range),
+  `normalize_game_metadata` (defaults + int coercion), the registered
+  `WorkspaceTemplate` (🎮, sections objectives/sessions/notes/progress,
+  `PROGRESS_MANUAL`), and a validating `create_game_workspace(engine, …)`
+  helper that raises the OS's own `EntityValidationError` on bad input.
+- **Maps game concepts onto the generic entities** the OS already
+  provides: objectives → milestones, sessions/notes → notes, completion% →
+  the workspace `metadata` (read by the engine's `PROGRESS_MANUAL` model).
+  **No new tables, no new entity types.**
+- **Registration:** `templates/__init__.py` imports `game` (self-registers
+  on import); the minimal placeholder `game` entry was removed from
+  `builtin.py`. The engine/orchestrator/sync/timeline are untouched.
+
+**Tests:** `tests/test_workspace_game_template.py` (18) — registration &
+discovery, metadata schema/defaults, validation (status/hours/progress/
+type/bool), normalization, the validating create helper (valid + rejects
+bad metadata), and the proof points: game progress via the generic manual
+model, objectives as generic milestones, the full
+create → Timeline → Sync pipeline for a game workspace, and an AST check
+that `game.py` imports only the public registry + error surface (never the
+OS internals). Files touched: new `game.py`, `templates/__init__.py`,
+`templates/builtin.py` (placeholder removed), new test file, `main.py`
+(version), docs.
+
+---
+
+## v15.0-beta.1 — Workspace Activation & Production Wiring
 
 **Integration only** — the completed v15 backend (alpha.1–7) is wired into
 the running application, with **no architecture, engine, repository, or

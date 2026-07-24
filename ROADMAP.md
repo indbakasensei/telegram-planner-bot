@@ -39,6 +39,13 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > templates (Game, Books, Research, richer Projects) built on this
 > production-ready platform, plus Workspace UI/commands — see
 > docs/v15/MIGRATION.md §7.
+>
+> **`v15.0-beta.2` — Game template (reference implementation):** the first
+> new Workspace type added on the production platform, proving a full
+> Workspace drops in as one module (`templates/game.py`: schema +
+> validation + registration) with **zero OS changes**. **Next templates**
+> (Books, Courses, Research, Vehicles, Finance, Personal Knowledge) follow
+> this exact pattern, plus Workspace UI/commands.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

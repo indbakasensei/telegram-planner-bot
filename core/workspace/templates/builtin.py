@@ -57,10 +57,8 @@ register(WorkspaceTemplate(
     progress_model=PROGRESS_MANUAL,
 ))
 
-# game -- hobby / playthrough tracker.
-register(WorkspaceTemplate(
-    key="game", label="Game", icon="🎮",
-    sections=("objectives", "notes", "progress"),
-    metadata_fields=("platform", "status"),
-    progress_model=PROGRESS_MANUAL,
-))
+# game -- the reference template (v15.0-beta.2) lives in its own
+# self-contained module (game.py) with an entity/metadata schema and
+# validation rules, registered from there. It is NOT declared here, to
+# demonstrate that a full new Workspace is added as one drop-in file
+# without editing anything else.
