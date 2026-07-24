@@ -35,3 +35,7 @@ from core.workspace.templates import knowledge  # noqa: E402,F401
 # v15.0-beta.4: the Asset template -- one reusable module for ANY physical
 # asset (vehicle/computer/drone/...), still zero OS change.
 from core.workspace.templates import asset  # noqa: E402,F401
+# v15.0-beta.5: the Project template -- execution-focused domain; owns the
+# "project" template (moved out of builtin.py), preserving its shape so the
+# ProjectAdapter bridge is unaffected. Still zero OS change.
+from core.workspace.templates import project  # noqa: E402,F401

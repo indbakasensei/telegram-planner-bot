@@ -9,7 +9,66 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.0-beta.4 — Asset Workspace Template (current)
+## v15.0-beta.5 — Project Workspace Template (current)
+
+Adds the **Project** Workspace template — the fourth application of the
+beta.2 drop-in pattern, validating the extension model against an
+**execution-focused domain** (a project driven to completion through a
+milestone pipeline). Still **zero OS changes**: no edit to the Entity
+Engine, Orchestrator, Timeline, Sync Engine, repositories, models, or the
+database schema. This milestone also **takes ownership of the `project`
+template** — moving it out of `builtin.py` into its own module, exactly as
+beta.2 did for `game` — while preserving its shape so the alpha.3
+`ProjectAdapter` bridge is unaffected. Full suite: **1115 passing**
+(1092 + 23).
+
+- **One drop-in module (`core/workspace/templates/project.py`)**, same
+  shape as the other templates: its **entity/metadata schema** (`FieldSpec`
+  list — `status` and `priority` enums, optional free-form `target_date`),
+  **validation** (`validate_project_metadata` — enum membership, string
+  types), **normalization** (`normalize_project_metadata` — fills enum
+  defaults, lowercases/trims enums, trims strings), the registered
+  `WorkspaceTemplate` (🛠, sections goals/milestones/tasks/materials/worklog/
+  files, the Research→Documentation default milestone pipeline,
+  `PROGRESS_MILESTONES`), and a validating
+  `create_project_workspace(engine, …)` helper that **normalizes then
+  validates** (accepts `'Active'` / `' high '`), seeds the default pipeline
+  by default (execution focus), and raises the OS's own
+  `EntityValidationError` on bad input.
+- **Migration (template ownership moved, shape preserved):** the minimal
+  `project` entry was removed from `builtin.py` and re-registered from
+  `project.py` with an **identical** icon (🛠), sections, default milestones
+  (`Research/Design/Prototype/Testing/Documentation`), and progress model —
+  so `templates.get("project").default_milestones` and the alpha.3
+  `ProjectAdapter` (which creates `template='project'` workspaces for the
+  v14 Project↔Workspace bridge) keep working unchanged. Statuses:
+  planning/active/on_hold/completed/cancelled; priorities:
+  low/medium/high/critical.
+- **Maps project concepts onto the generic entities**: phases/tasks →
+  milestones, decisions/worklog → notes, categories → tags, history → the
+  append-only Timeline, and **execution progress → the generic
+  `PROGRESS_MILESTONES` rollup** (% of milestones done). **No new tables, no
+  new entity types.**
+- **Registration:** `templates/__init__.py` imports `project`
+  (self-registers), alongside `game`, `knowledge`, `asset` — four
+  independent drop-in templates now coexist.
+
+**Tests:** `tests/test_workspace_project_template.py` (23) — registration,
+the **migration-preserved shape** (icon/sections/default pipeline/progress
+model unchanged), the "builtins present" guarantee still holds, coexistence
+with the other templates, metadata schema/defaults, validation, enum +
+string normalization, the create helper (seeds pipeline / no-seed /
+mixed-case enums / rejects bad status), execution progress as the milestone
+rollup, the **generic AI orchestrator** driving a project workspace, the
+**alpha.3 `ProjectAdapter` bridge still creating project workspaces**
+post-migration, the full create → Timeline → Sync pipeline, and an AST
+purity check. Files touched: new `project.py`, `templates/builtin.py`
+(project entry removed), `templates/__init__.py`, new test file, `main.py`
+(version), docs.
+
+---
+
+## v15.0-beta.4 — Asset Workspace Template
 
 Adds the **Asset** Workspace — the third and broadest application of the
 beta.2 drop-in pattern: **one reusable template for any owned physical

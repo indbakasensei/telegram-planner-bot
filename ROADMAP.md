@@ -57,8 +57,16 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > `metadata['asset_type']`; maintenance → milestones, service records →
 > notes, components → tags, ownership/maintenance history → Timeline,
 > maintenance completion via `PROGRESS_MILESTONES`), with no per-type logic
-> and **zero OS changes**. Three independent drop-in templates now coexist,
-> firmly validating the extension model. **The Workspace OS is frozen.**
+> and **zero OS changes**.
+>
+> **`v15.0-beta.5` — Project template:** the pattern applied a fourth time,
+> to an **execution-focused domain** (`templates/project.py`: 🛠 a project
+> driven through the Research→Documentation milestone pipeline; phases/tasks
+> → milestones, worklog → notes, execution % via `PROGRESS_MILESTONES`).
+> This milestone also **took ownership of the `project` template** — moved
+> out of `builtin.py` into its own module (as beta.2 did for `game`), shape
+> preserved so the alpha.3 `ProjectAdapter` bridge is unaffected. Four
+> independent drop-in templates now coexist. **The Workspace OS is frozen.**
 > **Next templates** (Finance, Personal Knowledge, …) follow this exact
 > pattern, plus Workspace UI/commands.
 

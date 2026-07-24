@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.0-beta.4** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.0-beta.5** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -102,7 +102,7 @@ inert: empty tables, no handlers, byte-identical to v14.
 | **AI Orchestrator** | `core/workspace/orchestrator.py` | **Generic NL → validated engine op: interpret → select workspace → resolve entity → safety gate → apply. AI injected as an `Interpreter` (no live LLM import); template-agnostic** |
 | **LLM Interpreter** | `core/workspace/llm_interpreter.py` | Production `Interpreter` over `baka_brain` (lazy) → JSON `Proposal`; falls back to `RuleBasedInterpreter` on any AI failure |
 | **Production wiring** | `core/workspace/app.py` | `process_message` (handler entry), `SyncWorker` + `register_workers` (scheduler), `make_telegram_sender` (async bridge) — all flag-gated |
-| **Templates** (Game 🎮, Knowledge 🧠, Asset 📦) | `core/workspace/templates/*.py` | Each Workspace type is one drop-in module — schema + validation + a registered `WorkspaceTemplate` — added **without touching the OS**. `game.py` (🎮) is the reference; `knowledge.py` (🧠) applies the shape to an educational domain; `asset.py` (📦) is one reusable template for **any** physical asset (kind = `metadata['asset_type']`); future ones follow it too |
+| **Templates** (Game 🎮, Knowledge 🧠, Asset 📦, Project 🛠) | `core/workspace/templates/*.py` | Each Workspace type is one drop-in module — schema + validation + a registered `WorkspaceTemplate` — added **without touching the OS**. `game.py` (🎮) is the reference; `knowledge.py` (🧠) an educational domain; `asset.py` (📦) one reusable template for **any** physical asset (kind = `metadata['asset_type']`); `project.py` (🛠) an execution-focused project (milestone pipeline, `PROGRESS_MILESTONES`); future ones follow it too |
 | Feature flag | `core/feature_flags.py` | `WORKSPACE` — default OFF (activates the whole pipeline when ON) |
 
 **Adding a Workspace type** (the beta.2 pattern, `game.py`): declare a
@@ -117,9 +117,12 @@ notes, mastery% → `metadata`). **`asset.py` (beta.4)** is the third and
 broadest: one reusable template for **any** physical asset — the kind is
 just `metadata['asset_type']` (vehicle/computer/drone/…), maintenance →
 milestones, service records → notes, components → tags, and maintenance
-completion via `PROGRESS_MILESTONES`. Three independent drop-in templates
-now coexist, confirming the extension model — and the **Workspace OS is
-frozen**.
+completion via `PROGRESS_MILESTONES`. **`project.py` (beta.5)** applies it
+to an execution-focused project (Research→Documentation milestone pipeline,
+execution % via `PROGRESS_MILESTONES`) and took ownership of the `project`
+template out of `builtin.py`, shape preserved so the `ProjectAdapter` bridge
+is unaffected. Four independent drop-in templates now coexist, confirming
+the extension model — and the **Workspace OS is frozen**.
 
 When `WORKSPACE` is ON, a Project is a `template='project'` workspace whose
 backing goal (via `goals.workspace_id`) still owns its materials/worklog —

@@ -25,14 +25,13 @@ register(WorkspaceTemplate(
     progress_model=PROGRESS_MILESTONES,
 ))
 
-# project -- the v14 "project" (goal + materials + worklog) as a workspace.
-register(WorkspaceTemplate(
-    key="project", label="Project", icon="🛠",
-    sections=("goals", "milestones", "tasks", "materials", "worklog", "files"),
-    default_milestones=("Research", "Design", "Prototype", "Testing", "Documentation"),
-    metadata_fields=("status", "target_date"),
-    progress_model=PROGRESS_MILESTONES,
-))
+# project -- the execution-focused Project template (v15.0-beta.5) lives in
+# its own self-contained module (project.py) with an entity/metadata schema,
+# validation, normalization, and a validating create helper, registered from
+# there. Its shape (icon 🛠, sections, the Research→Documentation default
+# milestones, PROGRESS_MILESTONES) is preserved exactly, so the alpha.3
+# ProjectAdapter bridge keeps working. It is NOT declared here (same as the
+# game/knowledge/asset drop-in templates).
 
 # book -- reading tracker.
 register(WorkspaceTemplate(
