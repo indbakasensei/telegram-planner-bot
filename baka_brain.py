@@ -83,6 +83,24 @@ MODEL_THINK  = (_AI_CFG.model_reasoning if _AI_CFG
                                "z-ai/glm-5.2")))
 MODEL_VISION = (_AI_CFG.model_vision if _AI_CFG
                 else os.getenv("MODEL_VISION", "meta/llama-3.2-90b-vision-instruct"))
+
+# v15.1.0-alpha.6: the model for the HOT, latency-sensitive chat + intent
+# path (get_baka_response, run on every plain message). A slow reasoning main
+# model (e.g. z-ai/glm-5.2, which is currently >30s-to-first-token on NVIDIA
+# NIM) makes ordinary chat unusable, so this path defaults to MODEL_FAST and
+# is configurable:
+#   CHAT_MODEL=fast   (default) -- MODEL_FAST answers chat/intent (snappy)
+#   CHAT_MODEL=main             -- MODEL_MAIN answers chat too (only if fast)
+#   CHAT_MODEL=<any model id>   -- use that model explicitly
+# Deep reasoning (/think, /ws, plans, breakdowns) always uses MODEL_MAIN /
+# MODEL_THINK, so GLM 5.2 remains the bot's reasoning brain.
+_chat_model = os.getenv("CHAT_MODEL", "fast").strip()
+if _chat_model.lower() == "fast":
+    CHAT_MODEL = MODEL_FAST
+elif _chat_model.lower() == "main":
+    CHAT_MODEL = MODEL_MAIN
+else:
+    CHAT_MODEL = _chat_model
 MODEL_IMAGE  = os.getenv("MODEL_IMAGE", "black-forest-labs/flux.1-schnell")
 MODEL_VIDEO  = os.getenv("MODEL_VIDEO", "stabilityai/stable-video-diffusion")
 
@@ -173,7 +191,7 @@ def _is_model_dead(exc: Exception, err_str: str) -> bool:
 
 def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
                 request_type="INTENT_DETECTION", user_id=None,
-                timeout: float = TIMEOUT_FAST_CHAT) -> str:
+                timeout: float = TIMEOUT_FAST_CHAT, model: str = None) -> str:
     """Legacy call function — defaults to MODEL_MAIN. v11.1: now logs to analytics.
 
     v13.3.1: retries MODEL_MAIN per the configured policy (3 attempts,
@@ -195,13 +213,14 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
     """
     import time as _time
     start = _time.time()
+    primary = model or MODEL_MAIN     # allow a per-call model (e.g. fast chat)
     last_err = None
     last_exc = None
     fallback_worthy = False
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
-                model=MODEL_MAIN,
+                model=primary,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -243,8 +262,8 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
     # immediately, if warranted -- never for an error that isn't
     # recognized as "model dead" (e.g. a bad-request/auth error would
     # likely fail on FAST too, so falling back would be pointless).
-    if fallback_worthy and MODEL_MAIN != MODEL_FAST:
-        logger.warning(f"MAIN model {MODEL_MAIN} is unavailable ({last_err[:80]}). "
+    if fallback_worthy and primary != MODEL_FAST:
+        logger.warning(f"Model {primary} is unavailable ({last_err[:80]}). "
                        f"Falling back to {MODEL_FAST}.")
         try:
             fb = client.chat.completions.create(
@@ -280,7 +299,7 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
     try:
         from analytics import log_ai_request
         log_ai_request(
-            model_name=MODEL_MAIN,
+            model_name=primary,
             latency_ms=round((_time.time() - start) * 1000),
             status="error",
             user_id=user_id,
@@ -423,7 +442,8 @@ For MULTIPLE intent, populate tasks array:
         content = call_nvidia([
             {"role": "system", "content": system},
             {"role": "user", "content": user_input}
-        ], temperature=0.1, request_type="INTENT_DETECTION", user_id=user_id)
+        ], temperature=0.1, request_type="INTENT_DETECTION", user_id=user_id,
+           model=CHAT_MODEL)   # hot path uses the fast chat model, not slow GLM 5.2
 
         cleaned = clean_json(content)
         result = json.loads(cleaned)

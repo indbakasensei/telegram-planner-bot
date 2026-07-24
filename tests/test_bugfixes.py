@@ -80,3 +80,13 @@ def test_chat_timeout_has_headroom_for_reasoning_model():
     assert baka_brain.TIMEOUT_LONG_REASONING >= baka_brain.TIMEOUT_FAST_CHAT
     # the SDK ceiling must sit at/above the longest per-call tier
     assert baka_brain.client.timeout >= baka_brain.TIMEOUT_LONG_REASONING
+
+
+def test_hot_chat_path_does_not_default_to_slow_main_model():
+    # The interactive chat/intent path must not default to the (slow) GLM 5.2
+    # main model, or every message stalls; it uses the fast model by default.
+    import baka_brain
+    assert baka_brain.CHAT_MODEL == baka_brain.MODEL_FAST
+    # ...while reasoning still uses the main model.
+    assert baka_brain.MODEL_MAIN != baka_brain.CHAT_MODEL or \
+        baka_brain.MODEL_MAIN == baka_brain.MODEL_FAST

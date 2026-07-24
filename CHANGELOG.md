@@ -9,7 +9,33 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.6 — Fix GLM 5.2 chat timeouts (current)
+## v15.1.0-alpha.7 — Responsive chat while GLM 5.2 stays the reasoning brain (current)
+
+Follow-up to alpha.6: raising the timeout wasn't enough — a **10-token
+liveness probe** to `z-ai/glm-5.2` on NVIDIA NIM still exceeded **30s**,
+i.e. that endpoint is genuinely degraded (>30s time-to-first-token), which
+no client-side timeout can fix. Using a slow reasoning model for *every*
+"hey" is also poor UX regardless. So the hot path is now split from the
+reasoning path:
+
+- **New `CHAT_MODEL` (baka_brain.py):** the latency-sensitive chat + intent
+  path (`get_baka_response`, every plain message) now uses a **fast model**
+  by default (`CHAT_MODEL=fast` → `MODEL_FAST`), so replies are snappy even
+  when the main model is slow/degraded. **Deep reasoning (`/think`, `/ws`,
+  plans, breakdowns) still uses `MODEL_MAIN`/`MODEL_THINK` = GLM 5.2**, so
+  GLM 5.2 remains the reasoning brain. Configurable: `CHAT_MODEL=main` (use
+  GLM for chat too, only if it's fast) or `CHAT_MODEL=<any model id>`.
+- `call_nvidia` gained a `model=` override (defaults to `MODEL_MAIN`); its
+  fallback logging now reports the actual model tried.
+- **For fast GLM 5.2 everywhere**, use the GLM-native endpoint
+  (`AI_PROVIDER=glm` + `GLM_API_KEY`) instead of NVIDIA NIM's degraded
+  `z-ai/glm-5.2`, or set `CHAT_MODEL=meta/llama-3.3-70b-instruct` for a
+  faster+capable chat model on NIM.
+- Test locks that the hot path never defaults to the slow main model.
+
+---
+
+## v15.1.0-alpha.6 — Fix GLM 5.2 chat timeouts
 
 **Fixes GLM 5.2 timing out on every message.** After alpha.4 made
 `z-ai/glm-5.2` the default model, ordinary chat began falling back to
