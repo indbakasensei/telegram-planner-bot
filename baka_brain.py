@@ -718,6 +718,15 @@ def call_think(messages: list, temperature=0.6, max_tokens=800,
     text, _, _ = _call_model(MODEL_THINK, messages, temperature, max_tokens, 0.95,
                               "THINK", request_type=request_type, user_id=user_id,
                               timeout=TIMEOUT_LONG_REASONING)
+    # DBG-0001/0002: /think used to give up with "I had trouble thinking..."
+    # whenever MODEL_THINK returned nothing (degraded/empty). Fall back once
+    # to MODEL_FAST (the reliability model) before surfacing an error, exactly
+    # like call_nvidia's MAIN→FAST fallback.
+    if not text and MODEL_FAST != MODEL_THINK:
+        logger.warning(f"THINK model {MODEL_THINK} returned empty — falling back to {MODEL_FAST}.")
+        text, _, _ = _call_model(MODEL_FAST, messages, temperature, max_tokens, 0.95,
+                                  "THINK", request_type=request_type, user_id=user_id,
+                                  timeout=TIMEOUT_LONG_REASONING)
     return text or "I had trouble thinking through that."
 
 

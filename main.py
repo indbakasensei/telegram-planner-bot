@@ -15,7 +15,8 @@ from database import (
     init_db, add_task, get_tasks, get_tasks_by_date, get_tasks_by_week,
     mark_done, delete_task, update_task, get_task_by_id,
     search_tasks_by_title, task_exists,
-    save_memory, get_memory, get_all_memories, search_memories, delete_memory,
+    save_memory, get_memory, get_all_memories, search_memories,
+    search_memories_smart, delete_memory,
     add_goal, get_goals, get_goals_full, update_goal_progress, get_done_today_count,
     snooze_task, postpone_task, pause_task, resume_task,
     mark_reminded, get_paused_tasks,
@@ -211,7 +212,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.1.0-alpha.4"
+BAKA_VERSION = "15.1.0-alpha.5"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -1665,24 +1666,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif intent == "MEMORY_GET":
         query = result.get("memory_key") or entities.get("title") or user_input
-        results = search_memories(user_id, query)
+        # DBG-0006: keyword-aware search — a full question ("When is my exam?")
+        # falls back to its keyword ("exam") instead of matching nothing and
+        # dumping every memory.
+        results = search_memories_smart(user_id, query)
         if results:
             msg = "🧠 *Found in memory:*\n\n"
             for k, v in results:
                 msg += f"• *{k}*: {v}\n"
             await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
+        elif get_all_memories(user_id):
+            await update.message.reply_text(
+                "🧠 I couldn't find a memory about that. "
+                "Send /memory to see everything you've saved.",
+                reply_markup=main_menu())
         else:
-            all_mem = get_all_memories(user_id)
-            if all_mem:
-                msg = "🧠 *All your memories:*\n\n"
-                for k, v in all_mem:
-                    msg += f"• *{k}*: {v}\n"
-                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=main_menu())
-            else:
-                await update.message.reply_text(
-                    "🧠 No memories stored yet. Tell me things to remember!",
-                    reply_markup=main_menu()
-                )
+            await update.message.reply_text(
+                "🧠 No memories stored yet. Tell me things to remember!",
+                reply_markup=main_menu())
 
     elif intent == "PLAN":
         # v4.0: route to /plan command with smart period detection
@@ -1693,6 +1694,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif intent == "GOAL":
         title = entities.get("title") or user_input
         deadline = entities.get("date")
+        if not deadline:
+            # DBG-0004: derive a deadline from the phrasing (e.g. "this year"
+            # → 31 Dec) when the AI didn't extract one.
+            from date_parser import parse_date as _parse_date
+            deadline, _ = _parse_date(user_input)
         gid = add_goal(user_id, title, deadline)
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("🎯 View Goals", callback_data="dash:goals"),

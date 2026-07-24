@@ -35,9 +35,10 @@ _t(
     expected=("The stored favourite colour is 'red'",
               "There is ONE favourite-colour memory, not two"),
     failure_conditions=("Both blue and red persist under different keys"),
-    related_bugs=("BUG-007",),
-    notes="Known bug: the AI may vary the key ('favorite color' vs "
-          "'favorite_color'), keeping both. Guards the regression.",
+    related_bugs=("BUG-007", "DBG-0005"),
+    notes="The AI may vary the key ('favorite color' vs 'favorite_color'); "
+          "save_memory now collapses variants via _normalize_memory_key. "
+          "Guards the regression.",
 )
 
 _t(
@@ -49,6 +50,21 @@ _t(
     steps=("Send: forget exam", "Send: When is my exam?"),
     expected=("Deletion acknowledged", "Retrieval now finds nothing"),
     failure_conditions=("Still retrievable after forget"),
+)
+
+_t(
+    test_id="MEM-004", category="Memory", feature="Keyword memory question",
+    introduced_version="v15.1.0-alpha.5", priority=Priority.HIGH,
+    scenario=ScenarioClass.NORMAL, estimated_seconds=30, suites=_QUICK,
+    objective="A natural question finds the relevant memory, not all of them.",
+    preconditions="Several memories exist, including 'exam' and others.",
+    steps=("Send: When is my exam?",),
+    expected=("Shows ONLY the exam memory (matched by the 'exam' keyword)",
+              "Does NOT dump every memory; if truly absent, says so"),
+    failure_conditions=("Dumps all memories", "Says nothing found when exam exists"),
+    related_bugs=("DBG-0006",),
+    notes="search_memories_smart strips question words and falls back to "
+          "keyword search.",
 )
 
 # ── Settings ──────────────────────────────────────────────────────────────

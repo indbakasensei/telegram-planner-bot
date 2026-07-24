@@ -4,6 +4,7 @@ English + Hindi + Hinglish. Tests 1-6, 10-16, 39, 40 coverage.
 Bug 2 fix: bare "X baje" (no context word) is flagged as ambiguous
 instead of silently defaulting to AM.
 """
+import calendar
 import re
 from datetime import datetime, timedelta
 import pytz
@@ -48,6 +49,20 @@ def parse_date(text: str, now: datetime = None) -> tuple:
 
     if re.search(r'\b(today|aaj|aj|tonight|abhi|is raat|is shaam|aaj raat)\b', t):
         return now.strftime("%Y-%m-%d"), None
+
+    # Period-end phrases → the LAST day of that period (v15.1.0-alpha.5,
+    # DBG-0004). "read 12 books this year" means a deadline of 31 Dec; "by
+    # month end" → last day of the month; "by end of week" → Sunday. Placed
+    # early so a bare year/number elsewhere can't misparse first.
+    if re.search(r'\bnext year\b', t):
+        return now.replace(year=now.year + 1, month=12, day=31).strftime("%Y-%m-%d"), None
+    if re.search(r'\b(this year|by (the )?year[ -]?end|end of (the |this )?year)\b', t):
+        return now.replace(month=12, day=31).strftime("%Y-%m-%d"), None
+    if re.search(r'\b(this month|by (the )?month[ -]?end|end of (the |this )?month)\b', t):
+        last = calendar.monthrange(now.year, now.month)[1]
+        return now.replace(day=last).strftime("%Y-%m-%d"), None
+    if re.search(r'\b(this week|by (the )?week[ -]end|end of (the |this )?week)\b', t):
+        return (now + timedelta(days=6 - now.weekday())).strftime("%Y-%m-%d"), None
 
     # NOTE: these three checks must run in this order, before the plain
     # "tomorrow" check below. "day after tomorrow" contains the substring

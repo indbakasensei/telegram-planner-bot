@@ -581,6 +581,37 @@ def search_memories(user_id, query):
     conn.close()
     return memories
 
+
+# Question words to strip when a whole question ("When is my exam?") is used
+# as a memory query -- so it falls back to the real keyword ("exam").
+_MEM_STOPWORDS = frozenset({
+    "when", "what", "whats", "whens", "where", "who", "which", "why", "how",
+    "is", "are", "am", "was", "were", "my", "the", "a", "an", "of", "for",
+    "on", "in", "to", "me", "you", "do", "does", "did", "have", "has", "had",
+    "tell", "show", "about", "please", "that", "this", "it", "i", "again",
+})
+
+
+def search_memories_smart(user_id, query):
+    """Search memories by the full query, then fall back to significant
+    keywords so a natural question ("When is my exam?") still finds the
+    'exam' memory instead of matching nothing (DBG-0006). Returns a
+    de-duplicated [(key, value)] list, or [] if nothing matches -- callers
+    should NOT dump all memories on empty."""
+    direct = search_memories(user_id, query)
+    if direct:
+        return direct
+    import re as _re
+    words = [w for w in _re.findall(r"[a-z0-9]+", (query or "").lower())
+             if len(w) > 2 and w not in _MEM_STOPWORDS]
+    seen, out = set(), []
+    for w in words:
+        for k, v in search_memories(user_id, w):
+            if (k, v) not in seen:
+                seen.add((k, v))
+                out.append((k, v))
+    return out
+
 def delete_memory(user_id, key):
     # v14.26: delete every row whose key normalizes to the requested one
     # (handles separator variants and any leftover duplicates).

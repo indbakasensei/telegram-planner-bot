@@ -25,6 +25,21 @@ _t(
     notes="Goal progress ± is covered by DASH-003 (dashboard inline buttons).",
 )
 
+_t(
+    test_id="GOAL-002", category="Goals", feature="Period-end goal deadline",
+    introduced_version="v15.1.0-alpha.5", priority=Priority.HIGH,
+    scenario=ScenarioClass.NORMAL, estimated_seconds=30, suites=_QUICK,
+    objective="A 'this year' goal gets a 31-Dec deadline (not 'No deadline').",
+    preconditions="Idle state.",
+    steps=("Send: I want to read 12 books this year", "Send: goals"),
+    expected=("Goal created with Deadline = 31 Dec of the current year",
+              "The goals dashboard shows that deadline"),
+    failure_conditions=("Deadline: No deadline", "Wrong date"),
+    related_bugs=("DBG-0004",),
+    notes="Also covers 'by month end' → last day of month and 'next year'. "
+          "Deterministic fallback in date_parser.parse_date.",
+)
+
 # ── Projects ──────────────────────────────────────────────────────────────
 _t(
     test_id="PROJ-001", category="Projects", feature="Project creation",

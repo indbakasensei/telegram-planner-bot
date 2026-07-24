@@ -33,6 +33,8 @@ CATEGORIES: tuple[str, ...] = (
     "Performance",
     "Security",
     "Documentation",
+    # v15.1: Workspace groups (Telegram photo-journal) + Cognitive Engine.
+    "Workspace Groups",
 )
 
 _CATEGORY_SET = frozenset(CATEGORIES)

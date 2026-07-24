@@ -9,7 +9,44 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.4 — GLM 5.2 is now the default model on NVIDIA NIM (current)
+## v15.1.0-alpha.5 — Bug-database fixes + manual regression coverage (current)
+
+Fixes the genuine defects logged in the bug database (`DBG-####`) during the
+2026-07-22 regression run, and grows the manual Quick Release Suite to cover
+everything through v15.1. Suite **1172 passing** (1164 + 8).
+
+**Fixes (with automated regression tests, `tests/test_bugfixes.py`):**
+- **DBG-0004** — a goal phrased "…this year" now gets a **31-Dec deadline**
+  instead of "No deadline". Added period-end parsing to
+  `date_parser.parse_date` ("this year" → Dec 31, "by month end" → last day
+  of month, "next year", "by end of week" → Sunday), and the GOAL handler
+  falls back to it when the AI extracts no date.
+- **DBG-0006** — a natural question like "When is my exam?" now finds the
+  **exam** memory via keyword search (`search_memories_smart` strips question
+  words), instead of matching nothing and **dumping every memory**. On no
+  match it says so rather than dumping all.
+- **DBG-0001 / DBG-0002** — `/think` no longer gives up with "I had trouble
+  thinking…" the moment its model returns empty: `call_think` now **falls
+  back once to `MODEL_FAST`** (the reliability model), mirroring
+  `call_nvidia`'s MAIN→FAST fallback. (The original reports coincided with a
+  degraded model; this makes the path resilient.)
+- **DBG-0005** — verified already fixed in v14.26 (`_normalize_memory_key`
+  collapses "favorite color"/"favorite_color"); added a lock test.
+- Marked DBG-0001/0002/0004/0005/0006 **resolved** in the bug tracker.
+  DBG-0007–0010 remain **open as feature requests** (NL project creation,
+  manual goal milestones/sub-goals, per-user interval by id, multi-task
+  split with per-task times) — not defects, tracked for future milestones.
+
+**Manual regression coverage (Quick Release Suite):** new
+`core/regression/suites/workspace_v151.py` — **WSG-001…004** (create
+workspace, link group, add entity→topic, photo journal), **WSQ-001/002**
+(grounded `/ws` answer, conversation context), **AI-011** (GLM 5.2 default);
+plus **GOAL-002** (this-year deadline, DBG-0004) and **MEM-004** (keyword
+memory question, DBG-0006). New regression category **"Workspace Groups"**.
+
+---
+
+## v15.1.0-alpha.4 — GLM 5.2 is now the default model on NVIDIA NIM
 
 Completes the alpha.2 GLM 5.2 migration: alpha.2 made GLM 5.2 *available*
 but left the default as Llama (opt-in via `.env`), so the running bot still
