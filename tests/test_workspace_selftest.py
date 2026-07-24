@@ -53,3 +53,10 @@ def test_selftest_cognitive_check_passes_and_cleans_up(temp_db):
     msg = check_cognitive_engine()
     assert "cognitive ok" in msg
     assert db.get_workspaces(SELFTEST_USER_ID) == []
+
+
+def test_selftest_retrieval_check_passes_and_cleans_up(temp_db):
+    from core.selftest.tests.test_workspace import check_workspace_retrieval
+    msg = check_workspace_retrieval()
+    assert "retrieval ok" in msg
+    assert db.get_workspaces(SELFTEST_USER_ID) == []

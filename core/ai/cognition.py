@@ -87,6 +87,12 @@ class RuleBasedPlanner(Planner):
 
         if any(k in low for k in ("open ", "switch to", "go to", "use ")) and ref:
             return Plan((PlanStep("open_workspace", {"workspace": ref}),), "open")
+        # Broad/recall questions → retrieve related context across everything
+        # stored, rather than a single precise field (v15.1.0-alpha.8).
+        if any(k in low for k in ("tell me about", "what do i know", "what do you know",
+                                  "anything about", "anything on", "know about",
+                                  "search", "find ", "recall", "remind me")):
+            return Plan((PlanStep("recall", {"query": text}),), "recall")
         if "blocked" in low or "stuck" in low:
             return Plan((PlanStep("list_entities",
                                   {"workspace": ref, "status": "blocked"}),), "blocked")
@@ -100,8 +106,11 @@ class RuleBasedPlanner(Planner):
         if any(k in low for k in ("component", "entit", "character", "milestone",
                                   "what's in", "whats in", "what is in", "parts")):
             return Plan((PlanStep("list_entities", {"workspace": ref}),), "entities")
-        # default: an overview of the referenced/active workspace
-        return Plan((PlanStep("workspace_overview", {"workspace": ref}),), "overview")
+        # A named workspace with no specific ask → its overview; otherwise a
+        # broad question → retrieve related context rather than guess.
+        if ref:
+            return Plan((PlanStep("workspace_overview", {"workspace": ref}),), "overview")
+        return Plan((PlanStep("recall", {"query": text}),), "recall")
 
     @staticmethod
     def _extract_ref(low, titles):

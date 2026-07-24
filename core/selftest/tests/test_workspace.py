@@ -108,3 +108,23 @@ def check_cognitive_engine():
     finally:
         db.delete_workspace(ws.id, SELFTEST_USER_ID)
         db.tg_clear_active(SELFTEST_USER_ID)
+
+
+@selftest(name="Workspace Retrieval", category="Workspace")
+def check_workspace_retrieval():
+    """Real retrieval finds a stored note by keyword across workspace data
+    (offline). Creates a workspace + note, retrieves it, cleans up."""
+    import database as db
+    from core.ai.workspace_retriever import WorkspaceRetriever
+    from core.workspace.groups_app import WorkspaceGroups
+
+    ws = WorkspaceGroups().create(SELFTEST_USER_ID, "game", "[selftest] retrieval")
+    try:
+        db.add_note(ws.id, "[selftest] Teardrop Crystal talent domain note")
+        docs = WorkspaceRetriever(SELFTEST_USER_ID).retrieve("Teardrop Crystal domain")
+        if not any("Teardrop" in d.text for d in docs):
+            raise SelfTestFail("retriever did not find the stored note")
+        return f"retrieval ok · {len(docs)} related item(s) found"
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)

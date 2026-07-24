@@ -753,6 +753,8 @@ def help_cards(version, user_is_admin):
         f"{code('note <text>')} — text-only progress   {code('current')} — what's active",
         f"{code('ws <question>')} — ask about your workspaces (grounded in real",
         f"data): {i('which component is blocked?')} · {i('how far along is Drone?')}",
+        f"…also broad recall: {i('what do I know about Hu Tao?')} — searches",
+        f"everything you've stored (entities + notes) and answers from it",
     ])
     ai_planning = "\n".join([
         f"{code('think <question>')} — reasoning over your data",

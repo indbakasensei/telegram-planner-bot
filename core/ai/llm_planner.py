@@ -20,10 +20,10 @@ import re
 
 from core.ai.cognition import Plan, PlanStep, Planner, RuleBasedPlanner
 
-# The fixed Phase-1 tool catalogue the model may choose from.
+# The fixed tool catalogue the model may choose from.
 KNOWN_TOOLS = {
     "list_workspaces", "workspace_overview", "list_entities",
-    "recent_notes", "open_workspace",
+    "recent_notes", "open_workspace", "recall",
 }
 
 _SYSTEM_PROMPT = """You route a user's question about their Workspaces to ONE tool.
@@ -35,11 +35,13 @@ Tools:
 - list_entities(workspace?, status?)      entities/components; status: todo|in_progress|done|blocked
 - recent_notes(workspace?)                latest progress notes
 - open_workspace(workspace)               set the active workspace
+- recall(query)                           SEARCH everything stored (entities, notes) for related info
 
 Rules:
 - Omit "workspace" to use the active one (from context).
+- For broad/open questions ("what do I know about X", "tell me about X"), use recall with the user's question as query.
 - Reply with ONLY JSON: {"tool": "<name>", "args": {...}}
-- If unsure, use workspace_overview.
+- If unsure, use recall with the question as query.
 """
 
 

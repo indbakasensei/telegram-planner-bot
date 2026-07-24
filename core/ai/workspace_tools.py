@@ -172,9 +172,13 @@ class OpenWorkspaceTool(_WSTool):
 def build_workspace_registry(engine, user_id, active_ws_id=None,
                              storage=None) -> ToolRegistry:
     """A per-request registry of grounded Workspace tools bound to this user
-    and active workspace."""
+    and active workspace. Includes the retrieval-backed `recall` tool for
+    broad questions (v15.1.0-alpha.8)."""
     reg = ToolRegistry()
     for cls in (ListWorkspacesTool, WorkspaceOverviewTool, ListEntitiesTool,
                 RecentNotesTool, OpenWorkspaceTool):
         reg.register(cls(engine, user_id, active_ws_id, storage))
+    # Real retrieval across all stored workspace data.
+    from core.ai.workspace_retriever import RecallTool, WorkspaceRetriever
+    reg.register(RecallTool(WorkspaceRetriever(user_id, engine, storage)))
     return reg

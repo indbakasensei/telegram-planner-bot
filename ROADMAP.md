@@ -100,9 +100,17 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > Workspace data via grounded tools (`core/ai/workspace_tools.py`,
 > `cognition.py`, `llm_planner.py`) — the model routes, the tools ground, so
 > answers can't be fabricated; conversation context (active workspace) makes
-> follow-ups work without renaming. **Next phases:** write-action planning,
-> full free-text routing (drop the `/ws` prefix), multi-step plans, memory,
-> and real retrieval (RAG) using the `Retriever` interface.
+> follow-ups work without renaming.
+>
+> **`v15.1.0-alpha.8` — Real retrieval:** the first concrete `Retriever`
+> (`workspace_retriever.py`) ranks everything stored in a workspace
+> (entities, statuses, notes) by relevance; a `recall` tool lets `/ws`
+> answer broad questions ("what do I know about Hu Tao?") grounded in
+> retrieved data, no per-question command. **Next phases:** structured
+> per-entity fields (talent domain / materials / level) + a GLM-powered
+> analysis tool reasoning over retrieved context for daily recommendations
+> (the Genshin "who to farm today" use case), write-action planning, and
+> full free-text routing (drop the `/ws` prefix).
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

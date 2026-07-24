@@ -9,7 +9,45 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.7 — Responsive chat while GLM 5.2 stays the reasoning brain (current)
+## v15.1.0-alpha.8 — Real retrieval: recall across everything you've stored (current)
+
+Implements the `Retriever` interface that alpha.2 only stubbed. The
+Cognitive Engine can now **gather related context from across a workspace
+before answering** — so broad, natural questions work without a
+feature-specific command per question, moving toward "the AI understands
+everything I've stored." Suite **1184 passing** (1174 + 10).
+
+- **`core/ai/workspace_retriever.py` — the first real `Retriever`:**
+  `WorkspaceRetriever` ranks everything stored in a user's workspaces
+  (entity titles + statuses, and every progress note) by keyword relevance
+  (token overlap with per-type weights) and returns scored `Document`s.
+  Deterministic, offline, no embeddings/network — a vector/FTS backend can
+  replace `retrieve()` later without touching callers. Every result is real
+  stored data (grounding preserved: nothing invented).
+- **`RecallTool`** wraps the retriever as a first-class tool. The planner
+  routes broad/open questions to it — "what do I know about Hu Tao?", "tell
+  me about the drone build", "anything on exams" — and the answer is grounded
+  in the retrieved items; on no match it says so.
+- **Planner updates:** `RuleBasedPlanner` recognises recall phrases and, when
+  a question matches no precise tool, **falls back to retrieval** instead of
+  guessing; `LLMPlanner` gains `recall` in its tool catalogue. Precise
+  questions ("which component is blocked", "how far along") still route to
+  their exact tools.
+- **DoD:** `/help` documents broad recall; `/selftest` → Workspace gains a
+  **Workspace Retrieval** probe; README + ROADMAP updated.
+
+**Tests:** `tests/test_ai_retrieval.py` (10) — cross-entity/note retrieval,
+relevance ranking, empty-on-unknown, recall grounding, planner routing +
+fallback, and end-to-end broad-question answering that still leaves precise
+tools intact; `tests/test_workspace_selftest.py` (+1).
+
+> **Toward the vision:** this is Layer 3's retrieval half. Next: structured
+> per-entity fields (talent domain, materials, level) + a GLM-powered
+> analysis tool that reasons over retrieved context for daily recommendations.
+
+---
+
+## v15.1.0-alpha.7 — Responsive chat while GLM 5.2 stays the reasoning brain
 
 Follow-up to alpha.6: raising the timeout wasn't enough — a **10-token
 liveness probe** to `z-ai/glm-5.2` on NVIDIA NIM still exceeded **30s**,
