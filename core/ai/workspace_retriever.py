@@ -60,8 +60,17 @@ class WorkspaceRetriever(Retriever):
             out.append(("workspace", f"workspace:{w.id}",
                         f"{w.title} ({w.template})", {"workspace": w.title}))
             for m in self._eng.list_milestones(self._uid, w.id):
+                # Include structured entity fields in the searchable text
+                # (v15.1.0-alpha.9): join non-None string/int values from
+                # the milestone's fields dict to make them discoverable.
+                field_text = ""
+                if m.fields:
+                    parts = [str(v) for v in m.fields.values()
+                             if v is not None and not isinstance(v, (dict, list))]
+                    if parts:
+                        field_text = " · " + " ".join(parts)
                 out.append(("entity", f"milestone:{m.id}",
-                            f"{m.title} [{m.status}] in {w.title}",
+                            f"{m.title} [{m.status}] in {w.title}{field_text}",
                             {"workspace": w.title, "status": m.status,
                              "entity": m.title}))
             for n in self._eng.list_notes(self._uid, w.id):

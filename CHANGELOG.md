@@ -9,7 +9,69 @@ session can find the relevant code quickly.
 
 ---
 
-## v15.1.0-alpha.8 — Real retrieval: recall across everything you've stored (current)
+## v15.1.0-alpha.9 — Structured per-entity fields (current)
+
+Adds **structured, template-defined fields on entities (milestones)** — the
+schema foundation that lets a game character carry `level`, `element`,
+`materials`, and `talent_domain`, a knowledge concept track `review_count`
+and `mastery_level`, or a project phase record `effort_hours` and
+`dependencies`. The per-entity fields are integrated into the retrieval layer
+and exposed via a new Cognitive Engine tool. Suite **1197 passing** (1185 + 12).
+
+- **`core/workspace/templates/registry.py` — `FieldSpec` consolidated:**
+  The `FieldSpec` dataclass (previously copy-pasted across game/knowledge/
+  asset/project templates) is now the canonical definition living in the
+  registry. Templates declare entity-level fields via a new `entity_fields`
+  attribute on `WorkspaceTemplate`. Validation helpers (`validate_entity_fields`,
+  `normalize_entity_fields`) operate generically on any template's schema,
+  keeping the Entity Engine template-agnostic.
+- **`database.py` — `fields TEXT` column on milestones:**
+  An additive, idempotent ALTER TABLE (same pattern as every prior migration;
+  NULL = no structured fields = backward compatible). New `set_milestone_fields()`
+  and `get_milestone_fields()` functions handle JSON serialization.
+- **`core/workspace/models.py` — `fields: dict` on `Milestone`:**
+  The frozen dataclass gains a `fields` attribute with a `{}` default, parsed
+  from the JSON column via the existing `_parse_metadata` helper. `from_row()`
+  tolerates pre-migration rows without the column.
+- **`core/workspace/engine.py` — `get_fields()`, `set_fields()`, `update_field()`:**
+  Three new Entity Engine APIs that validate ownership via the shared
+  `_owned_milestone` path, validate field values against the template's entity
+  schema, normalize (coerce types, fill defaults), and emit an entity-status
+  event on mutation. `get_fields()` returns the Milestone model's built-in
+  `fields` attribute (no extra DB roundtrip).
+- **Template entity fields per domain:**
+  - **Game:** `level`, `element`, `weapon_type`, `talent_domain`, `materials`,
+    `ascension_phase`, `target_level`, `priority` — the Genshin "who to farm
+    today" data model.
+  - **Knowledge:** `difficulty`, `review_count`, `mastery_level`, `source_type`,
+    `key_concepts`, `next_review`.
+  - **Asset:** `component_type`, `specifications`, `install_date`,
+    `lifecycle_status`, `maintenance_interval_days`, `last_service_date`.
+  - **Project:** `effort_hours`, `priority`, `dependencies`, `phase_status`,
+    `assignee`, `target_date`.
+- **`core/ai/workspace_retriever.py` — field values in retrieval corpus:**
+  `WorkspaceRetriever._candidates()` now appends scalar field values to each
+  milestone's searchable text, so querying by element / level / domain finds
+  the right entity — no dedicated tool needed.
+- **`tests/` — 12 new tests:**
+  Engine field API test suite (CRUD, validation, ownership, coercion, defaults,
+  model payload) in `test_workspace_engine.py`; field-aware retrieval test in
+  `test_ai_retrieval.py`; a self-test for entity fields in
+  `core/selftest/tests/test_workspace.py`.
+
+**Files changed:** `database.py`, `core/workspace/models.py`,
+`core/workspace/templates/registry.py`, `core/workspace/templates/__init__.py`,
+`core/workspace/templates/game.py`, `core/workspace/templates/knowledge.py`,
+`core/workspace/templates/asset.py`, `core/workspace/templates/project.py`,
+`core/storage/storage.py`, `core/workspace/repository.py`,
+`core/workspace/engine.py`, `core/ai/workspace_retriever.py`,
+`core/selftest/tests/test_workspace.py`,
+`tests/test_workspace_engine.py`, `tests/test_ai_retrieval.py`,
+`CHANGELOG.md`, `ROADMAP.md`.
+
+---
+
+## v15.1.0-alpha.8 — Real retrieval: recall across everything you've stored
 
 Implements the `Retriever` interface that alpha.2 only stubbed. The
 Cognitive Engine can now **gather related context from across a workspace

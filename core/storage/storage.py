@@ -253,8 +253,10 @@ class WorkspaceStorage:
 class MilestoneStorage:
     """Delegates to database.py's milestone functions (v15.0-alpha.1)."""
 
-    def add(self, workspace_id, title, goal_id=None, sort_order=0):
-        return database.add_milestone(workspace_id, title, goal_id, sort_order)
+    def add(self, workspace_id, title, goal_id=None, sort_order=0, fields=None):
+        """Add a milestone, optionally with structured entity fields.
+        v15.1.0-alpha.9: accepts `fields` dict."""
+        return database.add_milestone(workspace_id, title, goal_id, sort_order, fields)
 
     def get(self, milestone_id):
         return database.get_milestone(milestone_id)
@@ -270,6 +272,15 @@ class MilestoneStorage:
 
     def counts(self, workspace_id):
         return database.count_milestones(workspace_id)
+
+    # v15.1.0-alpha.9: structured entity field passthroughs.
+    def set_fields(self, milestone_id, fields):
+        """Store structured entity fields (dict) against a milestone."""
+        return database.set_milestone_fields(milestone_id, fields)
+
+    def get_fields(self, milestone_id):
+        """Return a milestone's structured entity fields dict."""
+        return database.get_milestone_fields(milestone_id)
 
 
 class NoteStorage:

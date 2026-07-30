@@ -98,3 +98,19 @@ def test_engine_specific_question_still_uses_precise_tool(temp_db, uid):
     _seed(uid)
     res = CognitiveEngine().handle(uid, "which component is blocked in Drone?")
     assert "Flight controller" in res.answer
+
+
+# ── Structured entity fields in retrieval (v15.1.0-alpha.9) ──────────────
+
+def test_retriever_finds_entity_by_field_values(temp_db, uid):
+    """When a milestone has structured fields, querying for field values
+    (e.g. element name, level range) should return that milestone."""
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "Genshin", template="game")
+    ht = eng.add_milestone(uid, ws.id, "Hu Tao")
+    eng.set_fields(uid, ht.id, {"level": 80, "element": "Pyro",
+                                 "talent_domain": "Teardrop Crystal"})
+    docs = WorkspaceRetriever(uid).retrieve("Pyro character level 80")
+    texts = " || ".join(d.text for d in docs)
+    assert "Hu Tao" in texts
+    assert "Pyro" in texts

@@ -95,11 +95,13 @@ class Milestone:
     completed_at: str | None = None
     archived_at: str | None = None  # v15.0-alpha.4
     deleted_at: str | None = None   # v15.0-alpha.4 (soft delete)
+    fields: dict = field(default_factory=dict)  # v15.1.0-alpha.9
 
     @classmethod
     def from_row(cls, row) -> "Milestone | None":
         # archived_at/deleted_at were appended to MILESTONE_COLS in
-        # alpha.4; tolerate an older 9-column row too.
+        # alpha.4; fields appended in v15.1.0-alpha.9. Tolerate older
+        # rows that don't have the newer columns.
         if row is None:
             return None
         return cls(
@@ -108,6 +110,7 @@ class Milestone:
             created_at=row[7], completed_at=row[8],
             archived_at=row[9] if len(row) > 9 else None,
             deleted_at=row[10] if len(row) > 10 else None,
+            fields=_parse_metadata(row[11]) if len(row) > 11 else {},
         )
 
     @property

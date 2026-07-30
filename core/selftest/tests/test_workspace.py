@@ -51,6 +51,39 @@ def check_workspace_engine():
         db.delete_workspace(ws.id, SELFTEST_USER_ID)
 
 
+@selftest(name="Entity Fields", category="Workspace")
+def check_entity_fields():
+    """Structured per-entity fields round-trip through the Entity Engine.
+    v15.1.0-alpha.9."""
+    import database as db
+    from core.workspace.engine import EntityEngine
+    from core.workspace.errors import EntityValidationError
+
+    eng = EntityEngine()
+    ws = eng.create_workspace(
+        SELFTEST_USER_ID, "[selftest] fields",
+        template="game", seed_milestones=False)
+    try:
+        m = eng.add_milestone(SELFTEST_USER_ID, ws.id, "[selftest] char")
+        assert eng.get_fields(SELFTEST_USER_ID, m.id) == {}
+        eng.set_fields(SELFTEST_USER_ID, m.id,
+                       {"level": 80, "element": "Pyro"})
+        stored = eng.get_fields(SELFTEST_USER_ID, m.id)
+        assert stored.get("level") == 80
+        assert stored.get("element") == "Pyro"
+        eng.update_field(SELFTEST_USER_ID, m.id, "level", 90)
+        assert eng.get_fields(SELFTEST_USER_ID, m.id).get("level") == 90
+        try:
+            eng.set_fields(SELFTEST_USER_ID, m.id, {"priority": "urgent"})
+            raise AssertionError("expected EntityValidationError")
+        except EntityValidationError:
+            pass
+        return ("entity fields ok · set/get/update 4 fields, "
+                "validation rejects bad enum")
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+
+
 @selftest(name="Workspace Groups", category="Workspace")
 def check_workspace_groups():
     """The Telegram-groups projection round-trips with a fake client: create

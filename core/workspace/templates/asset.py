@@ -32,11 +32,10 @@ validating create helper.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from core.workspace.errors import EntityValidationError
 from core.workspace.templates.registry import (
     PROGRESS_MILESTONES,
+    FieldSpec,
     WorkspaceTemplate,
     register,
 )
@@ -53,17 +52,9 @@ ASSET_CONDITIONS = ("excellent", "good", "fair", "poor")
 
 
 # ── Entity / metadata schema ──────────────────────────────────────────────
-@dataclass(frozen=True, slots=True)
-class FieldSpec:
-    """One template-specific metadata field. Declarative -- the validator
-    and normalizer below interpret it; nothing in the OS reads it."""
-    name: str
-    kind: str                      # "str" | "int" | "enum"
-    required: bool = False
-    default: object = None
-    choices: tuple = ()
-    minimum: int | None = None
-    maximum: int | None = None
+# v15.1.0-alpha.9: `FieldSpec` imported from the registry (consolidated).
+# ASSET_METADATA_SCHEMA defines workspace-level metadata fields; entity-level
+# fields for individual components/milestones live in ASSET_ENTITY_FIELDS.
 
 
 # The Asset workspace's metadata schema (its "entity schema"): the fields an
@@ -84,6 +75,20 @@ ASSET_METADATA_SCHEMA: tuple[FieldSpec, ...] = (
 
 _SCHEMA_BY_NAME = {f.name: f for f in ASSET_METADATA_SCHEMA}
 _ENUM_FIELDS = frozenset(f.name for f in ASSET_METADATA_SCHEMA if f.kind == "enum")
+
+
+# ── Entity-level structured fields (v15.1.0-alpha.9) ─────────────────────
+# Per-component/milestone fields. Each maintenance item or component within
+# an asset gets structured tracking fields.
+ASSET_ENTITY_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("component_type", "str"),          # "motor", "battery", "frame", ...
+    FieldSpec("specifications", "json"),         # dict/hash of specs
+    FieldSpec("install_date", "str"),            # date string
+    FieldSpec("lifecycle_status", "enum", default="active",
+              choices=("active", "worn", "needs_replacement", "replaced")),
+    FieldSpec("maintenance_interval_days", "int", default=0, minimum=0),
+    FieldSpec("last_service_date", "str"),       # date string
+)
 
 
 def default_metadata() -> dict:
@@ -148,6 +153,7 @@ ASSET_TEMPLATE = WorkspaceTemplate(
     # Maintenance/lifecycle completion is the share of maintenance milestones
     # done -- reuses the generic milestone rollup, no asset-specific code.
     progress_model=PROGRESS_MILESTONES,
+    entity_fields=ASSET_ENTITY_FIELDS,  # v15.1.0-alpha.9
 )
 
 register(ASSET_TEMPLATE)

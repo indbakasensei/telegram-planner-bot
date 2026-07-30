@@ -31,11 +31,10 @@ milestone rollup).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from core.workspace.errors import EntityValidationError
 from core.workspace.templates.registry import (
     PROGRESS_MILESTONES,
+    FieldSpec,
     WorkspaceTemplate,
     register,
 )
@@ -54,17 +53,9 @@ PROJECT_DEFAULT_MILESTONES = ("Research", "Design", "Prototype", "Testing",
 
 
 # ── Entity / metadata schema ──────────────────────────────────────────────
-@dataclass(frozen=True, slots=True)
-class FieldSpec:
-    """One template-specific metadata field. Declarative -- the validator
-    and normalizer below interpret it; nothing in the OS reads it."""
-    name: str
-    kind: str                      # "str" | "int" | "enum"
-    required: bool = False
-    default: object = None
-    choices: tuple = ()
-    minimum: int | None = None
-    maximum: int | None = None
+# v15.1.0-alpha.9: `FieldSpec` imported from the registry (consolidated).
+# PROJECT_METADATA_SCHEMA defines workspace-level metadata fields; entity-level
+# fields for individual milestones/phases live in PROJECT_ENTITY_FIELDS.
 
 
 # The Project workspace's metadata schema. Everything is optional (with
@@ -78,6 +69,21 @@ PROJECT_METADATA_SCHEMA: tuple[FieldSpec, ...] = (
 )
 
 _SCHEMA_BY_NAME = {f.name: f for f in PROJECT_METADATA_SCHEMA}
+
+
+# ── Entity-level structured fields (v15.1.0-alpha.9) ─────────────────────
+# Per-milestone/phase fields. Each milestone in a project gets structured
+# tracking fields for execution management.
+PROJECT_ENTITY_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("effort_hours", "int", default=0, minimum=0),
+    FieldSpec("priority", "enum", default="medium",
+              choices=("low", "medium", "high", "critical")),
+    FieldSpec("dependencies", "json"),          # list of dependent milestone ids/titles
+    FieldSpec("phase_status", "enum", default="not_started",
+              choices=("not_started", "in_progress", "review", "complete")),
+    FieldSpec("assignee", "str"),               # who's responsible
+    FieldSpec("target_date", "str"),            # deadline for this milestone
+)
 
 
 def default_metadata() -> dict:
@@ -139,6 +145,7 @@ PROJECT_TEMPLATE = WorkspaceTemplate(
     default_milestones=PROJECT_DEFAULT_MILESTONES,
     metadata_fields=tuple(f.name for f in PROJECT_METADATA_SCHEMA),
     progress_model=PROGRESS_MILESTONES,   # execution % = milestones done
+    entity_fields=PROJECT_ENTITY_FIELDS,  # v15.1.0-alpha.9
 )
 
 register(PROJECT_TEMPLATE)

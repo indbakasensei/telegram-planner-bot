@@ -60,6 +60,7 @@ milestones (
   status TEXT DEFAULT 'todo',                   -- todo | in_progress | done | blocked
   progress INTEGER DEFAULT 0,                   -- 0..100, or derived from child tasks
   sort_order INTEGER DEFAULT 0,
+  fields TEXT,                                  -- JSON: per-entity structured fields (v15.1.0-alpha.9)
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   completed_at TEXT
 )
@@ -96,6 +97,75 @@ existing feature (reminders, recurrence, deadlines, streaks, dashboard,
 Offline Engine) keeps working verbatim — a task is still a task; it just
 optionally names a workspace. This is the single most important
 no-regression decision.
+
+## 3a. Entity-level structured fields (v15.1.0-alpha.9)
+
+Each milestone can carry **template-defined structured fields** — typed,
+validated attributes beyond the generic `title`/`status`/`progress`. These are
+stored as a JSON `fields TEXT` column on `milestones`, the same additive NULL-safe
+pattern as `workspaces.metadata`.
+
+### Schema
+
+```sql
+ALTER TABLE milestones ADD COLUMN fields TEXT;  -- NULL → {} at read time
+```
+
+Each template declares its entity-level fields via `entity_fields` on its
+`WorkspaceTemplate` registration, using the canonical `FieldSpec` dataclass
+(living in `core/workspace/templates/registry.py`):
+
+```python
+@dataclass(frozen=True, slots=True)
+class FieldSpec:
+    name: str
+    kind: str                    # "str" | "int" | "enum" | "json"
+    required: bool = False
+    default: object = None
+    choices: tuple = ()
+    minimum: int | None = None
+    maximum: int | None = None
+```
+
+### Validation & normalization (engine-driven)
+
+The Entity Engine's `set_fields()` / `update_field()` call the registry's
+template-agnostic helpers:
+
+- **`validate_entity_fields(template_key, fields)`** — returns a list of
+  error messages (empty → valid). Checks enum membership, integer ranges,
+  type conformance. Unknown keys pass through (forward-compatible).
+- **`normalize_entity_fields(template_key, fields)`** — fills defaults from
+  the schema, coerces int-like strings, drops explicit `None` values.
+
+The engine is never template-aware; it delegates to these helpers with the
+workspace's `template` key.
+
+### Template field definitions
+
+| Template | Fields |
+|---|---|
+| **Game** | `level` (int), `element` (str), `weapon_type` (str), `talent_domain` (str), `materials` (json), `ascension_phase` (int, 0–6), `target_level` (int, 1–100), `priority` (enum) |
+| **Knowledge** | `difficulty` (enum), `review_count` (int), `mastery_level` (int, 0–100), `source_type` (str), `key_concepts` (json), `next_review` (str) |
+| **Asset** | `component_type` (str), `specifications` (json), `install_date` (str), `lifecycle_status` (enum), `maintenance_interval_days` (int), `last_service_date` (str) |
+| **Project** | `effort_hours` (int), `priority` (enum), `dependencies` (json), `phase_status` (enum), `assignee` (str), `target_date` (str) |
+
+### Retrieval integration
+
+`WorkspaceRetriever._candidates()` appends scalar field values to each
+milestone's searchable text, so a query like "Pyro character level 80"
+discovers the entity through its fields — no special query syntax needed.
+
+### Future scalability note
+
+The `fields TEXT` JSON column works well for per-entity storage and
+retrieval, but **querying individual field values in SQL** (e.g. "find all
+entities with `level >= 80`") is not efficient — JSON extraction in
+SQLite uses a table scan. This is the right trade-off today: the AI
+retrieval layer answers "what has high level" through searching, and
+schema complexity stays low. If structured queries against individual
+fields become a bottleneck (e.g. leaderboards, sorted listings), a future
+milestone should migrate the most-queried fields to indexed columns.
 
 ## 4. Storage Facade extension
 

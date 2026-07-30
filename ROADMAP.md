@@ -106,11 +106,20 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > (`workspace_retriever.py`) ranks everything stored in a workspace
 > (entities, statuses, notes) by relevance; a `recall` tool lets `/ws`
 > answer broad questions ("what do I know about Hu Tao?") grounded in
-> retrieved data, no per-question command. **Next phases:** structured
-> per-entity fields (talent domain / materials / level) + a GLM-powered
-> analysis tool reasoning over retrieved context for daily recommendations
-> (the Genshin "who to farm today" use case), write-action planning, and
-> full free-text routing (drop the `/ws` prefix).
+> retrieved data, no per-question command.
+>
+> **`v15.1.0-alpha.9` — Structured per-entity fields:** every template
+> (`game`/`knowledge`/`asset`/`project`) now declares its own entity-level
+> field schema (name, type, validation, defaults) via `FieldSpec` in the
+> registry. A `fields TEXT` JSON column on milestones stores per-entity
+> data (level, element, materials, effort_hours, etc.) — additive, NULL-safe,
+> fully backward compatible. `get_fields()` / `set_fields()` / `update_field()`
+> on the Entity Engine validate against the template schema. Scalar field
+> values are included in the WorkspaceRetriever's search corpus, making them
+> discoverable through the `/ws` recall query. **Next phases:** a GLM-powered
+> analysis tool reasoning over retrieved structured context for daily
+> recommendations (the Genshin "who to farm today" use case), write-action
+> planning, and full free-text routing (drop the `/ws` prefix).
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

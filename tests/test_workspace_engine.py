@@ -232,6 +232,108 @@ def test_milestone_status_event(temp_db, uid):
     assert (EV_MILESTONE_STATUS, "milestone") in events
 
 
+# ── structured entity fields (v15.1.0-alpha.9) ─────────────────────────────
+
+def test_get_fields_returns_empty_for_unset(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    assert eng.get_fields(uid, ms.id) == {}
+
+
+def test_set_fields_stores_and_retrieves(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    updated = eng.set_fields(uid, ms.id, {"level": 42, "element": "Pyro"})
+    assert updated.id == ms.id
+    assert eng.get_fields(uid, ms.id) == {"level": 42, "element": "Pyro"}
+
+
+def test_set_fields_coerces_and_fills_defaults(temp_db, uid):
+    """Normalization should coerce '42' to int 42 and fill defaults
+    for known fields when the template declares them."""
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W", template="game")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    # The game template declares level (default=1) and priority (default=medium).
+    eng.set_fields(uid, ms.id, {"level": "42"})
+    fields = eng.get_fields(uid, ms.id)
+    assert fields.get("level") == 42          # coerced
+    assert fields.get("priority") == "medium"  # default filled
+
+
+def test_set_fields_rejects_invalid_enum(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W", template="game")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    with pytest.raises(EntityValidationError, match="must be one of"):
+        eng.set_fields(uid, ms.id, {"priority": "urgent"})
+
+
+def test_set_fields_rejects_invalid_type(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W", template="game")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    with pytest.raises(EntityValidationError, match="must be a whole number"):
+        eng.set_fields(uid, ms.id, {"level": "not-a-number"})
+
+
+def test_set_fields_rejects_invalid_range(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W", template="game")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    with pytest.raises(EntityValidationError, match="must be <= 100"):
+        eng.set_fields(uid, ms.id, {"level": 999})
+
+
+def test_set_fields_requires_dict(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    with pytest.raises(EntityValidationError, match="fields must be a dict"):
+        eng.set_fields(uid, ms.id, "not-a-dict")
+
+
+def test_update_field_single(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    eng.set_fields(uid, ms.id, {"level": 1})
+    updated = eng.update_field(uid, ms.id, "level", 90)
+    assert eng.get_fields(uid, ms.id) == {"level": 90}
+
+
+def test_update_field_validates(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W", template="game")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    with pytest.raises(EntityValidationError, match="must be a whole number"):
+        eng.update_field(uid, ms.id, "level", "abc")
+
+
+def test_fields_enforce_ownership(temp_db, uid):
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    with pytest.raises(EntityNotFound):
+        eng.get_fields(OTHER, ms.id)
+    with pytest.raises(EntityNotFound):
+        eng.set_fields(OTHER, ms.id, {"level": 1})
+    with pytest.raises(EntityNotFound):
+        eng.update_field(OTHER, ms.id, "level", 1)
+
+
+def test_milestone_model_carries_fields(temp_db, uid):
+    """The Milestone model returned after set_fields should include the
+    fields dict (test that from_row parses the new JSON column)."""
+    eng = EntityEngine()
+    ws = eng.create_workspace(uid, "W")
+    ms = eng.add_milestone(uid, ws.id, "M")
+    updated = eng.set_fields(uid, ms.id, {"level": 75})
+    assert updated.fields == {"level": 75}
+
+
 # ── notes via engine ──────────────────────────────────────────────────────
 
 def test_add_note_validation_ownership_and_event(temp_db, uid):

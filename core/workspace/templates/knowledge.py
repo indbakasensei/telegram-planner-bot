@@ -25,11 +25,10 @@ Knowledge, ...) follows: a schema, validators, a registered
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from core.workspace.errors import EntityValidationError
 from core.workspace.templates.registry import (
     PROGRESS_MANUAL,
+    FieldSpec,
     WorkspaceTemplate,
     register,
 )
@@ -41,18 +40,9 @@ KNOWLEDGE_STATUSES = ("exploring", "learning", "reviewing", "mastered", "archive
 
 
 # ── Entity / metadata schema ──────────────────────────────────────────────
-@dataclass(frozen=True, slots=True)
-class FieldSpec:
-    """One template-specific metadata field. Declarative -- the validator
-    below interprets it; nothing in the OS reads it."""
-    name: str
-    kind: str                      # "str" | "int" | "enum"
-    required: bool = False
-    default: object = None
-    choices: tuple = ()
-    minimum: int | None = None
-    maximum: int | None = None
-
+# v15.1.0-alpha.9: `FieldSpec` imported from the registry (consolidated).
+# KNOWLEDGE_METADATA_SCHEMA defines workspace-level metadata fields; entity-
+# level fields for individual concepts/topics live in KNOWLEDGE_ENTITY_FIELDS.
 
 # The Knowledge workspace's metadata schema (its "entity schema"): the
 # fields a knowledge area carries beyond the generic workspace title/status.
@@ -65,6 +55,20 @@ KNOWLEDGE_METADATA_SCHEMA: tuple[FieldSpec, ...] = (
 )
 
 _SCHEMA_BY_NAME = {f.name: f for f in KNOWLEDGE_METADATA_SCHEMA}
+
+
+# ── Entity-level structured fields (v15.1.0-alpha.9) ─────────────────────
+# Per-concept/milestone fields. These track individual topics within a
+# knowledge area (e.g. a flashcard deck, a chapter in a textbook).
+KNOWLEDGE_ENTITY_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("difficulty", "enum", default="medium",
+              choices=("easy", "medium", "hard")),
+    FieldSpec("review_count", "int", default=0, minimum=0),
+    FieldSpec("mastery_level", "int", default=0, minimum=0, maximum=100),
+    FieldSpec("source_type", "str"),           # "book", "article", "video", ...
+    FieldSpec("key_concepts", "json"),         # list of key concepts
+    FieldSpec("next_review", "str"),           # date string for spaced repetition
+)
 
 
 def default_metadata() -> dict:
@@ -138,6 +142,7 @@ KNOWLEDGE_TEMPLATE = WorkspaceTemplate(
     sections=("concepts", "sources", "notes", "reviews", "progress"),
     metadata_fields=tuple(f.name for f in KNOWLEDGE_METADATA_SCHEMA),
     progress_model=PROGRESS_MANUAL,   # mastery% lives in metadata['progress']
+    entity_fields=KNOWLEDGE_ENTITY_FIELDS,  # v15.1.0-alpha.9
 )
 
 register(KNOWLEDGE_TEMPLATE)

@@ -25,11 +25,10 @@ registered `WorkspaceTemplate`, and a thin validating create helper.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from core.workspace.errors import EntityValidationError
 from core.workspace.templates.registry import (
     PROGRESS_MANUAL,
+    FieldSpec,
     WorkspaceTemplate,
     register,
 )
@@ -41,18 +40,9 @@ GAME_STATUSES = ("backlog", "playing", "on_hold", "completed", "dropped")
 
 
 # ── Entity / metadata schema ──────────────────────────────────────────────
-@dataclass(frozen=True, slots=True)
-class FieldSpec:
-    """One template-specific metadata field. Declarative -- the validator
-    below interprets it; nothing in the OS reads it."""
-    name: str
-    kind: str                      # "str" | "int" | "enum"
-    required: bool = False
-    default: object = None
-    choices: tuple = ()
-    minimum: int | None = None
-    maximum: int | None = None
-
+# v15.1.0-alpha.9: `FieldSpec` imported from the registry (consolidated).
+# GAME_METADATA_SCHEMA defines workspace-level metadata fields; entity-level
+# fields for individual entities/milestones live in GAME_ENTITY_FIELDS.
 
 # The Game workspace's metadata schema (its "entity schema"): the fields a
 # game carries beyond the generic workspace title/status.
@@ -64,6 +54,22 @@ GAME_METADATA_SCHEMA: tuple[FieldSpec, ...] = (
 )
 
 _SCHEMA_BY_NAME = {f.name: f for f in GAME_METADATA_SCHEMA}
+
+
+# ── Entity-level structured fields (v15.1.0-alpha.9) ─────────────────────
+# Per-character/milestone fields for the game template. These drive the
+# "who to farm today" analysis use case for Genshin-like games.
+GAME_ENTITY_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("level", "int", default=1, minimum=1, maximum=100),
+    FieldSpec("element", "str"),              # "Pyro", "Hydro", "Anemo", ...
+    FieldSpec("weapon_type", "str"),           # "Sword", "Catalyst", "Bow", ...
+    FieldSpec("talent_domain", "str"),         # day/named domain for talent materials
+    FieldSpec("materials", "json"),            # list/dict of needed materials
+    FieldSpec("ascension_phase", "int", default=0, minimum=0, maximum=6),
+    FieldSpec("target_level", "int", default=90, minimum=1, maximum=100),
+    FieldSpec("priority", "enum", default="medium",
+              choices=("low", "medium", "high")),
+)
 
 
 def default_metadata() -> dict:
@@ -136,6 +142,7 @@ GAME_TEMPLATE = WorkspaceTemplate(
     sections=("objectives", "sessions", "notes", "progress"),
     metadata_fields=tuple(f.name for f in GAME_METADATA_SCHEMA),
     progress_model=PROGRESS_MANUAL,   # completion% lives in metadata['progress']
+    entity_fields=GAME_ENTITY_FIELDS, # v15.1.0-alpha.9
 )
 
 register(GAME_TEMPLATE)

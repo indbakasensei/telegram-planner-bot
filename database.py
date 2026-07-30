@@ -2373,7 +2373,7 @@ WORKSPACE_COLS = ("id, user_id, template, title, status, icon, metadata, "
                   "updated_at, archived_at")
 MILESTONE_COLS = ("id, workspace_id, goal_id, title, status, progress, "
                   "sort_order, created_at, completed_at, archived_at, "
-                  "deleted_at")
+                  "deleted_at, fields")
 NOTE_COLS = "id, workspace_id, milestone_id, kind, content, source, created_at"
 TIMELINE_COLS = ("id, user_id, workspace_id, entity_type, entity_id, "
                  "event_type, summary, payload, source, created_at, synced_at")
@@ -2559,6 +2559,10 @@ def _init_workspace_tables(conn):
     # soft delete (deleted_at set, row kept). Additive/idempotent.
     _safe_add_column(c, "milestones", "archived_at", "TEXT")
     _safe_add_column(c, "milestones", "deleted_at", "TEXT")
+
+    # v15.1.0-alpha.9: structured per-entity fields (JSON TEXT, same
+    # pattern as workspaces.metadata). NULL = no structured fields.
+    _safe_add_column(c, "milestones", "fields", "TEXT")
 
     conn.commit()
 
@@ -2834,12 +2838,16 @@ def tg_clear_active(user_id):
 
 
 # ── Milestones ─────────────────────────────────────────
-def add_milestone(workspace_id, title, goal_id=None, sort_order=0):
+def add_milestone(workspace_id, title, goal_id=None, sort_order=0, fields=None):
+    """Insert a milestone and return its id. `fields` is an optional dict of
+    template-specific structured per-entity fields, stored as JSON."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
-    c.execute("""INSERT INTO milestones (workspace_id, goal_id, title, sort_order)
-                 VALUES (?,?,?,?)""", (workspace_id, goal_id, title, sort_order))
+    fields_raw = json.dumps(fields) if fields else None
+    c.execute("""INSERT INTO milestones (workspace_id, goal_id, title, sort_order, fields)
+                 VALUES (?,?,?,?,?)""",
+              (workspace_id, goal_id, title, sort_order, fields_raw))
     ms_id = c.lastrowid
     conn.commit()
     conn.close()
@@ -2905,6 +2913,37 @@ def soft_delete_milestone(milestone_id):
               (_now_ist_str(), milestone_id))
     conn.commit()
     conn.close()
+
+
+def set_milestone_fields(milestone_id, fields):
+    """Store a dict of structured per-entity fields on a milestone as JSON.
+    None or empty dict clears the column. v15.1.0-alpha.9."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    raw = json.dumps(fields) if fields else None
+    c.execute("UPDATE milestones SET fields=? WHERE id=?", (raw, milestone_id))
+    conn.commit()
+    conn.close()
+
+
+def get_milestone_fields(milestone_id):
+    """Return the stored per-entity fields dict for a milestone, or {}
+    if the milestone doesn't exist, was deleted, or has no fields set."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT fields FROM milestones WHERE id=? AND deleted_at IS NULL",
+              (milestone_id,))
+    row = c.fetchone()
+    conn.close()
+    if row is None or row[0] is None:
+        return {}
+    try:
+        parsed = json.loads(row[0])
+        return parsed if isinstance(parsed, dict) else {}
+    except (ValueError, TypeError):
+        return {}
 
 
 def count_milestones(workspace_id):

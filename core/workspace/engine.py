@@ -53,6 +53,8 @@ from core.workspace.templates.registry import (
     PROGRESS_CHECKLIST,
     PROGRESS_MANUAL,
     PROGRESS_MILESTONES,
+    normalize_entity_fields,     # v15.1.0-alpha.9
+    validate_entity_fields,      # v15.1.0-alpha.9
 )
 
 # Event types the engine emits through the on_event seam. A subset of the
@@ -238,6 +240,48 @@ class EntityEngine:
     def list_notes(self, user_id, workspace_id, kind=None) -> list[Note]:
         self.get_workspace(user_id, workspace_id)  # ownership check
         return self._repo.list_notes(workspace_id, kind)
+
+    # ── Structured entity fields (v15.1.0-alpha.9) ─────
+    def get_fields(self, user_id, milestone_id) -> dict:
+        """Return a milestone's structured entity fields (or {} if none).
+        Ownership-checked. Non-raising on missing fields."""
+        ms = self._owned_milestone(user_id, milestone_id)
+        return ms.fields
+
+    def set_fields(self, user_id, milestone_id, fields) -> Milestone:
+        """Validate structured entity fields against the milestone's template
+        schema and store them. Unknown field keys are allowed (forward-
+        compatible). Returns the updated milestone."""
+        if not isinstance(fields, dict):
+            raise EntityValidationError("fields must be a dict")
+        ms = self._owned_milestone(user_id, milestone_id)
+        tpl_key = self._repo.get_workspace(ms.workspace_id, user_id).template
+        errors = validate_entity_fields(tpl_key, fields)
+        if errors:
+            raise EntityValidationError("; ".join(errors))
+        clean = normalize_entity_fields(tpl_key, fields)
+        self._repo.set_milestone_fields(milestone_id, clean)
+        updated = self._repo.get_milestone(milestone_id)
+        self._emit(EV_MILESTONE_STATUS, "milestone", updated, user_id)
+        return updated
+
+    def update_field(self, user_id, milestone_id, name, value) -> Milestone:
+        """Update a single structured entity field by name. Validates the
+        new value against the template's field schema; unknown field names
+        are allowed (forward-compatible). Returns the updated milestone."""
+        ms = self._owned_milestone(user_id, milestone_id)
+        tpl_key = self._repo.get_workspace(ms.workspace_id, user_id).template
+        single = {name: value}
+        errors = validate_entity_fields(tpl_key, single)
+        if errors:
+            raise EntityValidationError("; ".join(errors))
+        current = self._repo.get_milestone_fields(milestone_id)
+        merged = {**current, name: value}
+        clean = normalize_entity_fields(tpl_key, merged)
+        self._repo.set_milestone_fields(milestone_id, clean)
+        updated = self._repo.get_milestone(milestone_id)
+        self._emit(EV_MILESTONE_STATUS, "milestone", updated, user_id)
+        return updated
 
     # ── Progress rollup (template-driven; WED §5) ──────
     def workspace_progress(self, user_id, workspace_id) -> int:

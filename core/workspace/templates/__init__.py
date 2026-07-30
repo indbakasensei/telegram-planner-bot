@@ -16,12 +16,16 @@ from core.workspace.templates.registry import (  # noqa: F401
     PROGRESS_CHECKLIST,
     PROGRESS_MANUAL,
     PROGRESS_MILESTONES,
+    FieldSpec,                               # v15.1.0-alpha.9
     WorkspaceTemplate,
     all_templates,
+    entity_field_specs,                      # v15.1.0-alpha.9
     exists,
     get,
     keys,
+    normalize_entity_fields,                 # v15.1.0-alpha.9
     register,
+    validate_entity_fields,                  # v15.1.0-alpha.9
 )
 
 # Register the built-ins (side effect on import).
