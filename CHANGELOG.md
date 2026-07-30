@@ -11,7 +11,58 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
-## v15.1.0-alpha.10 — Natural Language Entity Management & Release Standards (current)
+## v15.1.0-alpha.11 — Final Stabilization & Production Readiness (current)
+
+Fixes the routing, retrieval understanding, field mapping, display, logging,
+and Telegram UX for the Natural Language Entity Management feature. No new
+features — only correctness and consistency. Suite **1234 passing** (73 entity
+manager tests including 16 new). v15.1.0-alpha.10's alpha.9/alpha.8/alpha.7
+functionality is fully preserved.
+
+- **`main.py` — Routing fix: EntityManager runs before task VIEW handler:**
+  "Show all level 90 characters" was intercepted by the task quick-match VIEW
+  handler (matches on "show"), never reaching EntityManager → returned "No tasks".
+  Root cause: EntityManager block at line 1345 ran AFTER the VIEW query at line 1292.
+  Fix: moved the EntityManager block to before the VIEW quick-match, so entity
+  queries are processed first, falling through to task views when inapplicable.
+- **`core/ai/entity_manager.py` — Entity retrieval rewrite:**
+  `_handle_retrieve` no longer delegates entirely to CognitiveEngine, which
+  couldn't search by field values. Instead: (1) tries to find a specific entity
+  by name → full detail card; (2) field-value filtering via `_filter_entities_by_query`;
+  (3) CognitiveEngine recall fallback; (4) complete listing as last resort.
+  Fixes "Show Furina", "Who is level 90?", "Show Hydro characters",
+  "Who uses Fleuve Cendre Ferryman?", "Show everyone using a sword", etc.
+- **`core/ai/entity_manager.py` — `_find_entity` reverse partial matching:**
+  Added entity-title-in-query check (e.g. "Show Furina" → entity "Furina").
+  Previously only checked if query was a substring of title, not vice versa.
+- **`core/ai/entity_manager.py` — `_filter_entities_by_query`:**
+  New scoring-based field-to-query matcher: verbatim value match, token overlap,
+  numeric proximity. Returns filtered list sorted by relevance or None if no
+  field-related query detected, so the caller can fall back to other strategies.
+- **`core/ai/entity_manager.py` — `_format_entity_card` / `_format_entity_list`:**
+  Clean Telegram HTML formatting for single-entity detail views and
+  multi-entity listings. No raw dicts, no developer terminology.
+- **`core/ai/entity_manager.py` — Set `_SYSTEM_PROMPT` with ~30 examples:**
+  Covers creates, single/multi-field updates, weapon/weapon type, retrieve
+  by name, retrieve by field value, retrieve by element/weapon/priority,
+  view/open/display variants, plural queries, and explicit "none" examples.
+- **`core/ai/entity_manager.py` — Better logging:**
+  Every handler now logs: incoming text, workspace, entity match, intent,
+  field values, DB operation, response, fallback reason.
+- **`core/ai/entity_manager.py` — All responses use `esc()` + HTML tags:**
+  All user-provided content is HTML-escaped. Responses use `<b>`, `<code>`,
+  `<i>` tags via `fmt.py` helpers for consistent Telegram rendering.
+- **`core/workspace/templates/game.py` — Added `weapon` field:**
+  `FieldSpec("weapon", "str")` for the specific weapon name (e.g. "Fleuve Cendre
+  Ferryman"), distinct from `weapon_type` ("Sword"/"Bow"/"Polearm"). Fixes
+  "Furina uses Fleuve Cendre Ferryman" incorrectly setting `weapon_type`.
+- **`tests/test_ai_entity_manager.py` — 16 new tests:**
+  `TestFindEntityReversePartial` (3), `TestFilterEntitiesByQuery` (5),
+  `TestFormatEntityCard` (2), `TestQueryTokens` (4), `TestRetrieveByName` (2).
+  Entity manager test count: 37 (was 21).
+- **`ui.py` — Updated help card** with View/Filter examples for alpha.11.
+
+
 
 Makes the structured entity system from alpha.9 fully usable through natural
 language. Users can now create, update, and query entities by chatting

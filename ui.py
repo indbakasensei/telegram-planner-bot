@@ -756,11 +756,13 @@ def help_cards(version, user_is_admin):
         f"…also broad recall: {i('what do I know about Hu Tao?')} — searches",
         f"everything you've stored (entities + notes) and answers from it",
         f"",
-        f"🗣 {b('Natural Language (v15.1.0-alpha.10)')} — just chat with an",
+        f"🗣 {b('Natural Language (v15.1.0-alpha.11)')} — just chat with an",
         f"active workspace open and I'll manage entities automatically:",
         f"  • Create: {i('Create character Furina')}",
-        f"  • Update: {i('Hu Tao is level 80')} · {i('priority high for Furina')}",
-        f"  • Find: {i('Show all level 70 characters')} · {i('Who uses Polearm?')}",
+        f"  • Update: {i('Hu Tao is level 80')} · {i('Furina uses Fleuve Cendre Ferryman')}",
+        f"  • View: {i('Show Furina')} · {i('Open Furina')} · {i('View Furina')}",
+        f"  • Find: {i('Show all level 90 characters')} · {i('Who is Hydro?')}",
+        f"  • Filter: {i('Show high priority characters')} · {i('Who uses a sword?')}",
     ])
     ai_planning = "\n".join([
         f"{code('think <question>')} — reasoning over your data",

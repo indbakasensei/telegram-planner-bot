@@ -212,7 +212,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.1.0-alpha.10"
+BAKA_VERSION = "15.1.0-alpha.11"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -1288,6 +1288,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handler(update, context)
             return
 
+    # ── v15.1.0-alpha.10: Natural Language Entity Management ───
+    # If the user has an active workspace, try to interpret the free text
+    # as an entity management command (create/update/retrieve entity fields).
+    # Runs before the task VIEW quick-match so entity queries like
+    # "Show all level 90 characters" aren't intercepted as task views.
+    # Falls through to the regular AI if not recognised.
+    _em = _entity_manager()
+    logger.debug("EntityManager singleton: %s", _em)
+    if _em is not None:
+        logger.info("Routing '%s' through EntityManager for user %s", user_input, user_id)
+        try:
+            handled, reply = _em.process(user_id, user_input)
+        except Exception:
+            logger.exception("EntityManager failed; falling through to Legacy")
+            handled, reply = False, ""
+        if handled:
+            logger.info("EntityManager handled '%s' → %s", user_input, reply[:80])
+            await update.message.reply_text(reply, parse_mode=HTML,
+                                            reply_markup=main_menu())
+            return
+        logger.debug("EntityManager did NOT handle '%s' — falling through", user_input)
 
     # ── Quick-match VIEW requests so LLM can't misclassify them as TASK ──
     _low = user_input.lower()
@@ -1337,26 +1358,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             format_tasks(tasks, label), parse_mode=HTML, reply_markup=main_menu()
         )
         return
-
-    # ── v15.1.0-alpha.10: Natural Language Entity Management ───
-    # If the user has an active workspace, try to interpret the free text
-    # as an entity management command (create/update entity fields).
-    # Falls through to the regular AI if not recognised.
-    _em = _entity_manager()
-    logger.debug("EntityManager singleton: %s", _em)
-    if _em is not None:
-        logger.info("Routing '%s' through EntityManager for user %s", user_input, user_id)
-        try:
-            handled, reply = _em.process(user_id, user_input)
-        except Exception:
-            logger.exception("EntityManager failed; falling through to Legacy")
-            handled, reply = False, ""
-        if handled:
-            logger.info("EntityManager handled '%s' → %s", user_input, reply[:80])
-            await update.message.reply_text(reply, parse_mode=HTML,
-                                            reply_markup=main_menu())
-            return
-        logger.debug("EntityManager did NOT handle '%s' — falling through", user_input)
 
     # ── Idle — BAKA ──
     now = datetime.now(IST)

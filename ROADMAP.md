@@ -128,11 +128,13 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > the beginner-friendly `/help`), updated `/help` with entity NL examples, a
 > Release Checklist standard, and the project's first permanent release
 > engineering conventions (version management, documentation, developer
-> experience rule). **Next phases:** a GLM-powered analysis tool reasoning
-> over retrieved structured context for daily recommendations (the Genshin
-> "who to farm today" use case), write-action planning, and full free-text
-> routing — the `/ws` prefix can be dropped once the EntityManager's pattern
-> proves stable and the orchestrator handles both read and write.
+> experience rule).
+>
+> **`v15.1.0-alpha.11` — Final Stabilization & Production Readiness (current):**
+> fixes routing (EntityManager runs before task VIEW handler), field mapping
+> (added `weapon` field vs `weapon_type`), retrieval (entity-aware field search),
+> entity display cards, logging, and Telegram UX. 16 new tests, 1234 passing.
+> **This is the final alpha.** Next milestone: v15.1.0-beta.1, then BAKA Brain v15.2.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

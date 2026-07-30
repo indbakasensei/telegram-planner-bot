@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.1.0-alpha.10** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.1.0-alpha.11** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -186,16 +186,20 @@ facts** — so it can't make Workspace data up (if something doesn't exist, it
 says so). No feature-specific commands needed. Phase 1 covers read
 questions; write-action planning and full free-text routing come next.
 
-### 🗣 Natural Language Entity Management (v15.1.0-alpha.10)
+### 🗣 Natural Language Entity Management (v15.1.0-alpha.11)
 
 With an active workspace open, just chat naturally:
 
 ```
 Create character Furina               → creates a new entity
 Hu Tao is level 80                    → updates entity field
-Hu Tao priority high                  → sets priority field
-Show all level 70 characters          → retrieves matching entities
+Furina uses Fleuve Cendre Ferryman    → sets weapon name (weapon ≠ weapon_type)
+Show Furina                           → displays entity card with all fields
+Show all level 90 characters          → retrieves matching entities
 Who uses Polearm?                     → searches entity fields
+Show Hydro characters                 → filters by element
+Show high priority characters         → filters by priority
+Open Furina · View Furina · Display   → entity detail display variants
 ```
 
 The `EntityManager` (`core/ai/entity_manager.py`) interprets free text using

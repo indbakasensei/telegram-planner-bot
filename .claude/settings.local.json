@@ -27,7 +27,9 @@
       "Bash(python -m pytest tests/ -x --tb=short)",
       "Bash(python -m pytest tests/test_ui_utility_cards.py -x --tb=short)",
       "Bash(python -m pytest tests/test_ai_entity_manager.py -v --tb=short)",
-      "Bash(python -m pytest -v --tb=short)"
+      "Bash(python -m pytest -v --tb=short)",
+      "Bash(python -m pytest tests/test_ai_entity_manager.py -v)",
+      "Bash(python -m pytest -x --tb=short)"
     ]
   }
 }

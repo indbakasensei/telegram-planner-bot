@@ -63,6 +63,7 @@ GAME_ENTITY_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("level", "int", default=1, minimum=1, maximum=100),
     FieldSpec("element", "str"),              # "Pyro", "Hydro", "Anemo", ...
     FieldSpec("weapon_type", "str"),           # "Sword", "Catalyst", "Bow", ...
+    FieldSpec("weapon", "str"),               # specific weapon name, e.g. "Fleuve Cendre Ferryman"
     FieldSpec("talent_domain", "str"),         # day/named domain for talent materials
     FieldSpec("materials", "json"),            # list/dict of needed materials
     FieldSpec("ascension_phase", "int", default=0, minimum=0, maximum=6),
