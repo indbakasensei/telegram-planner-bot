@@ -48,3 +48,4 @@ from core.ai.cognition import (  # noqa: F401
 from core.ai.llm_planner import KNOWN_TOOLS, LLMPlanner  # noqa: F401
 from core.ai.workspace_tools import build_workspace_registry  # noqa: F401
 from core.ai.workspace_retriever import RecallTool, WorkspaceRetriever  # noqa: F401
+from core.ai.entity_manager import EntityManager  # noqa: F401

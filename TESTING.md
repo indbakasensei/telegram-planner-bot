@@ -107,6 +107,22 @@ Say "I want to read 12 books this year" → goal created · `goals` +
 `worklog <id> note` · `project <id>` · `projects` · `shopping` ·
 `finished <id>`.
 
+### Workspaces & Entities [L] (v15.1.0-alpha.10)
+Create workspace: `/newproject Drone` · `/newgame Genshin` · `/newgoal Reading`
+· `/workspaces` lists them · `/use Genshin` switches active workspace ·
+`/add Furina` creates an entity with its own topic · `/open Furina`
+focuses it · `/current` shows active workspace/entity · `/note progress text`
+logs a note · `/linkhere` (inside the group) links the group.
+
+Natural language entity management (v15.1.0-alpha.10, requires active WS):
+"Create character Furina" → entity created · "Hu Tao is level 80" → field
+updated · "Hu Tao priority high" → priority field updated · "Show all level
+70 characters" → retrieves matching entities · "Create weapon Staff of Homa"
+→ entity created. Verify that: unknown entities get offered to create them ·
+nonexistent fields get helpful error messages · existing fields update only
+the changed value · `/commands` shows the full reference · `/help` workspace
+section now includes NL examples.
+
 ### Templates, Memory, Search, Export [L]
 `savetemplate name <id>` · `template` · `template name` · "Remember my
 exam is June 20" → `memory` → ask "when is my exam?" · `forget <key>` ·

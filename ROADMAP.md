@@ -116,10 +116,23 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > fully backward compatible. `get_fields()` / `set_fields()` / `update_field()`
 > on the Entity Engine validate against the template schema. Scalar field
 > values are included in the WorkspaceRetriever's search corpus, making them
-> discoverable through the `/ws` recall query. **Next phases:** a GLM-powered
-> analysis tool reasoning over retrieved structured context for daily
-> recommendations (the Genshin "who to farm today" use case), write-action
-> planning, and full free-text routing (drop the `/ws` prefix).
+> discoverable through the `/ws` recall query.
+>
+> **`v15.1.0-alpha.10` — Natural Language Entity Management & Release
+> Standards:** the alpha.9 entity system is now fully usable through natural
+> language. `EntityManager` (`core/ai/entity_manager.py`) translates free text
+> like "Create character Furina" or "Hu Tao is level 80" into Entity Engine
+> operations using the fast AI call as a lightweight classifier — no commands,
+> no JSON, no developer tools. A keyword pre-check avoids useless LLM calls
+> on non-entity messages. Also ships `/commands` (a complete reference, not
+> the beginner-friendly `/help`), updated `/help` with entity NL examples, a
+> Release Checklist standard, and the project's first permanent release
+> engineering conventions (version management, documentation, developer
+> experience rule). **Next phases:** a GLM-powered analysis tool reasoning
+> over retrieved structured context for daily recommendations (the Genshin
+> "who to farm today" use case), write-action planning, and full free-text
+> routing — the `/ws` prefix can be dropped once the EntityManager's pattern
+> proves stable and the orchestrator handles both read and write.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

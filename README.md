@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.1.0-alpha.3** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.1.0-alpha.10** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -186,6 +186,25 @@ facts** — so it can't make Workspace data up (if something doesn't exist, it
 says so). No feature-specific commands needed. Phase 1 covers read
 questions; write-action planning and full free-text routing come next.
 
+### 🗣 Natural Language Entity Management (v15.1.0-alpha.10)
+
+With an active workspace open, just chat naturally:
+
+```
+Create character Furina               → creates a new entity
+Hu Tao is level 80                    → updates entity field
+Hu Tao priority high                  → sets priority field
+Show all level 70 characters          → retrieves matching entities
+Who uses Polearm?                     → searches entity fields
+```
+
+The `EntityManager` (`core/ai/entity_manager.py`) interprets free text using
+the fast AI model, maps it to the active workspace's template-defined fields
+(level, element, priority, etc.), and applies changes through the Entity
+Engine — no commands, no JSON, no developer tools. Non-entity messages fall
+through to the regular AI chat untouched. Template-agnostic: works with
+game, knowledge, asset, project, and any future workspace type.
+
 ---
 
 ## 🚩 Feature flags
@@ -327,9 +346,10 @@ verified-against-code list is in [API.md](API.md#command-reference).
 | 🌱 Habits | `habits` · `streak <id>` · `habitlog <id>` · `addhabit <t>` · `skiphabit <id>` · `done <id>` |
 | 🎯 Goals & Projects | `goals` · `projects` · `project <id>` · `need` · `got` · `worklog` · `started`/`finished` · `shopping` |
 | 🧠 AI & Planning | `think <q>` · `plan today/week` · `breakdown <id>` · `reschedule <id>` · `analyze` · `insights` |
+| 🗂 Workspaces & Entities | `newproject / newgame / newgoal` · `workspaces` · `use <name>` · `add <name>` · `open <name>` · `current` · `note <text>` · `linkhere` · `ws <q>` — also **natural language**: _"Create character Furina"_ · _"Hu Tao is level 80"_ · _"Show all level 70 characters"_ |
 | 🖼 Media | `image <prompt>` · `video <prompt>` · send a photo |
 | 🗂 Memory & Tools | `memory` · `forget <key>` · `search <kw>` · `template` · `export` |
-| ⚙️ Settings | `settings` · `quiethours` · `interval` · `wellness on/off` · `dashboard` |
+| ⚙️ Settings | `settings` · `quiethours` · `interval` · `wellness on/off` · `dashboard` · `commands` |
 | 🛠 Diagnostics | `status` · `selftest` · `report <issue>` · `bugs` · `trace` |
 | 🔑 Setup | `claimadmin` (become owner, first run) · `myid` (your Telegram ID) |
 

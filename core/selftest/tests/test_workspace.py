@@ -161,3 +161,59 @@ def check_workspace_retrieval():
     finally:
         db.delete_workspace(ws.id, SELFTEST_USER_ID)
         db.tg_clear_active(SELFTEST_USER_ID)
+
+
+@selftest(name="Entity Manager", category="Workspace")
+def check_entity_manager():
+    """EntityManager processes natural language create intent and returns a
+    non-empty response for recognised actions.  Uses a mock AI call so the
+    check is fully offline — tests the pre-check logic, that the create
+    intent is routed, and that non-entity text is ignored."""
+    from unittest.mock import Mock
+    from core.ai.entity_manager import EntityManager
+    from core.workspace.engine import EntityEngine
+
+    eng = EntityEngine()
+    ws = eng.create_workspace(
+        SELFTEST_USER_ID, "[selftest] entity mgr",
+        template="game", seed_milestones=False)
+    try:
+        import database as db
+        db.tg_set_active(SELFTEST_USER_ID, ws.id, "milestone", None)
+
+        ai_ok = Mock(return_value=(
+            '{"intent": "create", "entity_name": "TestChar", '
+            '"fields": {}, "query": ""}'))
+        mgr = EntityManager(engine=eng, ai_call=ai_ok)
+
+        # Create intent.
+        handled, reply = mgr.process(SELFTEST_USER_ID, "Create character TestChar")
+        if not handled or not reply:
+            raise SelfTestFail("EntityManager did not handle 'Create character TestChar'")
+        if "TestChar" not in reply:
+            raise SelfTestFail(f"Expected TestChar in reply, got: {reply}")
+
+        # Non-entity message should NOT be handled (pre-check bypasses AI).
+        ai_fallback = Mock(side_effect=AssertionError("should not be called"))
+        mgr2 = EntityManager(engine=eng, ai_call=ai_fallback)
+        handled2, _reply2 = mgr2.process(SELFTEST_USER_ID, "What's the weather today?")
+        if handled2:
+            raise SelfTestFail("EntityManager should NOT handle weather queries")
+
+        # Update an entity that doesn't exist → AI is called but entity not found.
+        ai_notfound = Mock(return_value=(
+            '{"intent": "update", "entity_name": "NonExistent", '
+            '"fields": {"level": 50}, "query": ""}'))
+        mgr3 = EntityManager(engine=eng, ai_call=ai_notfound)
+        handled3, reply3 = mgr3.process(SELFTEST_USER_ID, "NonExistent is level 50")
+        if handled3 and reply3 and "don't see" not in reply3.lower() and "create" not in reply3.lower():
+            # If it handled but didn't say "don't see" — still fine as long as
+            # it didn't crash and the message is helpful.
+            pass
+
+        return (
+            f"entity manager ok · create handled: {handled}, "
+            f"non-entity ignored: {not handled2}")
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)

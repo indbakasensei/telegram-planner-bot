@@ -8,8 +8,49 @@ Each entry lists what was added and which files were touched, so a future
 session can find the relevant code quickly.
 
 ---
+<!-- Markdown header for new version separators -->
+---
 
-## v15.1.0-alpha.9 — Structured per-entity fields (current)
+## v15.1.0-alpha.10 — Natural Language Entity Management & Release Standards (current)
+
+Makes the structured entity system from alpha.9 fully usable through natural
+language. Users can now create, update, and query entities by chatting
+naturally — no commands, no JSON, no database knowledge required.
+Also establishes release engineering standards and ships a `/commands`
+reference command. Suite **1218 passing** (1197 + 21).
+
+- **`core/ai/entity_manager.py` — `EntityManager` (new):**
+  Translates conversational free-text into Entity Engine operations (create,
+  update, retrieve) using the injected AI call as a lightweight NL classifier.
+  Template-agnostic: the prompt includes the active workspace's field specs so
+  the model picks the right field names without hardcoding any domain. A
+  keyword pre-check (active workspace + entity-related terms) avoids a useless
+  LLM call on every message. Returns `(handled, response)`; `handled=False`
+  means the caller falls through to the normal AI pipeline.
+- **`main.py` — EntityManager integration in `handle_message`:**
+  After state-machine checks and the WORKSPACE pipeline, the free-text handler
+  now tries the EntityManager. If the user has an active workspace and the
+  text looks entity-related, the LLM classifies it and the Entity Engine
+  executes; otherwise the text falls through to the regular AI.
+- **`/commands` — interactive command reference dashboard:**
+  New `commands_cmd` handler plus `ui.commands_dashboard()` and
+  `commands_category_page()` — inline-button navigation with category
+  pages, back/home buttons, targeting advanced users.
+  Registered as `CommandHandler("commands")` in main.py.
+- **`/help` — entity management section:**
+  The Workspace section of `help_cards()` now includes natural-language
+  entity management examples (create, update, find).
+- **BAKA_VERSION bumped** from `15.1.0-alpha.8` to `15.1.0-alpha.10`.
+- **Self-test: `check_entity_manager`** — verifies the pre-check logic,
+  create-intent routing, and non-entity pass-through using a mocked AI call
+  (fully offline).
+- **21 new offline tests** in `tests/test_ai_entity_manager.py` covering
+  `_extract_json`, create/update/retrieve/none routing, duplicate detection,
+  no-active-workspace passthrough, AI failure handling, entity name matching,
+  and field info generation.
+- **Documentation:** CHANGELOG, ROADMAP, TESTING.md, README all updated.
+
+## v15.1.0-alpha.9 — Structured per-entity fields
 
 Adds **structured, template-defined fields on entities (milestones)** — the
 schema foundation that lets a game character carry `level`, `element`,

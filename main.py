@@ -212,7 +212,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.1.0-alpha.8"
+BAKA_VERSION = "15.1.0-alpha.10"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -314,6 +314,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg1, msg2 = UI.help_cards(BAKA_VERSION, is_admin(user_id))
     await _reply_rich(update.message, msg1)
     await _reply_rich(update.message, msg2, reply_markup=main_menu())
+
+
+async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """v15.1.0-alpha.10: full command reference — interactive dashboard with
+    inline buttons for every category.  Targets advanced users who want the
+    complete catalogue."""
+    user_id = update.message.from_user.id
+    text, kb = UI.commands_dashboard(BAKA_VERSION, is_admin(user_id))
+    await _reply_rich(update.message, text, reply_markup=kb)
 
 
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1255,7 +1264,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
          "how productive", "analyse productivity"): analyze_cmd,
         # Help
         ("help", "show help", "what can you do", "help me",
-         "guide me", "commands"): help_command,
+         "guide me"): help_command,
+        # v15.1.0-alpha.10: "commands" now routes to the full command reference
+        ("commands", "show commands", "command list",
+         "all commands", "list all commands"): commands_cmd,
         ("cancel", "stop", "nevermind", "never mind", "abort"): cancel_cmd,
         # Diagnostics
         ("checktasks", "check tasks", "diagnose tasks", "task diagnostics"): checktasks_cmd,
@@ -1325,6 +1337,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             format_tasks(tasks, label), parse_mode=HTML, reply_markup=main_menu()
         )
         return
+
+    # ── v15.1.0-alpha.10: Natural Language Entity Management ───
+    # If the user has an active workspace, try to interpret the free text
+    # as an entity management command (create/update entity fields).
+    # Falls through to the regular AI if not recognised.
+    _em = _entity_manager()
+    logger.debug("EntityManager singleton: %s", _em)
+    if _em is not None:
+        logger.info("Routing '%s' through EntityManager for user %s", user_input, user_id)
+        try:
+            handled, reply = _em.process(user_id, user_input)
+        except Exception:
+            logger.exception("EntityManager failed; falling through to Legacy")
+            handled, reply = False, ""
+        if handled:
+            logger.info("EntityManager handled '%s' → %s", user_input, reply[:80])
+            await update.message.reply_text(reply, parse_mode=HTML,
+                                            reply_markup=main_menu())
+            return
+        logger.debug("EntityManager did NOT handle '%s' — falling through", user_input)
 
     # ── Idle — BAKA ──
     now = datetime.now(IST)
@@ -2214,6 +2246,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await safe_edit_message_text(query, "❌ Task not found.")
+
+    elif action == "cmd":
+        # v15.1.0-alpha.10: interactive command reference dashboard.
+        category = parts[1] if len(parts) > 1 else "menu"
+        text, kb = UI.commands_category_page(category, BAKA_VERSION, is_admin(user_id))
+        await safe_edit_message_text(query, text, parse_mode=HTML, reply_markup=kb)
+
 
     elif action == "dev":
         # v14.22: Developer Center / Self-Test framework. Admin-only;
@@ -3771,6 +3810,10 @@ _WS_GROUPS = ws_groups.WorkspaceGroups()
 # via grounded tools (LLM planner routes; answers come only from real data).
 _COGNITIVE = None
 
+# v15.1.0-alpha.10: Natural Language Entity Management — interpret free text
+# as entity create/update/retrieve commands against the active workspace.
+_ENTITY_MGR = None
+
 
 def _cognitive():
     global _COGNITIVE
@@ -3779,6 +3822,17 @@ def _cognitive():
         from core.ai.llm_planner import LLMPlanner
         _COGNITIVE = CognitiveEngine(planner=LLMPlanner())
     return _COGNITIVE
+
+
+def _entity_manager():
+    """Lazy singleton: the Natural Language Entity Manager.  Stateless after
+    creation; uses baka_brain.call_fast (via the default injection) for NL
+    classification so it never blocks on the slow reasoning model."""
+    global _ENTITY_MGR
+    if _ENTITY_MGR is None:
+        from core.ai.entity_manager import EntityManager
+        _ENTITY_MGR = EntityManager()
+    return _ENTITY_MGR
 
 
 async def ask_cmd(update, context):
@@ -4917,6 +4971,8 @@ def main() -> None:
     # v15.1.0-alpha.3 Cognitive Engine: ask questions about your workspaces
     app.add_handler(CommandHandler("ws", ask_cmd))
     app.add_handler(CommandHandler("query", ask_cmd))
+    # v15.1.0-alpha.10: full command reference for advanced users
+    app.add_handler(CommandHandler("commands", commands_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)

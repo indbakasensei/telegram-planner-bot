@@ -755,6 +755,12 @@ def help_cards(version, user_is_admin):
         f"data): {i('which component is blocked?')} · {i('how far along is Drone?')}",
         f"…also broad recall: {i('what do I know about Hu Tao?')} — searches",
         f"everything you've stored (entities + notes) and answers from it",
+        f"",
+        f"🗣 {b('Natural Language (v15.1.0-alpha.10)')} — just chat with an",
+        f"active workspace open and I'll manage entities automatically:",
+        f"  • Create: {i('Create character Furina')}",
+        f"  • Update: {i('Hu Tao is level 80')} · {i('priority high for Furina')}",
+        f"  • Find: {i('Show all level 70 characters')} · {i('Who uses Polearm?')}",
     ])
     ai_planning = "\n".join([
         f"{code('think <question>')} — reasoning over your data",
@@ -1127,3 +1133,264 @@ def dev_run_summary_card(results):
         uic.action_row(("⬅ Developer Center", "dev:menu")),
     )
     return uic.render_page(header, *blocks), keyboard
+
+
+# ── v15.1.0-alpha.10: /commands (interactive dashboard) ──────────────
+
+
+def commands_dashboard(version, user_is_admin):
+    """Interactive /commands main menu — returns (html_text, InlineKeyboardMarkup).
+    Each category button opens a detail page via cmd: callback.  Targets
+    advanced users who want the complete catalogue.
+    """
+    from fmt import b, i, esc, expandable_blockquote
+    from telegram import InlineKeyboardMarkup
+    import ui_components as uic
+
+    intro = (
+        "\U0001f4d6 " + b("BAKA Command Reference") + "\n"
+        + i("v" + version + " \u00b7 interactive dashboard") + "\n\n"
+        + "Tap a category to expand. \u25be"
+    )
+
+    CATEGORIES = [
+        ("\U0001f4cc", "Tasks", [
+            "list", "today", "week", "add task <title>",
+            "done <id>", "edit <id>", "delete <id>",
+            "deadline <id>", "tag <id> <tags>", "tagged <tag>",
+            "search <kw>", "overdue", "review", "carryforward",
+        ]),
+        ("\U0001f331", "Habits", [
+            "habits", "streak <id>", "habitlog <id>",
+            "addhabit <title> [at HH:MM] [daily|weekly]",
+            "skiphabit <id>", "done <id>",
+        ]),
+        ("\U0001f3af", "Goals & Projects", [
+            "goals", "projects", "project <id>",
+            "need <id> <items>", "got <name>",
+            "started <id>", "finished <id>",
+            "worklog <id> <text>", "shopping",
+        ]),
+        ("\U0001f5c2", "Workspaces & Entities", [
+            "newproject <title>", "newgame <title>", "newgoal <title>",
+            "workspaces", "use <name>", "add <name>", "open <name>",
+            "current", "note <text>", "linkhere",
+            "ws <question>", "/commands (this reference)",
+            "NL: create/update entities by chatting normally",
+        ]),
+        ("\U0001f9e0", "AI & Planning", [
+            "think <question>", "plan today/week",
+            "breakdown <id>", "reschedule <id>",
+            "analyze", "insights", "overload",
+            "suggestions", "approve <id>", "dismiss <id>",
+        ]),
+        ("\U0001f5c4", "Memory & Search", [
+            "Remember <something> naturally",
+            "forget <key>", "memory",
+            "search <keyword>", "savetemplate <name> <id>",
+            "template", "export",
+        ]),
+        ("\U0001f5bc", "Media", [
+            "image <prompt>", "video <prompt>",
+            "Send a photo (Vision AI)",
+        ]),
+        ("\u2699", "Settings", [
+            "settings", "quiethours <start> <end>",
+            "interval <min>", "wellness on/off",
+            "dashboard", "status", "selftest",
+            "commands", "cancel",
+        ]),
+    ]
+    if user_is_admin:
+        CATEGORIES.append(("\U0001f451", "Admin", [
+            "debug", "admin", "adminmode",
+            "sql <query>", "report <issue>", "bugs",
+            "trace", "misses", "reviewed <id>",
+            "resettasks", "resethabits", "resetall",
+            "myid", "claimadmin",
+        ]))
+
+    buttons = []
+    for emoji, name, _cmds in CATEGORIES:
+        buttons.append(uic.action_row(
+            (f"{emoji} {name}", f"cmd:{name}")
+        ))
+    buttons.append(uic.action_row(("\U0001f3e0 Home", "dash:home")))
+    kb = uic.keyboard(*buttons)
+
+    return intro, kb
+
+
+def commands_category_page(category, version, user_is_admin):
+    """Detail page for one command category — shows all commands, usage,
+    and a back button. Returns (html_text, InlineKeyboardMarkup).
+    """
+    from fmt import b, i, code, esc
+    from telegram import InlineKeyboardMarkup
+    import ui_components as uic
+
+    CATALOGUE = {
+        "Tasks": {
+            "emoji": "\U0001f4cc",
+            "desc": "Task management — create, track, complete, and organise.",
+            "commands": [
+                ("list", "View all pending tasks"),
+                ("today", "Tasks due today"),
+                ("week", "Tasks due this week"),
+                ("add task <title> or just describe it", "Create a task"),
+                ("done <id>", "Mark a task complete"),
+                ("edit <id>", "Modify a task"),
+                ("delete <id>", "Remove a task (asks to confirm)"),
+                ("deadline <id>", "Toggle deadline mode (7d/3d/1d/6h/1h pre-warnings)"),
+                ("tag <id> <tags>", "Add tags"),
+                ("tagged <tag>", "View tasks by tag"),
+                ("search <keyword>", "Search across all tasks"),
+                ("overdue", "View overdue tasks"),
+                ("review", "Tasks needing follow-up"),
+                ("carryforward", "Move overdue to today"),
+                ("pause <id> / resume <id> / paused", "Pause/resume reminders"),
+                ("snooze <id> <min>", "Custom snooze duration"),
+                ("stopreminder <id>", "Stop reminders for a task"),
+            ],
+            "related": "Habits, Goals & Projects",
+        },
+        "Habits": {
+            "emoji": "\U0001f331",
+            "desc": "Build and track habits with streaks, logs, and check-ins.",
+            "commands": [
+                ("habits", "View all habits"),
+                ("streak <id>", "View streak history (grid)"),
+                ("habitlog <id>", "View completion log"),
+                ("addhabit <title> [at HH:MM] [daily|weekly [day]]", "Create a habit"),
+                ("skiphabit <id>", "Skip today"),
+                ("done <id>", "Mark habit complete (logs it)"),
+            ],
+            "related": "Tasks, Dashboard",
+        },
+        "Goals & Projects": {
+            "emoji": "\U0001f3af",
+            "desc": "Track goals and projects with progress, materials, and work logs.",
+            "commands": [
+                ("goals", "View all goals"),
+                ("projects", "View all projects"),
+                ("project <id>", "View project details"),
+                ("need <id> <items>", "Add materials needed"),
+                ("got <name>", "Mark material as acquired"),
+                ("started <id>", "Mark project as started"),
+                ("finished <id>", "Mark project as finished"),
+                ("worklog <id> <text>", "Log work done"),
+                ("shopping", "View auto-collected shopping list"),
+            ],
+            "related": "Workspaces, Tasks",
+        },
+        "Workspaces & Entities": {
+            "emoji": "\U0001f5c2",
+            "desc": "Project/game/goal workspaces with structured entities. Natural language management in alpha.10.",
+            "commands": [
+                ("newproject / newgame / newgoal <title>", "Create a workspace"),
+                ("workspaces", "List all workspaces"),
+                ("use <name> or #id", "Switch active workspace"),
+                ("add <name>", "Add an entity to the active workspace"),
+                ("open <name>", "Focus on an entity"),
+                ("current", "Show active workspace and entity"),
+                ("note <text>", "Log a progress note"),
+                ("linkhere", "Link workspace to a Telegram group (send inside the group)"),
+                ("ws <question>", "Ask about your workspaces (AI, read-only)"),
+                ("Natural language", "Chat: 'Create character Furina', 'Hu Tao is level 80', 'Show all level 70 characters'"),
+            ],
+            "related": "AI & Planning",
+        },
+        "AI & Planning": {
+            "emoji": "\U0001f9e0",
+            "desc": "AI-powered planning, reasoning, and suggestions.",
+            "commands": [
+                ("think <question>", "Deep reasoning over your data"),
+                ("plan today / plan week", "Generate time-blocked plans"),
+                ("breakdown <id>", "Split a task into subtasks"),
+                ("reschedule <id>", "Pick a conflict-free time"),
+                ("analyze", "Productivity analysis"),
+                ("insights", "Patterns and learnings"),
+                ("overload", "Check for overloaded days"),
+                ("suggestions", "View AI suggestions"),
+                ("approve <id> / dismiss <id>", "Manage suggestions"),
+            ],
+            "related": "Tasks, Workspaces",
+        },
+        "Memory & Search": {
+            "emoji": "\U0001f5c4",
+            "desc": "Key-value memory, templates, and cross-domain search.",
+            "commands": [
+                ("'Remember my exam is June 20'", "Save a memory naturally"),
+                ("memory", "View all memories"),
+                ("forget <key>", "Delete a memory"),
+                ("search <keyword>", "Search tasks+memories+habits+goals"),
+                ("savetemplate <name> <task_id>", "Save a task as a template"),
+                ("template / template <name>", "View/apply templates"),
+                ("export", "Plain-text backup of all data"),
+            ],
+            "related": "Tasks",
+        },
+        "Media": {
+            "emoji": "\U0001f5bc",
+            "desc": "Image generation and photo understanding.",
+            "commands": [
+                ("image <prompt>", "Generate an image"),
+                ("video <prompt>", "Generate a short video (1\u20133 min)"),
+                ("Send a photo", "Vision AI describes it / extracts todos"),
+            ],
+            "related": "",
+        },
+        "Settings": {
+            "emoji": "\u2699",
+            "desc": "Preferences, diagnostics, and system tools.",
+            "commands": [
+                ("settings", "Open settings panel"),
+                ("quiethours <start> <end>", "Set quiet hours (no pings)"),
+                ("interval <min>", "Reminder check interval"),
+                ("wellness on/off", "Toggle wellness nudges"),
+                ("dashboard", "Open the interactive dashboard"),
+                ("status / status full", "System status + benchmark"),
+                ("selftest", "Run live health checks"),
+                ("commands", "This reference"),
+                ("cancel", "Abort pending action"),
+            ],
+            "related": "Admin",
+        },
+    }
+    if user_is_admin:
+        CATALOGUE["Admin"] = {
+            "emoji": "\U0001f451",
+            "desc": "Owner-only administration and debugging tools.",
+            "commands": [
+                ("debug", "Developer Center (Self Test, test runner)"),
+                ("admin / adminmode", "Admin dashboard"),
+                ("sql <query>", "Read-only SQL console"),
+                ("report <issue>", "Report a bug"),
+                ("bugs", "View reported bugs"),
+                ("trace <id>", "View bug trace"),
+                ("misses", "Check missed reminders"),
+                ("reviewed <bug_id>", "Mark bug as reviewed"),
+                ("resettasks / resethabits / resetall", "Destructive reset tools"),
+                ("myid", "Your Telegram user ID"),
+                ("claimadmin", "Claim ownership (first run)"),
+            ],
+            "related": "Settings",
+        }
+
+    if category not in CATALOGUE:
+        # Unknown category -> main menu
+        return commands_dashboard(version, user_is_admin)
+
+    info = CATALOGUE[category]
+    lines = [f"{info['emoji']} {b(category)} Commands\n{esc(info['desc'])}\n"]
+    for cmd, desc in info["commands"]:
+        lines.append(f"\U0001f539 {code(cmd)} \u2014 {desc}")
+    if info["related"]:
+        lines.append(f"\n\U0001f517 Related: {info['related']}")
+
+    buttons = [
+        uic.action_row(("\U0001f519 Back to Commands", "cmd:menu")),
+        uic.action_row(("\U0001f3e0 Home", "dash:home")),
+    ]
+    kb = uic.keyboard(*buttons)
+    return "\n".join(lines), kb
