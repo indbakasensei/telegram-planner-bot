@@ -102,23 +102,21 @@ class TestFullSentencePronoun:
 class TestUpdateThenPronoun:
     def test_update_entity_then_pronoun_followup(self, temp_db, uid):
         eng, ws = _mk_workspace(uid)
-        ai = Mock(side_effect=[
-            _ai("create", "Furina"),
-            _ai("update", fields={"level": 90}),
-        ])
+        ai = Mock(side_effect=[_ai("create", "Furina")])
         mgr = EntityManager(engine=eng, ai_call=ai)
 
         mgr.process(uid, "Create character Furina")
-        # "her" resolves to the active entity; the update applies to it even
-        # though the LLM returned an empty entity_name.
+        # "her" resolves to the active entity; the update applies to it via the
+        # deterministic pre-extractor (NO LLM call) — "set her level to 90".
         handled, reply = mgr.process(uid, "Set her level to 90")
         assert handled is True
+        assert ai.call_count == 1
         furina = _by_title(eng, uid, ws, "Furina")
         assert furina.fields.get("level") == 90
 
         # Follow-up pronoun still resolves to Furina (update kept it active).
         handled, reply = mgr.process(uid, "Show her")
-        assert ai.call_count == 2
+        assert ai.call_count == 1
         assert handled is True
         assert "Furina" in reply
 
@@ -177,18 +175,20 @@ class TestSwitchActiveEntity:
 class TestActiveEntityAfterUpdate:
     def test_show_her_after_update_returns_furina(self, temp_db, uid):
         eng, ws = _mk_workspace(uid)
-        ai = Mock(side_effect=[
-            _ai("create", "Furina"),
-            _ai("update", "Furina", fields={"level": 80}),
-        ])
+        ai = Mock(side_effect=[_ai("create", "Furina")])
         mgr = EntityManager(engine=eng, ai_call=ai)
 
         mgr.process(uid, "Create Furina")
+        # "Furina is level 80" is a deterministic single-field update — the
+        # extractor applies it without the LLM and keeps Furina active.
         handled, reply = mgr.process(uid, "Furina is level 80")
         assert handled is True
+        assert ai.call_count == 1
+        furina = _by_title(eng, uid, ws, "Furina")
+        assert furina.fields.get("level") == 80
 
         handled, reply = mgr.process(uid, "Show her")
-        assert ai.call_count == 2
+        assert ai.call_count == 1
         assert handled is True
         assert "Furina" in reply
 
@@ -353,3 +353,293 @@ class TestResolverDetection:
         r = res.resolve(uid, "show her", ws.id,
                         eng.list_milestones(uid, ws.id))
         assert r.ambiguous is True and len(r.candidates) == 2
+
+
+# ── 13. Deterministic single-field updates (M1 acceptance fix) ─────────────
+# "Sucrose is level70" was previously misclassified by the fast LLM as
+# `retrieve`, so the update never happened. These prove the deterministic
+# pre-extractor applies the field (persisted + retrievable) with NO LLM call.
+
+class TestDeterministicFieldUpdate:
+    def test_field_persisted_as_70(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        m = eng.add_milestone(uid, ws.id, "Sucrose")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        # The exact manual message: no space between field and value.
+        handled, reply = mgr.process(uid, "Sucrose is level70")
+        assert handled is True
+        assert ai.call_count == 0              # deterministic, never hit the LLM
+        sucrose = _by_title(eng, uid, ws, "Sucrose")
+        assert sucrose.fields.get("level") == 70
+
+        # The value is actually retrievable: "Show her" resolves to the now
+        # active Sucrose and its card shows 70.
+        handled, reply = mgr.process(uid, "Show her")
+        assert handled is True and "70" in reply
+
+    def test_space_form_with_connector(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Sucrose")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        handled, reply = mgr.process(uid, "Sucrose level is 70")
+        assert handled is True and ai.call_count == 0
+        assert _by_title(eng, uid, ws, "Sucrose").fields.get("level") == 70
+
+    def test_possessive_field_is_value(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Sucrose")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        handled, reply = mgr.process(uid, "Sucrose's priority is high")
+        assert handled is True and ai.call_count == 0
+        assert _by_title(eng, uid, ws, "Sucrose").fields.get("priority") == "high"
+
+    def test_set_verb_with_explicit_title(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Sucrose")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        handled, reply = mgr.process(uid, "Set Sucrose's level to 90")
+        assert handled is True and ai.call_count == 0
+        assert _by_title(eng, uid, ws, "Sucrose").fields.get("level") == 90
+
+    def test_pronoun_form_against_active_entity(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Sucrose")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        # First deterministic update makes Sucrose the active entity.
+        mgr.process(uid, "Sucrose is level 50")
+        # Pronoun form routes the update to the active entity (preferred).
+        handled, reply = mgr.process(uid, "Set her level to 90")
+        assert handled is True and ai.call_count == 0
+        assert _by_title(eng, uid, ws, "Sucrose").fields.get("level") == 90
+
+    def test_question_is_never_treated_as_update(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Sucrose")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        handled, reply = mgr.process(uid, "What level is Sucrose?")
+        assert not handled and reply == ""     # fell through, nothing mutated
+        assert _by_title(eng, uid, ws, "Sucrose").fields.get("level") is None
+        assert ai.call_count == 1              # went through the normal path
+
+    def test_unknown_field_falls_through(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Sucrose")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        # "a hydro character" is not a <field> <value> pattern → LLM decides.
+        handled, reply = mgr.process(uid, "Sucrose is a hydro character")
+        assert not handled
+        assert ai.call_count == 1
+
+    def test_clause_is_not_a_value(self, temp_db, uid):
+        # "the level of the game is high" must NOT become level="of the ...".
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Game")
+        ai = Mock(side_effect=[_ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        handled, reply = mgr.process(uid, "the level of the game is high")
+        assert not handled
+        assert _by_title(eng, uid, ws, "Game").fields.get("level") is None
+        assert ai.call_count == 1
+
+
+# ── 14. Ordinals resolve against CognitiveEngine list output (M1 fix) ──────
+# "Show all characters" goes through the broad-recall branch which shows the
+# entity list via the list_entities tool; that list is now recorded so
+# "the first one"/"the last one"/"the second one" resolve deterministically.
+
+class TestOrdinalViaCognitiveList:
+    def test_first_and_last_after_show_all_characters(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        for name in ("Alpha", "Beta", "Gamma"):
+            eng.add_milestone(uid, ws.id, name)
+        ai = Mock(side_effect=[_ai("retrieve", query="show all characters")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        handled, reply = mgr.process(uid, "Show all characters")
+        assert handled is True
+        assert "Alpha" in reply                 # CognitiveEngine list shown
+
+        # "the first one" resolves deterministically (no LLM) to Alpha.
+        handled, reply = mgr.process(uid, "Show the first one")
+        assert ai.call_count == 1
+        assert handled is True
+        assert "Alpha" in reply
+
+        # "the last one" → Gamma (the actual third entity, by identity).
+        handled, reply = mgr.process(uid, "Show the last one")
+        assert ai.call_count == 1
+        assert handled is True
+        assert "Gamma" in reply
+        assert "Beta" not in reply
+
+    def test_second_one_after_show_all_characters(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        for name in ("Alpha", "Beta", "Gamma"):
+            eng.add_milestone(uid, ws.id, name)
+        ai = Mock(side_effect=[_ai("retrieve", query="show all characters")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        mgr.process(uid, "Show all characters")
+        handled, reply = mgr.process(uid, "Show the second one")
+        assert ai.call_count == 1
+        assert handled is True
+        assert "Beta" in reply
+        assert "Alpha" not in reply
+
+
+# ── 15. Ordinal edge cases: 1-entity list, replaced list, empty/stale list ─
+
+class TestOrdinalEdgeCases:
+    def test_list_of_one_entity(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Solo")
+        ai = Mock(side_effect=[_ai("retrieve", query="show all characters"),
+                               _ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        mgr.process(uid, "Show all characters")
+        handled, reply = mgr.process(uid, "Show the first one")
+        assert handled is True
+        assert "Solo" in reply
+
+        # "the second one" is out of range → unresolved, falls through.
+        handled, reply = mgr.process(uid, "Show the second one")
+        assert not handled
+        assert ai.call_count == 2
+
+    def test_new_list_replaces_old_list(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        a = eng.add_milestone(uid, ws.id, "Alpha")
+        b = eng.add_milestone(uid, ws.id, "Beta")
+        g = eng.add_milestone(uid, ws.id, "Gamma")
+        for m in (a, b):
+            eng.update_field(uid, m.id, "element", "hydro")
+        eng.update_field(uid, g.id, "element", "pyro")
+        ai = Mock(side_effect=[
+            _ai("retrieve", query="show all hydro"),
+            _ai("retrieve", query="show all pyro"),
+        ])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        mgr.process(uid, "Show all hydro")     # list = [Alpha, Beta]
+        mgr.process(uid, "Show all pyro")      # list replaced = [Gamma]
+
+        handled, reply = mgr.process(uid, "Show the first one")
+        assert ai.call_count == 2
+        assert handled is True
+        assert "Gamma" in reply                # the NEW list, not the old
+        assert "Alpha" not in reply
+
+    def test_stale_list_with_deleted_entities_does_not_resolve(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        a = eng.add_milestone(uid, ws.id, "Alpha")
+        b = eng.add_milestone(uid, ws.id, "Beta")
+        ai = Mock(side_effect=[_ai("retrieve", query="show all characters"),
+                               _ai("none")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        mgr.process(uid, "Show all characters")  # ordered = [Alpha, Beta]
+        eng.delete_milestone(uid, a.id)
+        eng.delete_milestone(uid, b.id)
+
+        # The recorded list now refers to deleted entities — the ordinal must
+        # NOT resolve to a ghost, and must not crash.
+        handled, reply = mgr.process(uid, "Show the first one")
+        assert not handled or "Alpha" not in reply
+        assert ai.call_count == 2
+
+
+# ── 16. Precedence chain (explicit name > active > recent > ambiguous) ─────
+
+class TestPrecedence:
+    def test_explicit_name_beats_active_entity(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        ai = Mock(side_effect=[
+            _ai("create", "Furina"),
+            _ai("create", "Zhongli"),
+            _ai("retrieve", query="Show Furina"),
+        ])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        mgr.process(uid, "Create Furina")
+        mgr.process(uid, "Create Zhongli")
+        assert db.tg_get_active(uid)[2] == _by_title(eng, uid, ws, "Zhongli").id
+
+        # Explicit name wins over the active entity (Zhongli).
+        handled, reply = mgr.process(uid, "Show Furina")
+        assert handled is True and "Furina" in reply
+        # ...and repoints the active entity to Furina.
+        assert db.tg_get_active(uid)[2] == _by_title(eng, uid, ws, "Furina").id
+        assert ai.call_count == 3
+
+    def test_active_entity_beats_single_recent_mention(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        ai = Mock(side_effect=[_ai("create", "Furina"),
+                               _ai("create", "Zhongli")])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        mgr.process(uid, "Create Furina")
+        mgr.process(uid, "Create Zhongli")
+
+        # Both are recent mentions, but the DB active entity (Zhongli) is the
+        # strongest deictic signal.
+        handled, reply = mgr.process(uid, "Show him")
+        assert ai.call_count == 2
+        assert handled is True
+        assert "Zhongli" in reply and "Furina" not in reply
+
+    def test_ordinal_requires_ordered_context_even_with_active(self, temp_db, uid):
+        # "the first one" with no list shown must NOT silently resolve to the
+        # active entity — it falls through (never guesses).
+        eng, ws = _mk_workspace(uid)
+        eng.add_milestone(uid, ws.id, "Zhongli")
+        ai = Mock(side_effect=[
+            _ai("create", "Zhongli"),
+            _ai("none"),
+        ])
+        mgr = EntityManager(engine=eng, ai_call=ai)
+
+        mgr.process(uid, "Create Zhongli")     # active = Zhongli, no list shown
+        handled, reply = mgr.process(uid, "Show the first one")
+        assert not handled
+        assert ai.call_count == 2              # fell through, never guessed
+
+
+# ── 17. Ambiguity: no active + two candidates + weak reference → clarify ───
+
+class TestAmbiguityStrictness:
+    def test_weak_reference_ambiguous_clarifies(self, temp_db, uid):
+        eng, ws = _mk_workspace(uid)
+        a = eng.add_milestone(uid, ws.id, "Furina")
+        b = eng.add_milestone(uid, ws.id, "Raiden Shogun")
+        ctx = ReferenceContext()
+        from core.ai.reference_context import Referent
+        ctx.note_mention(uid, Referent(kind="milestone", id=a.id,
+                                       title="Furina", workspace_id=ws.id))
+        ctx.note_mention(uid, Referent(kind="milestone", id=b.id,
+                                       title="Raiden Shogun", workspace_id=ws.id))
+        ai = Mock(side_effect=[_ai("none")])
+        # Share the pre-seeded context so the resolver sees both candidates;
+        # no DB active entity, so neither candidate has priority.
+        mgr = EntityManager(engine=eng, ai_call=ai, ref_context=ctx)
+
+        handled, reply = mgr.process(uid, "Show it")
+        assert handled is True
+        assert "which one" in reply.lower()
+        assert "Furina" in reply and "Raiden Shogun" in reply
+        assert ai.call_count == 0              # clarified, never guessed

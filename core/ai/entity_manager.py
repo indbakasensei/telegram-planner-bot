@@ -37,6 +37,25 @@ logger = logging.getLogger(__name__)
 # Singleton cache for the default AI call (lazy, set once).
 _DEFAULT_AI_CALL: Callable | None = None
 
+# ── Deterministic single-field update extraction (M1 acceptance fix) ──────
+# Patterns like "Sucrose is level 70" / "set her level to 90" are recognised
+# WITHOUT the LLM so a cheap classifier can't misroute an update to
+# `retrieve`. Field names come from the template specs, never hardcoded.
+_UPDATE_LEAD_VERBS = re.compile(r"^(?:set|make|update|change|edit|put)\s+")
+_UPDATE_LEAD_PRONOUNS = re.compile(
+    r"^(?:he|him|his|she|her|hers|it|its|they|them|their|this|that)\s+")
+_QUESTION_INTROS = ("what", "which", "how", "why", "when", "where", "who",
+                    "whose")
+# A captured value whose first token is one of these is almost certainly a
+# question/aux/clause phrasing ("level is she", "level of the ..."), not a
+# real field value — let the LLM decide those.
+_UPDATE_BAD_VALUE_FIRST = frozenset({
+    "does", "do", "did", "is", "are", "was", "were", "use", "using", "used",
+    "he", "him", "his", "she", "her", "hers", "it", "its", "they", "them",
+    "their", "i", "you", "we", "my", "your", "our",
+    "of", "for", "from", "in", "on", "at", "as", "than", "about",
+})
+
 
 def _default_ai(prompt_text: str) -> str:
     """Build messages in OpenAI format and send through call_fast.
@@ -302,6 +321,20 @@ class EntityManager:
             return True, self._handle_retrieve(
                 user_id, ws_id, text, preferred=active_entity)
 
+        # 5b. Deterministic single-field update extraction (M1 acceptance fix):
+        #     "Sucrose is level 70", "<title> <field> is <value>",
+        #     "<title>'s <field> is <value>", "set her <field> to <value>"
+        #     are recognised without the LLM, so a cheap classifier
+        #     misreading them as `retrieve` can no longer swallow an update.
+        extracted = self._try_extract_update(text, entities, active_entity, ws)
+        if extracted is not None:
+            name, fields, used_active = extracted
+            logger.info("EntityManager[%s] deterministic update '%s' fields=%s",
+                        user_id, name, fields)
+            return True, self._handle_update(
+                user_id, ws_id, name, fields, entities,
+                preferred=active_entity if used_active else None)
+
         # 6.  Classify via LLM.
         prompt = self._build_prompt(
             text, ws.title, ws.template, field_info, entity_titles,
@@ -367,15 +400,18 @@ class EntityManager:
 
         Durable state lives in the DB-backed tg_active_context row (the same
         source of truth WorkspaceGroups uses); mention order is kept in the
-        in-memory ReferenceContext. A single-entity focus supersedes the last
-        shown list (so a later ordinal can't resolve against stale order).
+        in-memory ReferenceContext. The last ordered list is intentionally
+        KEPT: a single-entity focus does not invalidate it, so the user can
+        navigate a just-shown list across ordinals ("the first one" → "the
+        last one"). A later list-producing retrieve replaces it via
+        `_note_list`; a deleted entity is re-validated against fresh data by
+        the resolver, so a stale list can never resolve to a ghost.
         """
         self._s.tg_bindings.set_active(
             user_id, ws_id, ENTITY_TYPE, milestone.id)
         self._ref_ctx.note_mention(user_id, Referent(
             kind=ENTITY_TYPE, id=milestone.id, title=milestone.title,
             workspace_id=ws_id))
-        self._ref_ctx.note_ordered(user_id, [])
 
     def _note_list(self, user_id: int, ws_id: int, matched: list) -> None:
         """Remember an ordered list shown to the user (M1): both as the
@@ -411,6 +447,85 @@ class EntityManager:
                        "this", "that", "this one", "that one",
                        "the current one", "the current character",
                        "the current entity", "the one")
+
+    def _try_extract_update(self, text: str, entities: list,
+                            active_entity: object | None, ws) -> tuple | None:
+        """Deterministically recognise a single-field update without the LLM.
+
+        Handles "<title> is <field> <value>", "<title> <field> is <value>",
+        "<title>'s <field> is <value>", "set <title> <field> to <value>", and
+        the pronoun/possessive forms ("set her level to 90") resolved against
+        the active entity. Template-agnostic: field names come from the
+        active template's field specs and entity titles from the workspace.
+
+        Returns (entity_name, {field: value}, used_active) — `used_active`
+        True only when the target came from the active entity (pronoun form),
+        so the caller passes it as the preferred referent. Returns None when
+        the message isn't a clear deterministic update (questions, unknown
+        fields, no target), letting the LLM handle it.
+        """
+        text = (text or "").strip()
+        if not text or "?" in text:
+            return None
+        low = text.lower()
+
+        # Target title: the longest known entity title present in the text
+        # (explicit mention wins), else the active entity (pronoun form).
+        used_active = False
+        title = None
+        for ent in sorted(entities, key=lambda e: len(e.title), reverse=True):
+            if len(ent.title) > 2 and ent.title.lower() in low:
+                title = ent.title
+                break
+        if title is None and active_entity is not None:
+            title = active_entity.title
+            used_active = True
+        if title is None:
+            return None
+
+        # Remove the title (and a following possessive) once.
+        rest = low.replace(title.lower() + "'s", " ", 1)
+        if rest == low:
+            rest = low.replace(title.lower(), " ", 1)
+        rest = rest.strip()
+        if not rest or rest.startswith(_QUESTION_INTROS):
+            return None
+
+        # Drop leading update verbs and (when active) pronouns that precede
+        # the field name: "set her level to 90" → "level to 90".
+        rest = _UPDATE_LEAD_VERBS.sub("", rest).strip()
+        if active_entity is not None:
+            rest = _UPDATE_LEAD_PRONOUNS.sub("", rest).strip()
+        if not rest:
+            return None
+
+        # Match a field name (longest first so "target_level" wins over
+        # "level"), allowing spaces/underscores between word parts. Two
+        # shapes: a separator ("level 70", "level is 70", "level = 70") or a
+        # value glued straight on ("level70" — the digit lookahead keeps it
+        # from matching inside "leveling").
+        specs = entity_field_specs(ws.template) if ws else ()
+        for fname in sorted({s.name for s in specs}, key=len, reverse=True):
+            base = r"\b" + r"[\s_]*".join(re.escape(p) for p in fname.split("_"))
+            m = re.search(
+                base + r"\b\s+(?:(?:is|to|at)\s+|=|:)?(.+)$", rest)
+            if not m:
+                m = re.search(base + r"(?=\d)(.+)$", rest)
+            if not m:
+                continue
+            value = m.group(1).strip()
+            # A value can't be empty, a question, or an aux/pronoun tail
+            # ("level is she" → "she" is not a value).
+            if not value or value.split()[0].lower() in _UPDATE_BAD_VALUE_FIRST:
+                continue
+            # Single-field update: cut trailing co-ordinates ("70 and
+            # priority high" → "70"). Multi-field is M2's job.
+            value = re.split(
+                r"\s+(?:and|or|but|with|then|also)\s+", value, maxsplit=1)[0]
+            value = value.rstrip(".,!;")
+            if value:
+                return title, {fname: value}, used_active
+        return None
 
     @staticmethod
     def _clarify_message(resolved) -> str:
@@ -582,6 +697,12 @@ class EntityManager:
             if res.grounded:
                 logger.info("EntityManager[%s] retrieve → CognitiveEngine grounded: %s",
                             user_id, res.answer[:80])
+                # M1: the broad-recall path can also *show* the entity list
+                # ("show all characters" → list_entities tool). Record that
+                # ordered list so "the first one"/"the last one" resolve
+                # against it, exactly like the filter / fallback branches.
+                if any(step.tool == "list_entities" for step in res.plan.steps):
+                    self._note_list(user_id, ws_id, entities)
                 return res.answer
         except Exception:
             logger.warning("EntityManager[%s] CognitiveEngine failed", user_id, exc_info=True)
