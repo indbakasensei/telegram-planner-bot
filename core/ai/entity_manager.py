@@ -24,6 +24,12 @@ from core.storage import Storage
 from core.workspace.engine import EntityEngine
 from core.workspace.errors import EntityValidationError, EntityNotFound
 from core.workspace.templates.registry import entity_field_specs
+from core.ai.reference_context import Referent, ReferenceContext
+from core.ai.reference_resolver import (
+    ENTITY_TYPE,
+    ReferenceResolver,
+    is_ordinal_phrase,
+)
 from fmt import esc
 
 logger = logging.getLogger(__name__)
@@ -184,10 +190,18 @@ class EntityManager:
 
     def __init__(self, engine: EntityEngine | None = None,
                  storage: Storage | None = None,
-                 ai_call: Callable | None = None):
+                 ai_call: Callable | None = None,
+                 resolver: ReferenceResolver | None = None,
+                 ref_context: ReferenceContext | None = None):
         self._eng = engine or EntityEngine()
         self._s = storage or Storage()
         self._ai_call = ai_call or _default_ai
+        # M1: reference resolution context is owned by this EntityManager so
+        # tests get a fresh instance and production (one singleton) shares
+        # one context across users, keyed by user_id.
+        self._ref_ctx = ref_context or ReferenceContext()
+        self._resolver = resolver or ReferenceResolver(
+            storage=self._s, engine=self._eng, context=self._ref_ctx)
 
     # ── Public entry point ───────────────────────────────────────────────────
 
@@ -228,7 +242,25 @@ class EntityManager:
         logger.info("EntityManager[%s] field_info='%s' entities=%s",
                      user_id, field_info[:80], entity_titles)
 
-        # 3.  Quick keyword pre-check — bail early if nothing looks
+        # 3.  Resolve conversational references (M1) against the context just
+        #     established: the DB-backed active entity + recent/ordered
+        #     mentions. This runs BEFORE the keyword pre-check and the LLM so
+        #     a resolved referent reaches the prompt and the handlers.
+        resolved = self._resolver.resolve(user_id, text, ws_id, entities)
+        if resolved.ambiguous:
+            logger.info("EntityManager[%s] ambiguous reference — asking to clarify",
+                        user_id)
+            return True, self._clarify_message(resolved)
+        if resolved.stale_active:
+            logger.info("EntityManager[%s] active entity dangling — clearing",
+                        user_id)
+            self._s.tg_bindings.clear_active(user_id)
+        active_entity = resolved.entity   # Milestone | None
+        logger.debug("EntityManager[%s] reference resolution: kind=%s ref=%s",
+                     user_id, resolved.kind,
+                     active_entity.title if active_entity else None)
+
+        # 4.  Quick keyword pre-check — bail early if nothing looks
         #     entity-related, avoiding a useless LLM call on every message.
         low = text.lower()
         # Entity keywords that suggest entity management intent.
@@ -249,16 +281,31 @@ class EntityManager:
             t.lower() in low and len(t) > 2
             for t in entity_titles
         )
+        # A resolved referent that carries an entity signal (or is a bare
+        # reference) is strong evidence of entity intent, even without a
+        # keyword ("her", "the first one").
+        if active_entity is not None and (resolved.has_signal
+                                          or self._is_bare_reference(text)):
+            has_active_keyword = True
         logger.debug("EntityManager[%s] pre-check: keyword=%s mentions_entity=%s",
-                      user_id, has_active_keyword, mentions_entity)
+                     user_id, has_active_keyword, mentions_entity)
 
         if not has_active_keyword and not mentions_entity:
             logger.info("EntityManager[%s] pre-check miss — falling through", user_id)
             return False, ""
 
-        # 4.  Classify via LLM.
+        # 5.  A *bare* reference ("show her", "the first one") needs no LLM
+        #     to decide the operation — resolve and show deterministically.
+        if active_entity is not None and self._is_bare_reference(text):
+            logger.info("EntityManager[%s] bare reference '%s' → direct retrieve %s",
+                        user_id, text, active_entity.title)
+            return True, self._handle_retrieve(
+                user_id, ws_id, text, preferred=active_entity)
+
+        # 6.  Classify via LLM.
         prompt = self._build_prompt(
-            text, ws.title, ws.template, field_info, entity_titles)
+            text, ws.title, ws.template, field_info, entity_titles,
+            active_entity=active_entity)
         logger.info("EntityManager[%s] calling LLM for classification", user_id)
         try:
             raw = self._ai_call(prompt)
@@ -278,36 +325,103 @@ class EntityManager:
         logger.info("EntityManager[%s] classified as intent=%s entity='%s'",
                      user_id, intent, entity_name)
 
-        # 5.  Route to the appropriate handler.
+        # 7.  Route to the appropriate handler.  A resolved referent wins over
+        #     the LLM's entity_name (the referent is authoritative).
         if intent == "create" and entity_name:
             logger.info("EntityManager[%s] → create '%s'", user_id, entity_name)
             return True, self._handle_create(user_id, ws_id, entity_name)
 
-        if intent == "update" and entity_name:
+        if intent == "update" and (entity_name or active_entity is not None):
             fields = data.get("fields")
             if isinstance(fields, dict) and fields:
                 logger.info("EntityManager[%s] → update '%s' fields=%s",
-                            user_id, entity_name, fields)
+                            user_id, entity_name or active_entity.title, fields)
                 return True, self._handle_update(
-                    user_id, ws_id, entity_name, fields, entities)
+                    user_id, ws_id, entity_name, fields, entities,
+                    preferred=active_entity)
+            target_name = entity_name or (active_entity.title if active_entity else "it")
             logger.info("EntityManager[%s] → update '%s' but no fields",
-                        user_id, entity_name)
+                        user_id, target_name)
             return True, (
-                f"I understood you want to update {entity_name}, "
+                f"I understood you want to update {target_name}, "
                 f"but I couldn't tell what to change. "
-                f"Try something like \"{entity_name} level is 70\"."
+                f"Try something like \"{target_name} level is 70\"."
             )
 
         if intent == "retrieve":
             query = (data.get("query") or text).strip()
             logger.info("EntityManager[%s] → retrieve query='%s'", user_id, query)
-            return True, self._handle_retrieve(user_id, ws_id, query)
+            return True, self._handle_retrieve(
+                user_id, ws_id, query, preferred=active_entity)
 
         logger.info("EntityManager[%s] intent='%s' not recognised — falling through",
                      user_id, intent)
         return False, ""
 
     # ── Intent handlers ──────────────────────────────────────────────────────
+
+    # ── M1 reference-lifecycle helpers ──────────────────────────────────────
+
+    def _activate_entity(self, user_id: int, ws_id: int, milestone) -> None:
+        """Mark `milestone` as the active conversational entity (M1).
+
+        Durable state lives in the DB-backed tg_active_context row (the same
+        source of truth WorkspaceGroups uses); mention order is kept in the
+        in-memory ReferenceContext. A single-entity focus supersedes the last
+        shown list (so a later ordinal can't resolve against stale order).
+        """
+        self._s.tg_bindings.set_active(
+            user_id, ws_id, ENTITY_TYPE, milestone.id)
+        self._ref_ctx.note_mention(user_id, Referent(
+            kind=ENTITY_TYPE, id=milestone.id, title=milestone.title,
+            workspace_id=ws_id))
+        self._ref_ctx.note_ordered(user_id, [])
+
+    def _note_list(self, user_id: int, ws_id: int, matched: list) -> None:
+        """Remember an ordered list shown to the user (M1): both as the
+        ordered context for "the first one" and as individual mentions so a
+        later pronoun has candidates (and can be flagged as ambiguous)."""
+        refs = [Referent(kind=ENTITY_TYPE, id=m.id, title=m.title,
+                         workspace_id=ws_id)
+                for m in matched]
+        self._ref_ctx.note_ordered(user_id, refs)
+        for r in refs:
+            self._ref_ctx.note_mention(user_id, r)
+
+    def _is_bare_reference(self, text: str) -> bool:
+        """True when the message is essentially just a resolved reference —
+        "show her", "the first one", "him" — so the operation (retrieve) can
+        be decided deterministically without an LLM call (M1, requirement H)."""
+        low = text.lower().strip()
+        if is_ordinal_phrase(low):
+            return True
+        for verb in ("show", "display", "view", "see", "get"):
+            if low == verb:
+                return True
+            if low.startswith(verb + " "):
+                rest = low[len(verb) + 1:].strip()
+                if rest in ("he", "him", "his", "she", "her", "hers",
+                            "it", "its", "they", "them", "their",
+                            "this", "that", "this one", "that one",
+                            "the current one", "the current character",
+                            "the current entity", "the one"):
+                    return True
+        return low in ("he", "him", "his", "she", "her", "hers",
+                       "it", "its", "they", "them", "their",
+                       "this", "that", "this one", "that one",
+                       "the current one", "the current character",
+                       "the current entity", "the one")
+
+    @staticmethod
+    def _clarify_message(resolved) -> str:
+        """Ask which entity the user meant (requirement G: never guess when
+        several candidates could match)."""
+        lines = ["🤔 I found a few possibilities — which one do you mean?"]
+        for i, r in enumerate(resolved.candidates, 1):
+            name = r.title or f"{r.kind} #{r.id}"
+            lines.append(f"{i}. {esc(name)}")
+        lines.append("Just name it, e.g. <i>\"show Furina\"</i>.")
+        return "\n".join(lines)
 
     def _handle_create(self, user_id: int, ws_id: int,
                        name: str) -> str:
@@ -333,6 +447,10 @@ class EntityManager:
             logger.warning("EntityManager[%s] workspace %s not found for create", user_id, ws_id)
             return "I couldn't find that workspace. Open one first with /use."
 
+        # M1: a successful NL creation establishes the active conversational
+        # entity (so "show her" right after resolves to it).
+        self._activate_entity(user_id, ws_id, m)
+
         ws = self._eng.get_workspace_or_none(user_id, ws_id)
         icon = ws.icon if ws else "📁"
 
@@ -354,10 +472,16 @@ class EntityManager:
 
     def _handle_update(self, user_id: int, ws_id: int,
                        entity_name: str, fields: dict,
-                       entities: list) -> str:
-        """Update fields on an existing entity (milestone)."""
-        # Find the entity by name (fuzzy match).
-        target = self._find_entity(entity_name, entities)
+                       entities: list,
+                       preferred: object | None = None) -> str:
+        """Update fields on an existing entity (milestone).
+
+        `preferred` is an M1 resolved referent (Milestone): when the user
+        referred to the entity by pronoun/ordinal, the referent is
+        authoritative and wins over the LLM's entity_name.
+        """
+        # M1: a resolved referent takes precedence over name lookup.
+        target = preferred if preferred is not None else self._find_entity(entity_name, entities)
         if target is None:
             logger.info("EntityManager[%s] update '%s' → entity not found", user_id, entity_name)
             return (
@@ -390,13 +514,22 @@ class EntityManager:
             logger.info("EntityManager[%s] update '%s' — no fields changed", user_id, entity_name)
             return f"Updated <b>{esc(entity_name)}</b> — no fields changed."
 
+        # M1: a successful update keeps the entity as the active referent.
+        self._activate_entity(user_id, ws_id, target)
+
         reply = f"✅ Updated <b>{esc(entity_name)}</b>:\n" + "\n".join(f"  • {r}" for r in results)
         logger.info("EntityManager[%s] update '%s' reply: %s", user_id, entity_name, reply[:100])
         return reply
 
     def _handle_retrieve(self, user_id: int, ws_id: int,
-                         query: str) -> str:
-        """Retrieve entities by name, field filter, or broad recall."""
+                         query: str,
+                         preferred: object | None = None) -> str:
+        """Retrieve entities by name, field filter, or broad recall.
+
+        `preferred` is an M1 resolved referent (Milestone): a resolved
+        pronoun/ordinal reference means the user wants THAT entity, so it
+        wins over name matching and is shown directly.
+        """
         logger.info("EntityManager[%s] retrieve query='%s'", user_id, query)
 
         # 1.  Fetch all entities from the DB (always fresh — Requirement 5).
@@ -412,12 +545,20 @@ class EntityManager:
             logger.info("EntityManager[%s] retrieve — no entities in workspace", user_id)
             return "Your workspace doesn't have any entities yet."
 
+        # 1b. M1: a resolved referent is shown directly (and becomes active).
+        if preferred is not None:
+            logger.info("EntityManager[%s] retrieve → resolved referent '%s' (id=%s)",
+                        user_id, preferred.title, preferred.id)
+            self._activate_entity(user_id, ws_id, preferred)
+            return self._format_entity_card(preferred)
+
         # 2.  Try to show a specific entity by name.
         #     Use the full original text so embedded names like "Show Furina" match.
         entity = self._find_entity(query, entities)
         if entity:
             logger.info("EntityManager[%s] retrieve → single entity '%s' (id=%s)",
                         user_id, entity.title, entity.id)
+            self._activate_entity(user_id, ws_id, entity)
             return self._format_entity_card(entity)
 
         # 3.  Filter entities by field values matching the query tokens.
@@ -427,6 +568,9 @@ class EntityManager:
         if filtered is not None:
             logger.info("EntityManager[%s] retrieve → %d filtered results out of %d entities",
                         user_id, len(filtered), len(entities))
+            # M1: remember this ordered list so "the first one"/"the last one"
+            # resolve against it.
+            self._note_list(user_id, ws_id, filtered)
             return self._format_entity_list(filtered, entities, query, ws)
 
         # 4.  Fallback: try CognitiveEngine for broad recall.
@@ -444,6 +588,7 @@ class EntityManager:
 
         # 5.  Ultimate fallback — show all entities.
         logger.info("EntityManager[%s] retrieve → no filter match, showing full list", user_id)
+        self._note_list(user_id, ws_id, entities)
         return self._format_entity_list(entities, entities, query, ws)
 
     # ── Retrieval helpers ──────────────────────────────────────────────────
@@ -601,10 +746,20 @@ class EntityManager:
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _build_prompt(self, text: str, ws_title: str, template_key: str,
-                      field_info: str, entity_titles: list[str]) -> str:
+                      field_info: str, entity_titles: list[str],
+                      active_entity: object | None = None) -> str:
         titles = ", ".join(entity_titles) if entity_titles else "(none yet)"
+        active_line = ""
+        if active_entity is not None:
+            active_line = (
+                f"Active entity: {active_entity.title} (id={active_entity.id})\n"
+                "If the user refers to the active entity with a pronoun "
+                "(he/she/him/her/it/this/that/one) or as \"the current one\", "
+                "treat the active entity as the target entity.\n"
+            )
         return (
             f"Workspace: \"{ws_title}\" (template: {template_key})\n"
+            f"{active_line}"
             f"Entity fields: {field_info}\n"
             f"Existing entities: {titles}\n"
             f"User: {text}\n"
