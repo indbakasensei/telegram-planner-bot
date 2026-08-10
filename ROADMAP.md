@@ -135,8 +135,32 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > (added `weapon` field vs `weapon_type`), retrieval (entity-aware field search),
 > entity display cards, logging, and Telegram UX. 16 new tests, 1234 passing.
 >
-> **`v15.1.0-alpha.12` — Conversational Entity References & Active Entity (M1,
-> current):** the first milestone of the AI-worker roadmap. The bot now
+> **`v15.1.0-alpha.13` — Telegram Entity Topic Projection & Backfill (M10,
+> current):** closes the topic gap. Every entity-creation path — `/add`,
+> natural language ("Create character Arlecchino"), and the new admin-only
+> `/topicbackfill` migration op — converges on ONE idempotent entity ⇒
+> Telegram topic ⇒ initial-card contract (`WorkspaceGroups.create_entity` +
+> `TelegramProjection.ensure_entity_topic`; `EntityManager` composes the same
+> primitives through a Telegram-agnostic injected projection seam). NL-created
+> entities get topic + binding + initial card automatically; existing entities
+> are backfilled generically (soft-deleted excluded, unlinked skipped,
+> idempotent re-run, initial cards rendered from live DB state by
+> `core/workspace/render.py`). Updates append a minimal message to the topic
+> (`post_entity_update`, self-healing). Failure model documented: DB entity
+> durable; topic+binding the durable Telegram unit; sends best-effort;
+> transient binding-write failures retried once; persistent failure leaves an
+> orphan topic recoverable by re-run. **1301 offline tests passing**, Workspace
+> self-tests green, regression suite TOP-001…TOP-009. Live-Telegram acceptance
+> pending the manual matrix (A–G). See
+> `docs/engineering/M13_TOPIC_PROJECTION.md`. **Next:** M2 (robust JSON decode
+> + clarification instead of incorrect fall-through), then M3 field-aware
+> retrieval, M4 task lookup, M5 reminder/view semantics, M6 confirmation
+> truthfulness, M7 deterministic dates, M8 unified tool surface + bounded AI
+> worker loop, M9 field semantics/schema validation. v15.1.0-beta.1 and BAKA
+> Brain v15.2 follow the milestone sequence, not the other way around.
+>
+> **`v15.1.0-alpha.12` — Conversational Entity References & Active Entity
+> (M1):** the first milestone of the AI-worker roadmap. The bot now
 > resolves conversational references deterministically against real context:
 > pronouns ("show her/him/it"), ordinals ("show the first one / last one"),
 > and bare follow-ups ("what level is she?") — using the DB-backed *active
@@ -148,13 +172,7 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > entities are re-validated and never resurrected. 35 new offline tests,
 > **1269 passing**, plus M1 regression specs and a self-test probe. The
 > `Can she ascend further?` strong-pronoun routing gap is documented as a
-> known limitation. **Next:** M2 (robust JSON decode + clarification instead
-> of incorrect fall-through), then M3 field-aware retrieval, M4 task lookup,
-> M5 reminder/view semantics, M6 confirmation truthfulness, M7 deterministic
-> dates, M8 unified tool surface + bounded AI worker loop, M9 field
-> semantics/schema validation, M10 Telegram topic wiring through
-> WorkspaceGroups (see `docs/engineering/`). v15.1.0-beta.1 and BAKA Brain
-> v15.2 follow the milestone sequence, not the other way around.
+> known limitation.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

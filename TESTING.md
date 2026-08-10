@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**1269 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**1301 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~20 seconds, all 1269 tests
+pytest                             # ~25 seconds, all 1301 tests
 ```
 
 | File | Tests | Covers |
@@ -49,6 +49,8 @@ pytest                             # ~20 seconds, all 1269 tests
 | `tests/test_feature_flags.py` | 19 | `core/feature_flags.py`'s rollout flags (v14.1C): the `_flag()` helper across truthy/falsy env-var spellings, all four flags defaulting OFF when unset, and — via `importlib.reload()` — that the exported constants actually pick up an environment variable at import time, not just the helper function in isolation (100% coverage of `core/feature_flags.py`) |
 | `tests/test_ai_entity_manager.py` | 37 | `core/ai/entity_manager.py` (v15.1.0-alpha.10/11): NL→entity translation — create/update/retrieve routing, JSON extraction, template-agnostic field mapping, entity-by-name and reverse-partial matching, field-value filtering (`_filter_entities_by_query`), entity card/list formatting, query-token stop-word handling, retrieval by name, and the deterministic single-field update extractor (M1, alpha.12). All LLM calls mocked; offline and deterministic |
 | `tests/test_reference_resolution.py` | 35 | M1 conversational references (v15.1.0-alpha.12): `core/ai/reference_context.py` + `reference_resolver.py` wired into EntityManager — create-then-pronoun ("create Furina" → "show her"), pronoun variants, ordinal selection (first/second/last), ordered-list persistence across activation, full-sentence pronoun retrieval, ambiguity + clarification, explicit-name-beats-active precedence, stale/deleted-entity self-heal, deterministic field updates, workspace isolation. Resolver is pure and LLM-free; tests assert bare references never reach the LLM |
+| `tests/test_topic_projection.py` | 24 | v15.1.0-alpha.13 (M10) topic projection: `ensure_entity_topic` idempotency (no duplicate topic/card), initial card on NEW topics only, card-send failure swallowed, unlinked workspace → no call, `post_entity_update` append-only + self-heal, `backfill_topics` created/existing classification, re-run idempotency, initial cards reflect live DB state, unlinked/soft-deleted/empty-workspace handling, per-entity error collection, partial-then-retry recovery, transient vs persistent binding-write failure, stale bindings, cross-workspace same-name, duplicate create, long/Unicode names, card HTML escaping + sparse/dense fields |
+| `tests/test_entity_manager_projection.py` | 8 | v15.1.0-alpha.13 (M10) EntityManager projection seam: NL create projects topic + initial card and activates, create/update without projection makes no call, projection failure keeps the DB op (create warns, update stands), deterministic + LLM update append old→new message with fresh self-heal card, bare reference and retrieve make no projection call |
 
 ## Release Verification Guide (v14.21 — the canonical checklist)
 
@@ -124,6 +126,16 @@ updated · "Hu Tao priority high" → priority field updated · "Show all level
 nonexistent fields get helpful error messages · existing fields update only
 the changed value · `/commands` shows the full reference · `/help` workspace
 section now includes NL examples.
+
+Topic projection & backfill (v15.1.0-alpha.13): "Create character Arlecchino"
+→ entity created AND a "Arlecchino" topic appears in the linked group with an
+initial card (status + fields + IST timestamp) · "Arlecchino is level 90" →
+the topic gets an append-only "Level: <old> → 90" message (old value only if
+real) · `/topicbackfill` (admin) creates exactly one topic per existing
+entity that lacks one (never duplicates, skips soft-deleted, re-run is a
+no-op) · topic cards match `/show` (never invented) · unlinked workspaces are
+reported skipped. Full matrix: `core/regression/suites/topic_projection_m10.py`
+(TOP-001…TOP-009).
 
 ### Templates, Memory, Search, Export [L]
 `savetemplate name <id>` · `template` · `template name` · "Remember my

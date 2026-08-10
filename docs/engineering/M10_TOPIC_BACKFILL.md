@@ -1,9 +1,15 @@
-# M10 — Telegram Topic Wiring Through WorkspaceGroups (plan only)
+# M10 — Telegram Topic Wiring Through WorkspaceGroups
 
 **Date:** 2026-08-10
-**Status:** scope + migration plan only. **Nothing here is implemented in
-this pass.** M10 is a later milestone; this document answers the questions the
-owner asked before any topic backfill runs.
+**Status:** **IMPLEMENTED in v15.1.0-alpha.13.** The plan below was carried out
+as specified: the backfill and the NL-creation wiring both exist and are
+covered by the offline pytest suite, a regression suite, and a self-test.
+The only deviations from the plan are documented in
+[`docs/engineering/M13_TOPIC_PROJECTION.md`](M13_TOPIC_PROJECTION.md): the
+initial-card contract (cards are now posted into new topics), the shared
+renderer, and the explicit consistency model for partial failures. The live
+DB state table below is retained for reference; `B. Backfill` below is the
+actual implemented design, not a sketch.
 
 ---
 
@@ -87,79 +93,85 @@ is the workspace-entity entity type, `ENTITY_TYPE` in `groups_app.py`),
 **Workspaces 9/10/11 ("Test Game", user 555001999)** are self-test residue,
 **not linked to any group** — no topics possible or needed.
 
-## Idempotent backfill design
+## Idempotent backfill design (implemented)
 
-Because `ensure_entity_topic` already checks the existing binding before
-creating, a backfill is a loop, safe to re-run:
+`WorkspaceGroups.backfill_topics(user_id, projection) -> dict` (in
+`core/workspace/groups_app.py`) is the implemented version of the sketch
+below. It iterates the user's **active** workspaces, skips unlinked ones
+(reported `linked: False`, no Telegram call), and for each linked workspace
+iterates `engine.list_milestones` (soft-deleted excluded), classifying each
+entity as `created` / `existing` by whether a `tg_entity_topics` binding
+existed **before** `ensure_entity_topic` ran. Per-entity exceptions land in
+`errors[]`; the loop keeps going. The report shape is
+`{workspace_id: {title, linked, created[], existing[], errors[]}}`.
 
-```python
-def backfill_topics(user_id, workspace_id, client) -> dict:
-    proj = TelegramProjection(client)              # production client
-    if not proj.is_linked(workspace_id):
-        return {"skipped": "workspace not linked"}
-    binding = storage.tg_bindings.get_binding(workspace_id)
-    created, existing, skipped = [], [], []
-    for m in engine.list_milestones(user_id, workspace_id):
-        t = proj.ensure_entity_topic(user_id, workspace_id,
-                                     ENTITY_TYPE, m.id, m.title)
-        if t is None:
-            skipped.append(m.title)
-        elif storage.tg_bindings.get_entity_topic(ENTITY_TYPE, m.id) == t:
-            existing.append(m.title)  # was already bound before this run
-        else:
-            created.append(m.title)
-    return {"created": created, "existing": existing, "skipped": skipped}
+```
+for ws in engine.list_workspaces(user_id):          # active only
+    if not storage.tg_bindings.get_binding(ws.id):
+        report[ws.id] = {"linked": False}; continue
+    for m in engine.list_milestones(user_id, ws.id):
+        had = storage.tg_bindings.get_entity_topic(ENTITY_TYPE, m.id)   # BEFORE
+        try:
+            topic_id = projection.ensure_entity_topic(                   # shared path
+                user_id, ws.id, ENTITY_TYPE, m.id, m.title,
+                initial_message=format_entity_card(m, with_timestamp=True))
+        except Exception as exc:
+            errors.append(f"{m.title}: {type(exc).__name__}: {exc}"); continue
+        (created if had is None else existing).append(m.title)
 ```
 
-Guarantees:
+Guarantees (unchanged from plan):
 - **Idempotent** — `ensure_entity_topic` never calls `create_forum_topic`
-  when a binding already exists; re-running a backfill is a no-op for the
-  already-bound entities.
+  when a binding already exists; re-running a backfill creates nothing and
+  never re-posts an initial card.
 - **No entity/data changes** — only rows are added to `tg_entity_topics`;
   milestone ids, titles, fields, workspaces are untouched.
 - **No cross-workspace collision** — bindings are keyed by
   `(entity_type, entity_id)`; topic creation is scoped per linked chat.
 - **Soft-deleted entities excluded** — `list_milestones` already filters them.
-- Safe against a partially-linked workspace (`is_linked` guard) and a bot
-  without forum-admin rights (Telegram raises; the loop should fail loudly
-  and record the title, never silently claim success).
+- **Initial cards are real** — each new topic receives a card rendered by
+  `core/workspace/render.py` from live DB state (never invented), with an IST
+  timestamp.
+- Safe against a partially-linked workspace (binding guard) and a bot without
+  forum-admin rights (Telegram raises; the loop records the title in
+  `errors[]`, never silently claims success).
 
-## How NL entity creation should eventually call the projection
+Invocation: **`/topicbackfill`** (admin-only, in main.py) runs it with the
+live projection via `asyncio.to_thread` and reports created/existing/skipped/
+errors. It is an explicit migration/sync op — no startup-time backfill runs.
 
-`EntityManager._handle_create` currently calls `engine.add_milestone`
-directly. The existing integration point that does entity **and** topic in
-one step is `WorkspaceGroups.add_entity(user_id, name, projection)` — it adds
-the milestone, calls `ensure_entity_topic` when a projection is supplied, and
-sets the new entity active. The M10 wiring change is therefore to route the
-NL create through the groups layer (or the equivalent) rather than inventing
-a parallel topic path:
+## How NL entity creation calls the projection (implemented)
 
-```
-EntityManager._handle_create
-  → WorkspaceGroups.add_entity(user_id, name, projection)   # projection from main.py
-      engine.add_milestone(...)
-      projection.ensure_entity_topic(...)   # idempotent, no duplicate
-      tg_bindings.set_active(user_id, ws_id, ENTITY_TYPE, m.id)
-```
-
-Considerations to resolve in M10 (not this pass):
-- EntityManager is deliberately Telegram-agnostic today. The clean seam is
-  for main.py to supply the projection (as it does for the `/add` handler),
-  or for EntityManager to accept an optional projection, so the core stays
-  offline-testable.
-- The **active entity** should also remain the M1 `tg_active_context` write —
-  `set_active(entity_type, entity_id)` is compatible (M1 stores the same
-  shape), so reference resolution keeps working after the wiring.
-- Backfill and live creation must share the same code path so new entities
-  never desync from the backfill logic.
+`EntityManager.process(user_id, text, projection=None)` now accepts an
+optional duck-typed projection (injected by main.py; tests inject a fake).
+EntityManager stays Telegram-agnostic — it never imports a Telegram module.
+A successful create routes through `_handle_create`, which:
+`engine.add_milestone` → `projection.ensure_entity_topic(..., initial_card)`
+→ `tg_bindings.set_active` (M1 active entity, unchanged). This is the SAME
+`ensure_entity_topic` contract `WorkspaceGroups.create_entity` uses, so NL
+creation, `/add`, and `/topicbackfill` all share exactly one creation site.
+A successful update routes through `_handle_update`, which appends a minimal
+`post_entity_update` message (old values captured from the pre-update DB
+read; topic self-heals with a fresh card if it never existed). Projection
+failures are logged and reported in the reply; the DB operation never rolls
+back. See `M13_TOPIC_PROJECTION.md` for the full consistency model.
 
 ## Duplicate-topic prevention summary
 
-Prevention is **already structural** in `ensure_entity_topic`: it consults
+Prevention is **still structural** in `ensure_entity_topic`: it consults
 `tg_entity_topics` before calling `create_forum_topic`, and the topic id is
 stored immediately after creation. The backfill reuses that single code path,
-so there is exactly one creation site. Nothing in M10 needs a new lock or
-dedup table; the existing binding row *is* the guard.
+so there is exactly one creation site. Nothing needs a new lock or dedup
+table; the existing binding row *is* the guard. Two alpha.13 hardening
+details:
+
+- The binding write after `create_forum_topic` is **retried once** on a
+  transient DB error, so a freshly created topic is not orphaned (a re-run
+  would otherwise duplicate it). A persistent failure surfaces in the
+  backfill `errors[]` and the re-run creates a fresh topic + binding — the
+  documented non-atomicity (see `M13_TOPIC_PROJECTION.md`).
+- Initial cards are only ever posted into a **newly created** topic, so
+  re-running can never post a duplicate card.
 
 ## Out of scope for M10
 

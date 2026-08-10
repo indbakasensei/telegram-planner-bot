@@ -756,7 +756,7 @@ def help_cards(version, user_is_admin):
         f"…also broad recall: {i('what do I know about Hu Tao?')} — searches",
         f"everything you've stored (entities + notes) and answers from it",
         f"",
-        f"🗣 {b('Natural Language (v15.1.0-alpha.12)')} — just chat with an",
+        f"🗣 {b('Natural Language (v15.1.0-alpha.13)')} — just chat with an",
         f"active workspace open and I'll manage entities automatically:",
         f"  • Create: {i('Create character Furina')}",
         f"  • Update: {i('Hu Tao is level 80')} · {i('Furina uses Fleuve Cendre Ferryman')}",
@@ -1289,7 +1289,7 @@ def commands_category_page(category, version, user_is_admin):
         },
         "Workspaces & Entities": {
             "emoji": "\U0001f5c2",
-            "desc": "Project/game/goal workspaces with structured entities. Natural language management in alpha.10; conversational references in alpha.12.",
+            "desc": "Project/game/goal workspaces with structured entities. Natural language management in alpha.10; conversational references in alpha.12; topics + auto-backfill in alpha.13.",
             "commands": [
                 ("newproject / newgame / newgoal <title>", "Create a workspace"),
                 ("workspaces", "List all workspaces"),
@@ -1378,6 +1378,7 @@ def commands_category_page(category, version, user_is_admin):
                 ("resettasks / resethabits / resetall", "Destructive reset tools"),
                 ("myid", "Your Telegram user ID"),
                 ("claimadmin", "Claim ownership (first run)"),
+                ("topicbackfill", "Create missing entity topics (idempotent)"),
             ],
             "related": "Settings",
         }

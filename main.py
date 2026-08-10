@@ -212,7 +212,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.1.0-alpha.12"
+BAKA_VERSION = "15.1.0-alpha.13"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -1299,7 +1299,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _em is not None:
         logger.info("Routing '%s' through EntityManager for user %s", user_input, user_id)
         try:
-            handled, reply = _em.process(user_id, user_input)
+            # alpha.13: inject the live Telegram projection so an NL create /
+            # update also projects to the entity's topic. The projection's
+            # client bridges to the async bot with run_coroutine_threadsafe,
+            # so process() must run on a worker thread (same as /add).
+            handled, reply = await asyncio.to_thread(
+                _em.process, user_id, user_input, _ws_projection(context))
         except Exception:
             logger.exception("EntityManager failed; falling through to Legacy")
             handled, reply = False, ""
@@ -3961,6 +3966,49 @@ async def addentity_cmd(update, context):
         f"to log progress there.", parse_mode=HTML)
 
 
+@admin_only
+async def topicbackfill_cmd(update, context):
+    """v15.1.0-alpha.13: idempotently backfill a Telegram topic + initial
+    card for every entity in every Telegram-linked workspace (admin-only
+    migration/sync op). Re-running creates nothing new."""
+    user_id = update.message.from_user.id
+    try:
+        report = await asyncio.to_thread(
+            _WS_GROUPS.backfill_topics, user_id, _ws_projection(context))
+    except Exception as e:
+        await update.message.reply_text(
+            f"Backfill failed: {esc(str(e))}", parse_mode=HTML)
+        return
+
+    total_created = total_existing = total_errors = 0
+    lines = ["🧵 <b>Topic backfill</b> — one topic per entity:"]
+    for _ws_id, info in report.items():
+        title = info.get("title") or "(workspace)"
+        if not info.get("linked"):
+            lines.append(f"• {b(esc(title))} — not linked to a group, skipped")
+            continue
+        created = info.get("created") or []
+        existing = info.get("existing") or []
+        errors = info.get("errors") or []
+        total_created += len(created)
+        total_existing += len(existing)
+        total_errors += len(errors)
+        bits = []
+        if created:
+            bits.append(f"🆕 {len(created)} topic(s): {esc(', '.join(created))}")
+        if existing:
+            bits.append(f"✅ {len(existing)} already had topics")
+        if errors:
+            bits.append(f"⚠️ {len(errors)} failed")
+        lines.append(f"• {b(esc(title))}: " + ("; ".join(bits) if bits else "no entities"))
+        for err in errors[:5]:
+            lines.append(f"   • {esc(err)}")
+    lines.append(
+        f"\nDone: {total_created} created, {total_existing} existing, "
+        f"{total_errors} error(s). Re-run is a no-op.")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML)
+
+
 async def openentity_cmd(update, context):
     user_id = update.message.from_user.id
     ref = " ".join(context.args).strip()
@@ -4969,6 +5017,8 @@ def main() -> None:
     app.add_handler(CommandHandler("open", openentity_cmd))
     app.add_handler(CommandHandler("current", current_cmd))
     app.add_handler(CommandHandler("note", note_cmd))
+    # v15.1.0-alpha.13: idempotent topic backfill for existing entities
+    app.add_handler(CommandHandler("topicbackfill", topicbackfill_cmd))
     # v15.1.0-alpha.3 Cognitive Engine: ask questions about your workspaces
     app.add_handler(CommandHandler("ws", ask_cmd))
     app.add_handler(CommandHandler("query", ask_cmd))

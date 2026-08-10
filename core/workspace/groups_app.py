@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from core.storage import Storage
 from core.workspace.engine import EntityEngine
+from core.workspace.render import format_entity_card
 
 # Friendly command name → workspace template.
 KIND_TEMPLATE = {
@@ -77,19 +78,78 @@ class WorkspaceGroups:
         return ws
 
     def add_entity(self, user_id, name, projection=None):
-        """Add an entity (topic) to the active workspace, create its Telegram
-        topic if the group is linked, and make it the active entity."""
+        """Add an entity to the ACTIVE workspace (the /add command path):
+        create it, ensure its Telegram topic (+ initial card on a new topic),
+        and make it the active entity. Returns (milestone, topic_id)."""
         active = self._s.tg_bindings.get_active(user_id)
         if not active or active[0] is None:
             return None, None
-        ws_id = active[0]
+        return self.create_entity(user_id, active[0], name, projection)
+
+    def create_entity(self, user_id, ws_id, name, projection=None):
+        """The single entity/projection contract: create the milestone, ensure
+        its Telegram topic (posting the current entity card into a NEWLY
+        created topic), and make it the active entity. Returns
+        (milestone, topic_id).
+
+        Every path that creates an entity which may carry a Telegram topic --
+        /add, natural-language creation -- goes through this same contract, so
+        there is exactly one entity-creation + topic-creation sequence
+        (engine.add_milestone + projection.ensure_entity_topic). Re-running is
+        safe: ensure_entity_topic is idempotent and never duplicates a topic
+        or an initial card. Does NOT check duplicate titles -- callers that
+        need a guard keep their own."""
         m = self._eng.add_milestone(user_id, ws_id, name)
         topic_id = None
         if projection is not None:
             topic_id = projection.ensure_entity_topic(
-                user_id, ws_id, ENTITY_TYPE, m.id, m.title)
+                user_id, ws_id, ENTITY_TYPE, m.id, m.title,
+                initial_message=format_entity_card(m, with_timestamp=True))
         self._s.tg_bindings.set_active(user_id, ws_id, ENTITY_TYPE, m.id)
         return m, topic_id
+
+    def backfill_topics(self, user_id, projection) -> dict:
+        """Ensure a Telegram topic + initial card for EVERY non-deleted entity
+        in every of the user's Telegram-linked workspaces. Generic -- it
+        operates on whatever workspaces/bindings exist, never hardcoding a
+        domain or entity list.
+
+        Idempotent: entities that already have a binding are untouched (their
+        initial card is NOT re-posted); re-running creates nothing. Unlinked
+        workspaces are reported linked:False and trigger no Telegram call.
+        Soft-deleted entities are excluded (list_milestones). No entity,
+        field, or existing binding is ever modified -- only missing
+        tg_entity_topics rows (+ a fresh Telegram topic) are added.
+
+        Returns {workspace_id: {title, linked, created[], existing[],
+        errors[]}} so the caller can report exactly what happened."""
+        report = {}
+        for ws in self._eng.list_workspaces(user_id):
+            if self._s.tg_bindings.get_binding(ws.id) is None:
+                report[ws.id] = {"title": ws.title, "linked": False}
+                continue
+            created, existing, errors = [], [], []
+            for m in self._eng.list_milestones(user_id, ws.id):
+                had = self._s.tg_bindings.get_entity_topic(ENTITY_TYPE, m.id)
+                try:
+                    topic_id = projection.ensure_entity_topic(
+                        user_id, ws.id, ENTITY_TYPE, m.id, m.title,
+                        initial_message=format_entity_card(
+                            m, with_timestamp=True))
+                except Exception as exc:
+                    errors.append(f"{m.title}: {type(exc).__name__}: {exc}")
+                    continue
+                if topic_id is None:
+                    continue
+                if had is None:
+                    created.append(m.title)
+                else:
+                    existing.append(m.title)
+            report[ws.id] = {
+                "title": ws.title, "linked": True,
+                "created": created, "existing": existing, "errors": errors,
+            }
+        return report
 
     def open_entity(self, user_id, ref):
         active = self._s.tg_bindings.get_active(user_id)

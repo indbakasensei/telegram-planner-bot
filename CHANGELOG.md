@@ -11,6 +11,73 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v15.1.0-alpha.13 — Telegram Entity Topic Projection & Backfill (M10)
+
+The topic-projection milestone. Every entity-creation path — `/add`,
+natural language ("Create character Arlecchino"), and the new `/topicbackfill`
+migration op — now converges on ONE idempotent entity ⇒ Telegram topic ⇒
+initial-card contract. NL-created entities get their topic, binding, and
+initial card automatically (no manual topic/linking steps), and existing
+entities can be backfilled generically without being recreated. **1301 offline
+tests passing** (24 projection + 8 entity-manager-projection new), Workspace
+self-tests green, regression suite TOP-001…TOP-009 added. Live-Telegram
+acceptance pending (manual matrix, `TESTING.md`).
+
+- **`core/workspace/render.py` (new) — the single card/update renderer:**
+  `format_entity_card(entity, with_timestamp=False)` renders title / status /
+  current fields / IST timestamp from live DB state (never invented); `None`,
+  dict, and list field values are skipped; all user content HTML-escaped.
+  `format_entity_update(entity, changes)` renders the append-only update
+  message (old value shown only when it was actually read pre-update). Chat
+  replies and topic cards share this one format.
+- **`core/workspace/adapters/projection.py` — initial-card + update contracts:**
+  `ensure_entity_topic(..., initial_message=None)` now posts the initial card
+  into a **newly created** topic only (idempotent; a card-send failure is
+  logged, the topic + binding stay the durable unit). New `post_entity_update`
+  appends a minimal HTML update message to an entity's topic, self-healing a
+  missing topic first (create + current card, then the update). `send_message`
+  gained an explicit `parse_mode` so bot-generated content is HTML while
+  user notes stay plain. The binding write after topic creation is retried
+  once on a transient DB error so a fresh topic is never orphaned.
+- **`core/workspace/groups_app.py` — shared contract + backfill:**
+  `create_entity(user_id, ws_id, name, projection)` is the explicit
+  create + project + activate contract; `add_entity` delegates to it.
+  `backfill_topics(user_id, projection)` generically ensures a topic + live-DB
+  initial card for every non-deleted entity in every linked workspace
+  (idempotent: existing bindings untouched, re-run creates nothing, unlinked
+  workspaces skipped with no Telegram call, soft-deleted excluded,
+  per-entity errors collected into the report).
+- **`core/ai/entity_manager.py` — Telegram-agnostic projection seam:**
+  `process(user_id, text, projection=None)` accepts a duck-typed projection
+  (main.py injects the live one; tests inject a fake; no Telegram import).
+  `_handle_create` projects the new entity's topic + initial card (best-effort,
+  failure reported + repairable via `/topicbackfill`); `_handle_update`
+  appends a `post_entity_update` message with the old value captured from the
+  pre-update DB read and a fresh (never stale) self-heal card. A projection
+  failure never fails or rolls back the DB operation. `_format_entity_card`
+  now delegates to `render.py`.
+- **`main.py` — wiring + `/topicbackfill`:** EntityManager routing now runs
+  `_em.process` via `asyncio.to_thread` with the live projection injected
+  (the projection's client bridges to the async loop, so it must not run on
+  it). New admin-only `/topicbackfill` command runs
+  `WorkspaceGroups.backfill_topics` with the live projection and reports
+  created / existing / skipped / errors; registered as a CommandHandler.
+- **Docs:** `docs/engineering/M10_TOPIC_BACKFILL.md` plan → implemented;
+  `docs/engineering/M13_TOPIC_PROJECTION.md` (new) documents the single
+  contract, the seam, the renderer, the topic contracts, and the documented
+  consistency model (DB entity durable; topic+binding the durable Telegram
+  unit; sends best-effort; persistent binding-write failure → orphan topic,
+  recoverable by re-run — no fake atomicity).
+- **Tests:** `tests/test_topic_projection.py` (24: idempotency, initial cards
+  from DB, escaping, soft-deleted, unlinked skip, partial/permission failure,
+  transient vs persistent binding-write failure, cross-workspace same-name,
+  duplicate create, long/Unicode names, empty workspace, stale bindings) +
+  `tests/test_entity_manager_projection.py` (8: NL create/update project,
+  projection failure keeps the DB op, bare reference / retrieve make no
+  projection call, self-heal card is fresh). Self-test
+  `check_topic_backfill` (Workspace category). Regression suite
+  `topic_projection_m10.py` TOP-001…TOP-009.
+
 ## v15.1.0-alpha.12 — Conversational Entity References & Active Entity (M1)
 
 The first milestone of the AI-worker roadmap (reference resolution +

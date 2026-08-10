@@ -24,6 +24,7 @@ from core.storage import Storage
 from core.workspace.engine import EntityEngine
 from core.workspace.errors import EntityValidationError, EntityNotFound
 from core.workspace.templates.registry import entity_field_specs
+from core.workspace.render import format_entity_card, format_entity_update
 from core.ai.reference_context import Referent, ReferenceContext
 from core.ai.reference_resolver import (
     ENTITY_TYPE,
@@ -224,9 +225,18 @@ class EntityManager:
 
     # ── Public entry point ───────────────────────────────────────────────────
 
-    def process(self, user_id: int, text: str) -> tuple[bool, str]:
+    def process(self, user_id: int, text: str,
+                projection=None) -> tuple[bool, str]:
         """Interpret *text* as an entity-management command for the user's
         active workspace.
+
+        ``projection`` is an optional injected duck-typed Telegram projection
+        (default None). When present, a successful create/update ALSO projects
+        to the entity's Telegram topic (initial card / append-only update).
+        EntityManager itself stays Telegram-agnostic: it never imports a
+        Telegram module -- the projection is a plain object supplied by the
+        caller (main.py injects the live one; tests inject a fake), and a
+        projection failure never fails the DB operation.
 
         Returns (handled, response).  ``handled=False`` means the text does
         not appear to be about entity management and the caller should fall
@@ -333,7 +343,8 @@ class EntityManager:
                         user_id, name, fields)
             return True, self._handle_update(
                 user_id, ws_id, name, fields, entities,
-                preferred=active_entity if used_active else None)
+                preferred=active_entity if used_active else None,
+                projection=projection)
 
         # 6.  Classify via LLM.
         prompt = self._build_prompt(
@@ -362,7 +373,8 @@ class EntityManager:
         #     the LLM's entity_name (the referent is authoritative).
         if intent == "create" and entity_name:
             logger.info("EntityManager[%s] → create '%s'", user_id, entity_name)
-            return True, self._handle_create(user_id, ws_id, entity_name)
+            return True, self._handle_create(
+                user_id, ws_id, entity_name, projection=projection)
 
         if intent == "update" and (entity_name or active_entity is not None):
             fields = data.get("fields")
@@ -371,7 +383,7 @@ class EntityManager:
                             user_id, entity_name or active_entity.title, fields)
                 return True, self._handle_update(
                     user_id, ws_id, entity_name, fields, entities,
-                    preferred=active_entity)
+                    preferred=active_entity, projection=projection)
             target_name = entity_name or (active_entity.title if active_entity else "it")
             logger.info("EntityManager[%s] → update '%s' but no fields",
                         user_id, target_name)
@@ -539,8 +551,15 @@ class EntityManager:
         return "\n".join(lines)
 
     def _handle_create(self, user_id: int, ws_id: int,
-                       name: str) -> str:
-        """Create a new entity (milestone) in the workspace."""
+                       name: str, projection=None) -> str:
+        """Create a new entity (milestone) in the workspace.
+
+        When a projection is injected, the entity's Telegram topic is ensured
+        through the SAME contract WorkspaceGroups uses
+        (ensure_entity_topic with the entity's current card as the initial
+        message) -- so NL creation and /add can never diverge. A projection
+        failure is logged and surfaced as a warning note; the DB entity is
+        never lost and never rolled back."""
         # Check for duplicates.
         existing = self._eng.list_milestones(user_id, ws_id)
         for m in existing:
@@ -566,6 +585,29 @@ class EntityManager:
         # entity (so "show her" right after resolves to it).
         self._activate_entity(user_id, ws_id, m)
 
+        # alpha.13: project the new entity to its Telegram topic via the same
+        # single contract WorkspaceGroups uses. Best-effort: the entity is
+        # already safely stored; a topic failure is logged + reported, and
+        # /topicbackfill can repair it later.
+        topic_note = ""
+        if projection is not None:
+            try:
+                topic_id = projection.ensure_entity_topic(
+                    user_id, ws_id, ENTITY_TYPE, m.id, m.title,
+                    initial_message=format_entity_card(
+                        m, with_timestamp=True))
+                topic_note = (
+                    " · topic created"
+                    if topic_id
+                    else " · (link a group with /linkhere for a topic)")
+            except Exception:
+                logger.exception(
+                    "EntityManager[%s] topic creation failed for '%s'",
+                    user_id, name)
+                topic_note = (
+                    " · ⚠️ Telegram topic NOT created "
+                    "(repair with /topicbackfill)")
+
         ws = self._eng.get_workspace_or_none(user_id, ws_id)
         icon = ws.icon if ws else "📁"
 
@@ -583,17 +625,25 @@ class EntityManager:
         return (
             f"{icon} Created <b>{esc(name)}</b> in your workspace!"
             f"{suggestion}"
+            f"{topic_note}"
         )
 
     def _handle_update(self, user_id: int, ws_id: int,
                        entity_name: str, fields: dict,
                        entities: list,
-                       preferred: object | None = None) -> str:
+                       preferred: object | None = None,
+                       projection=None) -> str:
         """Update fields on an existing entity (milestone).
 
         `preferred` is an M1 resolved referent (Milestone): when the user
         referred to the entity by pronoun/ordinal, the referent is
         authoritative and wins over the LLM's entity_name.
+
+        When a projection is injected, a successful update appends a
+        minimal activity message to the entity's Telegram topic (previous
+        value shown only when it was safely read from the pre-update DB
+        state -- never invented). Append-only: old messages are untouched.
+        A projection failure is logged; the DB update stands.
         """
         # M1: a resolved referent takes precedence over name lookup.
         target = preferred if preferred is not None else self._find_entity(entity_name, entities)
@@ -609,12 +659,19 @@ class EntityManager:
                     user_id, target.id, target.title, fields)
 
         # Apply each field — unknown keys are allowed (forward-compat).
+        # Capture the PRE-update DB state for the projection's change list;
+        # a field absent from the stored entity is None (→ shown as "set").
+        old_values = {k: target.fields.get(k) for k in fields}
+        applied: dict = {}
         results: list[str] = []
+        last_updated = None   # the freshest post-update milestone (for cards)
         for field_name, field_value in fields.items():
             try:
-                self._eng.update_field(user_id, target.id, field_name, field_value)
+                last_updated = self._eng.update_field(
+                    user_id, target.id, field_name, field_value)
                 logger.info("EntityManager[%s] set %s.%s = %s",
                             user_id, target.title, field_name, field_value)
+                applied[field_name] = field_value
                 results.append(f"<b>{esc(field_name)}</b> → {esc(str(field_value))}")
             except EntityValidationError as e:
                 logger.warning("EntityManager[%s] set %s.%s failed: %s",
@@ -631,6 +688,26 @@ class EntityManager:
 
         # M1: a successful update keeps the entity as the active referent.
         self._activate_entity(user_id, ws_id, target)
+
+        # alpha.13: append a minimal update message to the entity's Telegram
+        # topic. Old values come ONLY from the pre-update DB read above; the
+        # topic is self-healed (created + CURRENT initial card) if it never
+        # existed -- `last_updated` is the fresh post-update milestone, so the
+        # card never shows a stale field. Best-effort: a projection failure is
+        # logged, the DB update stands.
+        if projection is not None and applied:
+            try:
+                changes = {f: (old_values.get(f), v) for f, v in applied.items()}
+                card_target = last_updated if last_updated is not None else target
+                projection.post_entity_update(
+                    user_id, ws_id, ENTITY_TYPE, target.id, target.title,
+                    format_entity_update(card_target, changes),
+                    initial_message=format_entity_card(
+                        card_target, with_timestamp=True))
+            except Exception:
+                logger.exception(
+                    "EntityManager[%s] topic update post failed for '%s'",
+                    user_id, entity_name)
 
         reply = f"✅ Updated <b>{esc(entity_name)}</b>:\n" + "\n".join(f"  • {r}" for r in results)
         logger.info("EntityManager[%s] update '%s' reply: %s", user_id, entity_name, reply[:100])
@@ -715,23 +792,13 @@ class EntityManager:
     # ── Retrieval helpers ──────────────────────────────────────────────────
 
     def _format_entity_card(self, entity) -> str:
-        """Format a single entity with all its fields as a clean card."""
-        title = entity.title
-        status = entity.status.replace("_", " ").title()
+        """Format a single entity with all its fields as a clean card.
 
-        lines = [f"<b>{esc(title)}</b>\n📌 Status: {status}"]
-
-        # Add structured fields if present.
-        if entity.fields:
-            for fname, fvalue in entity.fields.items():
-                if fvalue is None or isinstance(fvalue, (dict, list)):
-                    continue
-                display_name = fname.replace("_", " ").title()
-                lines.append(f"{display_name}: {esc(str(fvalue))}")
-
-        logger.info("EntityManager formatted card for '%s' (%d lines)",
-                    title, len(lines))
-        return "\n".join(lines)
+        Delegates to the shared renderer (core/workspace/render.py) so the
+        chat reply and the Telegram topic's initial card can never diverge."""
+        logger.info("EntityManager formatted card for '%s'",
+                    entity.title)
+        return format_entity_card(entity)
 
     def _format_entity_list(self, matched: list, all_entities: list,
                             query: str, ws) -> str:

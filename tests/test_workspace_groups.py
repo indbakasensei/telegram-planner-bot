@@ -24,8 +24,8 @@ class FakeClient(TelegramClient):
         self.topics.append((chat_id, name))
         return 100 + len(self.topics)
 
-    def send_message(self, chat_id, topic_id, text):
-        self.messages.append((chat_id, topic_id, text))
+    def send_message(self, chat_id, topic_id, text, parse_mode=None):
+        self.messages.append((chat_id, topic_id, text, parse_mode))
         return 1000 + len(self.messages)
 
     def send_photo(self, chat_id, topic_id, file_id, caption):
@@ -95,7 +95,7 @@ def test_workspace_level_note_goes_to_general(temp_db, uid):
     # no active entity → General topic (topic_id None), text message
     res = app.log_progress(uid, "kickoff", proj)
     assert res.ok and res.posted and res.topic_id is None
-    assert client.messages[-1] == (-100777, None, "kickoff")
+    assert client.messages[-1] == (-100777, None, "kickoff", None)
 
 
 def test_log_progress_persists_even_when_unlinked(temp_db, uid):

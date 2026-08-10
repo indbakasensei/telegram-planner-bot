@@ -35,6 +35,18 @@ Found during the 2026-07 documentation pass. These are real, current gaps
 between behavior and what earlier comments/docs claimed — not hypothetical.
 Tracked with more remediation detail in [ROADMAP.md](ROADMAP.md#fix-it-list-found-during-the-2026-07-documentation-pass).
 
+### Topic/binding writes are not atomic — orphan topic on persistent DB failure (v15.1.0-alpha.13, M10)
+
+The entity-topic projection is **not** distributed-atomic (documented in
+`docs/engineering/M13_TOPIC_PROJECTION.md`). A transient DB-write failure on
+the binding right after `create_forum_topic` is retried once and normally
+recovers; a **persistent** failure (disk full, schema error) leaves the
+Telegram topic created but **unbound** — an orphan. `/topicbackfill` reports
+it in `errors[]`, and a later re-run creates a fresh topic + binding; the
+orphan is unreachable (we don't enumerate Telegram topics), so the duplicate
+is accepted and documented rather than silently recovered. Rare, and only
+under a genuinely broken DB writer.
+
 ### Strong-pronoun routing gap in EntityManager (v15.1.0-alpha.12, M1)
 
 A message that is a *strong pronoun reference but not a bare reference* and

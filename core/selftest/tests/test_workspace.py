@@ -96,7 +96,7 @@ def check_workspace_groups():
     class _Fake(TelegramClient):
         def create_forum_topic(self, chat_id, name):
             return 4242
-        def send_message(self, chat_id, topic_id, text):
+        def send_message(self, chat_id, topic_id, text, parse_mode=None):
             return 1
         def send_photo(self, chat_id, topic_id, file_id, caption):
             return 2
@@ -113,6 +113,73 @@ def check_workspace_groups():
         if not (res.ok and res.posted and res.topic_id == 4242):
             raise SelfTestFail(f"progress not routed to entity topic: {res}")
         return "groups ok · workspace→group, entity→topic, note routed"
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)
+
+
+@selftest(name="Topic Backfill", category="Workspace")
+def check_topic_backfill():
+    """v15.1.0-alpha.13: idempotent topic backfill. A linked workspace with
+    one already-bound entity, one pre-alpha.13 entity (no topic), and one
+    soft-deleted entity: backfill creates exactly the missing topic (initial
+    card reflects live DB state), reports the bound one as existing, ignores
+    the soft-deleted one, and a re-run creates nothing. Offline (fake client)."""
+    import database as db
+    from core.workspace.adapters.projection import TelegramClient, TelegramProjection
+    from core.workspace.engine import EntityEngine
+    from core.workspace.groups_app import WorkspaceGroups
+
+    class _Fake(TelegramClient):
+        def __init__(self):
+            self.topics = []     # (chat_id, name)
+            self.messages = []   # (chat_id, topic_id, text, parse_mode)
+        def create_forum_topic(self, chat_id, name):
+            self.topics.append((chat_id, name))
+            return 500 + len(self.topics)
+        def send_message(self, chat_id, topic_id, text, parse_mode=None):
+            self.messages.append((chat_id, topic_id, text, parse_mode))
+            return 1
+        def send_photo(self, chat_id, topic_id, file_id, caption):
+            return 2
+
+    app = WorkspaceGroups()
+    eng = EntityEngine()
+    fake = _Fake()
+    proj = TelegramProjection(fake)
+    ws = app.create(SELFTEST_USER_ID, "game", "[selftest] backfill")
+    try:
+        app.link_group(SELFTEST_USER_ID, -100555, proj)
+        # Already-bound entity (add_entity projects it).
+        app.add_entity(SELFTEST_USER_ID, "[selftest] bound", proj)
+        # Pre-alpha.13 entity: created WITHOUT a projection → no topic yet.
+        m_legacy, _ = app.add_entity(SELFTEST_USER_ID, "[selftest] legacy", None)
+        eng.set_fields(SELFTEST_USER_ID, m_legacy.id, {"level": 42})
+        # Soft-deleted entity must be ignored.
+        ghost = eng.add_milestone(SELFTEST_USER_ID, ws.id, "[selftest] ghost")
+        eng.delete_milestone(SELFTEST_USER_ID, ghost.id)
+
+        report = app.backfill_topics(SELFTEST_USER_ID, proj)
+        info = report[ws.id]
+        if info.get("linked") is not True:
+            raise SelfTestFail("linked workspace reported as unlinked")
+        if "[selftest] legacy" not in info["created"]:
+            raise SelfTestFail(f"legacy entity not backfilled: {info}")
+        if "[selftest] bound" not in info["existing"]:
+            raise SelfTestFail(f"bound entity not reported existing: {info}")
+        if any("ghost" in e.lower() for e in info["created"] + info["existing"]):
+            raise SelfTestFail("soft-deleted entity was backfilled")
+
+        # The initial card for the legacy entity must reflect live DB state.
+        if not any("Level: 42" in txt for (_, _, txt, _pm) in fake.messages):
+            raise SelfTestFail("initial card did not reflect DB field level=42")
+
+        # Idempotency: a second run creates nothing new.
+        report2 = app.backfill_topics(SELFTEST_USER_ID, proj)
+        if report2[ws.id]["created"]:
+            raise SelfTestFail(f"backfill re-run created topics: {report2[ws.id]}")
+        return ("topic backfill ok · 1 created (card from DB), 1 existing, "
+                "soft-deleted ignored, re-run no-op")
     finally:
         db.delete_workspace(ws.id, SELFTEST_USER_ID)
         db.tg_clear_active(SELFTEST_USER_ID)

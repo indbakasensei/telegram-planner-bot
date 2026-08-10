@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.1.0-alpha.12** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.1.0-alpha.13** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -161,9 +161,19 @@ truth; the group is the human-readable mirror.
 (make a private group, enable Topics, add the bot as admin)
 /linkhere                 → (sent in the group) binds it to Genshin
 /add Hu Tao               → creates a "Hu Tao" topic in the group
+"Create character Arlecchino"  → NL creation ALSO makes its topic + card
 📷 + "got her crown"      → logs it to Hu Tao's topic (photo + note)
+/topicbackfill            → (admin) backfills topics for existing entities
 /open Nahida  ·  /current ·  /workspaces  ·  /note <text>
 ```
+
+Every way an entity is created — `/add`, natural language, or the
+`/topicbackfill` backfill — goes through one idempotent contract, so each
+entity gets **exactly one topic** and a card rendered from its live fields.
+`/topicbackfill` (admin-only) is a safe migration op: it creates only the
+topics that are missing, never duplicates an existing one, skips soft-deleted
+entities, and can be re-run freely. It is an explicit command — nothing runs
+at startup.
 
 Architecture note: the Workspace OS never learns about Telegram — chat/topic
 ids live only in the adapter's binding tables, and topics are a
@@ -186,7 +196,7 @@ facts** — so it can't make Workspace data up (if something doesn't exist, it
 says so). No feature-specific commands needed. Phase 1 covers read
 questions; write-action planning and full free-text routing come next.
 
-### 🗣 Natural Language Entity Management (v15.1.0-alpha.11, conversational references v15.1.0-alpha.12)
+### 🗣 Natural Language Entity Management (v15.1.0-alpha.11; references v15.1.0-alpha.12; topic projection v15.1.0-alpha.13)
 
 With an active workspace open, just chat naturally:
 
@@ -224,6 +234,16 @@ the fast AI model, maps it to the active workspace's template-defined fields
 Engine — no commands, no JSON, no developer tools. Non-entity messages fall
 through to the regular AI chat untouched. Template-agnostic: works with
 game, knowledge, asset, project, and any future workspace type.
+
+**Topic projection** (v15.1.0-alpha.13) — a create like
+`Create character Arlecchino` doesn't just store the entity: it also creates
+its Telegram topic and posts an initial card (current status + fields, IST
+timestamp) into it, so the group journal stays in sync with the database
+automatically. An update like `Arlecchino is level 90` appends a small
+"Level: 70 → 90" update to its topic. The `EntityManager` stays
+Telegram-agnostic — `main.py` injects the live projection, and a projection
+failure never blocks or undoes the database operation (a warning in the reply
+points you to `/topicbackfill` to repair the topic later).
 
 ---
 
@@ -489,6 +509,9 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v15.0-alpha.1–7 | Workspace OS backend (ships dark): schema, Entity Engine, Project integration, Milestones, Timeline, Sync, AI Orchestrator |
 | v15.0-beta.1–5 | Workspace OS wired into production (flag-gated) + Game/Knowledge/Asset/Project templates |
 | v15.0-rc.1 | Release-candidate hardening: documentation consolidation, repository cleanup, README + help polish |
+| v15.1.0-alpha.10–11 | Natural Language Entity Management + release standards; final stabilization |
+| v15.1.0-alpha.12 | Conversational entity references & active entity (M1) |
+| v15.1.0-alpha.13 | Telegram entity topic projection & backfill (M10): NL create auto-projects topic + card, append-only updates, idempotent /topicbackfill |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)

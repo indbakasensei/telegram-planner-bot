@@ -157,8 +157,10 @@ def make_projection_client(bot, loop, timeout=30):
             topic = fut.result(timeout=timeout)
             return getattr(topic, "message_thread_id", None)
 
-        def send_message(self, chat_id, topic_id, text):
+        def send_message(self, chat_id, topic_id, text, parse_mode=None):
             kwargs = {"chat_id": chat_id, "text": text or "(note)"}
+            if parse_mode is not None:
+                kwargs["parse_mode"] = parse_mode
             if topic_id is not None:
                 kwargs["message_thread_id"] = topic_id
             fut = asyncio.run_coroutine_threadsafe(bot.send_message(**kwargs), loop)
