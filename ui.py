@@ -756,13 +756,15 @@ def help_cards(version, user_is_admin):
         f"…also broad recall: {i('what do I know about Hu Tao?')} — searches",
         f"everything you've stored (entities + notes) and answers from it",
         f"",
-        f"🗣 {b('Natural Language (v15.1.0-alpha.11)')} — just chat with an",
+        f"🗣 {b('Natural Language (v15.1.0-alpha.12)')} — just chat with an",
         f"active workspace open and I'll manage entities automatically:",
         f"  • Create: {i('Create character Furina')}",
         f"  • Update: {i('Hu Tao is level 80')} · {i('Furina uses Fleuve Cendre Ferryman')}",
         f"  • View: {i('Show Furina')} · {i('Open Furina')} · {i('View Furina')}",
         f"  • Find: {i('Show all level 90 characters')} · {i('Who is Hydro?')}",
         f"  • Filter: {i('Show high priority characters')} · {i('Who uses a sword?')}",
+        f"  • Refer: {i('Show her')} / {i('Show him')} / {i('Show it')} — the active",
+        f"    entity; after a list, {i('first one')} / {i('second one')} / {i('last one')}",
     ])
     ai_planning = "\n".join([
         f"{code('think <question>')} — reasoning over your data",
@@ -1287,7 +1289,7 @@ def commands_category_page(category, version, user_is_admin):
         },
         "Workspaces & Entities": {
             "emoji": "\U0001f5c2",
-            "desc": "Project/game/goal workspaces with structured entities. Natural language management in alpha.10.",
+            "desc": "Project/game/goal workspaces with structured entities. Natural language management in alpha.10; conversational references in alpha.12.",
             "commands": [
                 ("newproject / newgame / newgoal <title>", "Create a workspace"),
                 ("workspaces", "List all workspaces"),
@@ -1299,6 +1301,7 @@ def commands_category_page(category, version, user_is_admin):
                 ("linkhere", "Link workspace to a Telegram group (send inside the group)"),
                 ("ws <question>", "Ask about your workspaces (AI, read-only)"),
                 ("Natural language", "Chat: 'Create character Furina', 'Hu Tao is level 80', 'Show all level 70 characters'"),
+                ("References", "After an entity/list: 'Show her', 'Show him', 'Show it', 'first one', 'second one', 'last one'"),
             ],
             "related": "AI & Planning",
         },

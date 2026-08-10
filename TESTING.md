@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**826 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**1269 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~15-40 seconds, all 826 tests
+pytest                             # ~20 seconds, all 1269 tests
 ```
 
 | File | Tests | Covers |
@@ -47,6 +47,8 @@ pytest                             # ~15-40 seconds, all 826 tests
 | `tests/test_debug_ids.py` | 12 | `debug_system`'s independent bug-id presentation (v14.21): `DBG-0018` formatting (zero-padded, grows past 4 digits), tolerant parsing of every display form (`18`/`#18`/`DBG-0018`/`dbg18`/whitespace), rejection of malformed input, and format↔parse round-trip — pure helpers, never touches `bugs.db` |
 | `tests/test_storage_facade.py` | 18 | `core/storage/`'s Storage Facade (v14.1C): every `TaskStorage`/`HabitStorage`/`GoalStorage`/`ProjectStorage` method delegates to exactly the `database.py` function it wraps, verified by asserting the facade's return value equals calling `database.py` directly (not just "doesn't crash") — proves pure delegation, zero reshaping (100% coverage of `core/storage/`) |
 | `tests/test_feature_flags.py` | 19 | `core/feature_flags.py`'s rollout flags (v14.1C): the `_flag()` helper across truthy/falsy env-var spellings, all four flags defaulting OFF when unset, and — via `importlib.reload()` — that the exported constants actually pick up an environment variable at import time, not just the helper function in isolation (100% coverage of `core/feature_flags.py`) |
+| `tests/test_ai_entity_manager.py` | 37 | `core/ai/entity_manager.py` (v15.1.0-alpha.10/11): NL→entity translation — create/update/retrieve routing, JSON extraction, template-agnostic field mapping, entity-by-name and reverse-partial matching, field-value filtering (`_filter_entities_by_query`), entity card/list formatting, query-token stop-word handling, retrieval by name, and the deterministic single-field update extractor (M1, alpha.12). All LLM calls mocked; offline and deterministic |
+| `tests/test_reference_resolution.py` | 35 | M1 conversational references (v15.1.0-alpha.12): `core/ai/reference_context.py` + `reference_resolver.py` wired into EntityManager — create-then-pronoun ("create Furina" → "show her"), pronoun variants, ordinal selection (first/second/last), ordered-list persistence across activation, full-sentence pronoun retrieval, ambiguity + clarification, explicit-name-beats-active precedence, stale/deleted-entity self-heal, deterministic field updates, workspace isolation. Resolver is pure and LLM-free; tests assert bare references never reach the LLM |
 
 ## Release Verification Guide (v14.21 — the canonical checklist)
 

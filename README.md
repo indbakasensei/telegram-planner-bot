@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.1.0-alpha.11** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.1.0-alpha.12** — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -186,7 +186,7 @@ facts** — so it can't make Workspace data up (if something doesn't exist, it
 says so). No feature-specific commands needed. Phase 1 covers read
 questions; write-action planning and full free-text routing come next.
 
-### 🗣 Natural Language Entity Management (v15.1.0-alpha.11)
+### 🗣 Natural Language Entity Management (v15.1.0-alpha.11, conversational references v15.1.0-alpha.12)
 
 With an active workspace open, just chat naturally:
 
@@ -201,6 +201,22 @@ Show Hydro characters                 → filters by element
 Show high priority characters         → filters by priority
 Open Furina · View Furina · Display   → entity detail display variants
 ```
+
+**Conversational references** (v15.1.0-alpha.12) — after you've created or
+viewed an entity, follow up with pronouns and ordinals instead of names:
+
+```
+Show her · Show him · Show it         → the last entity you touched
+Show the first one · second one       → an entity from the last list shown
+Show the last one                     → the last item of that list
+Set her level to 90                   → updates the active entity (no name needed)
+```
+
+The last entity you created/viewed/updated becomes the **active entity**;
+the last list you were shown is remembered for ordinal navigation. When a
+pronoun is genuinely ambiguous the bot asks which one you mean — it never
+guesses. References resolve deterministically (no AI call), so they work
+even when the fast model would misread them.
 
 The `EntityManager` (`core/ai/entity_manager.py`) interprets free text using
 the fast AI model, maps it to the active workspace's template-defined fields

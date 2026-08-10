@@ -130,11 +130,31 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > engineering conventions (version management, documentation, developer
 > experience rule).
 >
-> **`v15.1.0-alpha.11` — Final Stabilization & Production Readiness (current):**
+> **`v15.1.0-alpha.11` — Final Stabilization & Production Readiness:**
 > fixes routing (EntityManager runs before task VIEW handler), field mapping
 > (added `weapon` field vs `weapon_type`), retrieval (entity-aware field search),
 > entity display cards, logging, and Telegram UX. 16 new tests, 1234 passing.
-> **This is the final alpha.** Next milestone: v15.1.0-beta.1, then BAKA Brain v15.2.
+>
+> **`v15.1.0-alpha.12` — Conversational Entity References & Active Entity (M1,
+> current):** the first milestone of the AI-worker roadmap. The bot now
+> resolves conversational references deterministically against real context:
+> pronouns ("show her/him/it"), ordinals ("show the first one / last one"),
+> and bare follow-ups ("what level is she?") — using the DB-backed *active
+> entity*, a per-user *recent-mention* stack, and the *last ordered list*
+> shown (`core/ai/reference_context.py`, `core/ai/reference_resolver.py`,
+> wired into `EntityManager`). Obvious single-field updates ("Sucrose is
+> level 70") are applied deterministically, without the LLM. Ambiguous
+> references ask for clarification instead of guessing; stale/deleted
+> entities are re-validated and never resurrected. 35 new offline tests,
+> **1269 passing**, plus M1 regression specs and a self-test probe. The
+> `Can she ascend further?` strong-pronoun routing gap is documented as a
+> known limitation. **Next:** M2 (robust JSON decode + clarification instead
+> of incorrect fall-through), then M3 field-aware retrieval, M4 task lookup,
+> M5 reminder/view semantics, M6 confirmation truthfulness, M7 deterministic
+> dates, M8 unified tool surface + bounded AI worker loop, M9 field
+> semantics/schema validation, M10 Telegram topic wiring through
+> WorkspaceGroups (see `docs/engineering/`). v15.1.0-beta.1 and BAKA Brain
+> v15.2 follow the milestone sequence, not the other way around.
 
 **A note on version numbers:** the original `VERSION.md` roadmap section
 labeled ideas `v12.0` (Voice Notes) through `v14.3` (Themes) — written

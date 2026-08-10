@@ -217,3 +217,47 @@ def check_entity_manager():
     finally:
         db.delete_workspace(ws.id, SELFTEST_USER_ID)
         db.tg_clear_active(SELFTEST_USER_ID)
+
+
+@selftest(name="Reference Resolution", category="Workspace")
+def check_reference_resolution():
+    """M1 (v15.1.0-alpha.12): create an entity, then 'show her' resolves to
+    it deterministically -- the DB-backed active entity becomes the referent
+    and the resolver makes NO AI call. Offline (mocked AI), cleans up."""
+    from unittest.mock import Mock
+    import database as db
+    from core.ai.entity_manager import EntityManager
+    from core.workspace.engine import EntityEngine
+
+    eng = EntityEngine()
+    ws = eng.create_workspace(
+        SELFTEST_USER_ID, "[selftest] references",
+        template="game", seed_milestones=False)
+    try:
+        db.tg_set_active(SELFTEST_USER_ID, ws.id, "milestone", None)
+
+        # Create → the entity becomes the DB-backed active entity.
+        ai_create = Mock(return_value=(
+            '{"intent": "create", "entity_name": "TestRef", '
+            '"fields": {}, "query": ""}'))
+        handled, reply = EntityManager(engine=eng, ai_call=ai_create).process(
+            SELFTEST_USER_ID, "Create character TestRef")
+        if not handled or "TestRef" not in reply:
+            raise SelfTestFail(f"create failed: {reply!r}")
+
+        # 'Show her' must resolve to TestRef via the active entity WITHOUT a
+        # second AI call (a fresh manager proves the context is DB-backed).
+        ai_never = Mock(side_effect=AssertionError(
+            "bare reference must not call the LLM"))
+        mgr2 = EntityManager(engine=eng, ai_call=ai_never)
+        handled2, reply2 = mgr2.process(SELFTEST_USER_ID, "Show her")
+        if not handled2 or "TestRef" not in reply2:
+            raise SelfTestFail(
+                f"'show her' did not resolve to TestRef: {reply2!r}")
+
+        return (
+            "reference resolution ok · create → 'show her' → TestRef "
+            "(active entity, no AI call)")
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)

@@ -11,13 +11,101 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
-## v15.1.0-alpha.11 — Final Stabilization & Production Readiness (current)
+## v15.1.0-alpha.12 — Conversational Entity References & Active Entity (M1)
+
+The first milestone of the AI-worker roadmap (reference resolution +
+active-entity context). The bot now resolves conversational references —
+pronouns ("show her", "show him", "show it"), ordinals ("show the first
+one", "show the last one"), and bare follow-ups ("what level is she?") —
+deterministically against real conversation context, instead of letting the
+LLM guess or falling through to unrelated handlers. Suite **1269 passing**
+(37 entity-manager + 35 reference-resolution tests). No architectural
+redesign; the Workspace OS stays dormant behind its flag.
+
+**M1 objective:** when a user creates, views, or updates an entity, that
+entity becomes the *active entity*; the last ordered list shown is
+remembered; a later reference resolves deterministically against that
+context — never a random guess, never an invented entity, never an LLM call
+for the resolution itself.
+
+- **`core/ai/reference_context.py` (new) — per-user conversational memory:**
+  `ReferenceContext` tracks the recent-mention stack (last 10) and the last
+  ordered list per user. `Referent` identity is `(kind, workspace_id, id)` —
+  never a display-name substring — so renames/deletes never alias. State is
+  in-memory and ephemeral (mirrors `conversation_state.py`); the DB-backed
+  active-entity row remains authoritative.
+- **`core/ai/reference_resolver.py` (new) — deterministic resolver:**
+  Never calls the LLM and never mutates the database. Precedence: ordinal
+  phrase → DB active entity → single recent mention → ambiguity
+  (multiple candidates → clarified) → `kind="none"` (caller falls through).
+  Stale active entities and list entries are re-validated against live DB
+  data so deleted entities are never resurrected. Strong pronouns
+  (he/him/she/her/they) and deictic phrases ("this one", "the current one")
+  are recognised; weak tokens ("it") need an entity-intent signal to avoid
+  hijacking unrelated messages.
+- **`core/ai/entity_manager.py` — wired the resolver into `process()`:**
+  Resolution runs before the keyword pre-check and the LLM. A resolved
+  referent or a bare reference forces the gate open; ambiguity produces a
+  clarification prompt instead of a guess; a `kind="none"` reference falls
+  through to the normal pipeline untouched.
+- **`core/ai/entity_manager.py` — active entity + ordered list tracking:**
+  `_activate_entity()` persists the resolved entity to `tg_active_context`
+  (create/update/retrieve all activate); `_note_list()` records the ordered
+  list whenever a retrieve produces one. Activating a single entity no longer
+  wipes the ordered list — "show all → first one → last one" works.
+- **`core/ai/entity_manager.py` — deterministic single-field update:**
+  `_try_extract_update()` recognises "Sucrose is level 70", "Sucrose is
+  level70", "Sucrose's level is 70", "Set Sucrose level to 70", and safe
+  active/pronoun forms *without the LLM* — a cheap classifier can no longer
+  misroute an obvious update to `retrieve`. Field names come from the
+  template specs, never hardcoded.
+- **`core/ai/entity_manager.py` — bare-reference retrieve:**
+  A message that is exactly a pronoun or deictic phrase ("show her") goes
+  straight to the active entity / single recent mention without any AI call.
+- **`tests/test_reference_resolution.py` (new) — 35 tests:**
+  `TestCreateThenPronoun` (create → show her/him), `TestPronounVariants`,
+  `TestOrdinalSelection` (first/second/last), `TestOrdinalViaCognitiveList`,
+  `TestOrdinalListPersistence` (list survives activation, replaced on new
+  list), `TestFullSentencePronoun` (what level is she?), ambiguity and
+  clarification, explicit-name-beats-active precedence, stale/deleted entity
+  self-heal, deterministic field updates, workspace isolation. All offline,
+  LLM mocked, and asserting bare references never reach the LLM.
+- **`core/regression/suites/reference_m1.py` (new) — M1 Quick Release
+  regression specs:** REF-001…REF-0xx manual Telegram acceptance tests for
+  the Xiao/Kinich/Xilonen/Nefer/Lauma/Columbina matrix (see docs/regression.md).
+- **`core/selftest/tests/test_workspace.py` — M1 self-test check:**
+  A live probe creates an entity, then resolves "show her" and confirms the
+  active entity, without touching Telegram.
+- **Docs & UI:** README, ROADMAP, TESTING, DEBUGGING, and
+  `docs/engineering/M1_REFERENCE_RESOLUTION.md` document the milestone;
+  `docs/engineering/M10_TOPIC_BACKFILL.md` scopes the next workspace-topic
+  work. `/help` and `/commands` gained concise reference examples. Version
+  bumped to `15.1.0-alpha.12`.
+
+**Known limitations (documented, not fixed here):**
+- A strong-pronoun query that is *not* a bare reference and carries no entity
+  keyword (e.g. "Can she ascend further?") still falls through to the AI
+  chat because the pre-check gate requires a keyword or a bare reference.
+  The resolver *would* resolve it; routing is deliberately conservative.
+- The deterministic extractor handles single-field updates only; multi-field
+  updates still go through the LLM classifier.
+- References resolve workspace entities only; task-level references
+  ("delete the first one") remain legacy-routed (scheduled for M4).
+- Natural-language entity creation still bypasses the Telegram topic
+  projection (no topic is created for NL entities) — scoped as M10.
+
+**Remaining M2 work (next milestone):** robust JSON decoding with
+clarification instead of silent fall-through, so a misclassified intent
+never masquerades as success.
+
+## v15.1.0-alpha.11 — Final Stabilization & Production Readiness
 
 Fixes the routing, retrieval understanding, field mapping, display, logging,
 and Telegram UX for the Natural Language Entity Management feature. No new
-features — only correctness and consistency. Suite **1234 passing** (73 entity
-manager tests including 16 new). v15.1.0-alpha.10's alpha.9/alpha.8/alpha.7
-functionality is fully preserved.
+features — only correctness and consistency. Suite **1234 passing** (37
+entity manager tests including 16 new; the prior entry's "73" was a count
+error). v15.1.0-alpha.10's alpha.9/alpha.8/alpha.7 functionality is fully
+preserved.
 
 - **`main.py` — Routing fix: EntityManager runs before task VIEW handler:**
   "Show all level 90 characters" was intercepted by the task quick-match VIEW

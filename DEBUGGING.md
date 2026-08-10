@@ -35,6 +35,20 @@ Found during the 2026-07 documentation pass. These are real, current gaps
 between behavior and what earlier comments/docs claimed — not hypothetical.
 Tracked with more remediation detail in [ROADMAP.md](ROADMAP.md#fix-it-list-found-during-the-2026-07-documentation-pass).
 
+### Strong-pronoun routing gap in EntityManager (v15.1.0-alpha.12, M1)
+
+A message that is a *strong pronoun reference but not a bare reference* and
+carries **no entity keyword** still falls through to the AI chat even when an
+active entity exists — e.g. **"Can she ascend further?"**. The M1 resolver
+(`core/ai/reference_resolver.py`) *would* resolve "she" to the active entity,
+but `EntityManager.process()`'s pre-check gate requires a keyword match **or**
+a bare reference to proceed (`core/ai/entity_manager.py`). The gate is
+deliberately conservative (avoid hijacking unrelated messages), and widening
+it risks false positives, so this was documented rather than fixed in M1.
+Mitigation today: phrase entity questions with a keyword ("What level is she?",
+"Show her weapon") — those route correctly. Tracked for a later milestone
+(field-aware retrieval, M3; the AI-worker routing, M8).
+
 ### The `analytics` package doesn't exist — AI analytics commands are silently broken
 
 `usage_logger.py`, `usage_service.py`, `model_metrics.py`,
