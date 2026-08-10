@@ -451,14 +451,22 @@ provider-agnostic is later AI-Router scope. The reliability primitives
 upcoming AI Intelligence Layer.
 
 **v15.2 BAKA Brain (dormant — no user command routes through it yet):**
-`core/ai/tools.py` is now the **unified Tool Contract** (v15.2 M2) — the
-single tool abstraction the future AI Worker will run on. `RiskLevel`
+`core/ai/tools.py` is the **unified Tool Contract** (v15.2 M2) — the single
+tool abstraction the future AI Worker will run on. `RiskLevel`
 (READ_ONLY/MUTATING/DESTRUCTIVE/SYSTEM), validated `ToolSpec` metadata,
 a unified `ToolResult`, stable `ToolError` codes, and fail-closed argument
 validation (`ToolRegistry.register` rejects malformed schemas + duplicate
 names; `ToolRegistry.execute` never lets invalid args reach a handler).
-**There is no AI Worker, agent loop, or GLM tool-calling yet** — the contract
-is health-verifiable via `/selftest → AI → 'AI Tool Contract'`. Design:
+On top of it, **`core/ai/tool_adapters.py` (v15.2 M3)** maps each real
+capability — tasks, habits, goals, entities, workspaces, memory/recall —
+to **24 thin M2-contract `Tool`s** (`build_tool_registry()`), each an
+argument-translation + validation + call into BAKA's existing services with
+a structured `ToolResult`. Entity create/update drive the **same alpha.13
+projection** `/add` uses (one topic, append-only updates — never a second
+topic mechanism). **There is no AI Worker, agent loop, or GLM tool-calling
+yet, and nothing in `main.py` routes through the adapters** — the surface is
+health-verifiable via `/selftest → AI → 'AI Tool Contract'`, 'AI Tool
+Adapter Registry', and 'AI Tool Adapter Round-trip'. Design:
 [docs/engineering/V15_2_BAKA_BRAIN.md](docs/engineering/V15_2_BAKA_BRAIN.md).
 
 The old stored-analytics commands (`usage`, `performance`, `errors`)
@@ -523,7 +531,7 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v15.1.0-alpha.10–11 | Natural Language Entity Management + release standards; final stabilization |
 | v15.1.0-alpha.12 | Conversational entity references & active entity (M1) |
 | v15.1.0-alpha.13 | Telegram entity topic projection & backfill (M10): NL create auto-projects topic + card, append-only updates, idempotent /topicbackfill |
-| v15.2 (in dev) | BAKA Brain · M2 — Tool Contract Foundation (dormant): unified tool abstraction — RiskLevel, validated ToolSpec, ToolResult/ToolError, fail-closed args, strict registry. No Worker/loop yet |
+| v15.2 (in dev) | BAKA Brain · M2+M3 (dormant): M2 unified tool abstraction (RiskLevel, validated ToolSpec, ToolResult/ToolError, fail-closed args, strict registry); M3 real tool adapters — 24 thin M2-contract tools over tasks/habits/goals/entities/workspace/memory/recall, alpha.13 projection preserved. No Worker/loop/routing yet |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)

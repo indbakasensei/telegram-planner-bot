@@ -140,6 +140,31 @@ class GoalStorage:
         return database.update_goal_progress(goal_id, user_id, delta)
 
 
+class MemoryStorage:
+    """Delegates to database.py's memory (key/value fact) functions.
+    Added by v15.2 M3 so the memory/recall tool adapters read through the
+    same facade every other domain uses -- no raw database.py calls from the
+    tools, and no new data-access layer."""
+
+    def save(self, user_id, key, value):
+        return database.save_memory(user_id, key, value)
+
+    def get(self, user_id, key):
+        return database.get_memory(user_id, key)
+
+    def get_all(self, user_id):
+        return database.get_all_memories(user_id)
+
+    def search(self, user_id, query):
+        return database.search_memories(user_id, query)
+
+    def search_smart(self, user_id, query):
+        return database.search_memories_smart(user_id, query)
+
+    def delete(self, user_id, key):
+        return database.delete_memory(user_id, key)
+
+
 class ProjectStorage:
     """Delegates to database.py's project (materials + worklog) functions.
     Projects are goals extended with materials/worklog data -- database.py's
@@ -430,3 +455,5 @@ class Storage:
         self.sync = SyncStorage()
         # v15.1 Telegram-adapter-owned bindings (entity↔topic, active context).
         self.tg_bindings = TelegramBindingStorage()
+        # v15.2 M3 memory (key/value facts) domain for the recall tools.
+        self.memory = MemoryStorage()

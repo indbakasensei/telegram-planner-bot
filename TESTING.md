@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**1380 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**1423 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~50 seconds, all 1380 tests
+pytest                             # ~50 seconds, all 1423 tests
 ```
 
 | File | Tests | Covers |
@@ -52,6 +52,7 @@ pytest                             # ~50 seconds, all 1380 tests
 | `tests/test_topic_projection.py` | 24 | v15.1.0-alpha.13 (M10) topic projection: `ensure_entity_topic` idempotency (no duplicate topic/card), initial card on NEW topics only, card-send failure swallowed, unlinked workspace → no call, `post_entity_update` append-only + self-heal, `backfill_topics` created/existing classification, re-run idempotency, initial cards reflect live DB state, unlinked/soft-deleted/empty-workspace handling, per-entity error collection, partial-then-retry recovery, transient vs persistent binding-write failure, stale bindings, cross-workspace same-name, duplicate create, long/Unicode names, card HTML escaping + sparse/dense fields |
 | `tests/test_entity_manager_projection.py` | 8 | v15.1.0-alpha.13 (M10) EntityManager projection seam: NL create projects topic + initial card and activates, create/update without projection makes no call, projection failure keeps the DB op (create warns, update stands), deterministic + LLM update append old→new message with fresh self-heal card, bare reference and retrieve make no projection call |
 | `tests/test_tool_contract.py` | 79 | v15.2 M2 Tool Contract Foundation (`core/ai/tools.py`): ToolSchema validation (A — malformed specs, duplicate names), argument validation (B — required, JSON types incl. bool≠integer + declared-null, enum, minLength, nested objects, unknown-arg drop/reject), risk behaviour (C), ToolResult (D — success/failure/structured data/warnings), ToolError stable codes (E), ToolRegistry (F — register/get/has/all/names/specs/openai_tools/execute), execution contract (G — valid executes, invalid never reaches `run()`, ToolError/exception containment, no-escape matrix), plus adversarial inputs (junk nested keys, wrong primitives, empty strings, None, collisions, dangerous metadata, invalid OpenAI schema). Also: `test_ai_foundation.py::test_registry_register_rejects_duplicate_name` pins the new duplicate-detection contract (replaces pre-M2 idempotent-replace) |
+| `tests/test_tool_adapters.py` | 43 | v15.2 M3 Real Tool Adapters (`core/ai/tool_adapters.py`): entities (create/duplicate-reject/get by name-#id-workspace/list/status-filter/update/update+topic append-only/create+topic single-contract/creation-failure mirrors `/add`/update-post-failure best-effort/conversational reference via the M1 resolver/find/read-doesn't-move-active), tasks (create+list/reminder surface = due fields/duplicate-reject/invalid-datetime-reject/find/update/complete/delete), habits+goals (create/list/complete/complete-twice-is-not-an-error/`complete_task` takes the habit branch/progress-to-complete), workspace (list/get/open-MUTATING/inspect), memory+recall (get/search/grounded), mixed-capability chaining through ONE registry, adversarial (unknown-arg reject-on-write/drop-on-read, missing targets→invalid_args, no-fields updates, no-active-workspace, forward-compat unknown entity fields, invalid field value names the field, duplicate registration, execute-never-raises matrix, risk classification incl. no SYSTEM + `delete_task` DESTRUCTIVE confirmation), and integration — RecorderProj (projection seam called with real card/update text) + FakeClient+TelegramProjection end-to-end (one topic, append-only, no second topic mechanism). Genshin acceptance fixtures (Xiao/Kinich/Xilonen/Nefer/Lauma/Columbina) are test data only |
 
 ## Release Verification Guide (v14.21 — the canonical checklist)
 

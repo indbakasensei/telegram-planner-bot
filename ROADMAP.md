@@ -135,7 +135,7 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > (added `weapon` field vs `weapon_type`), retrieval (entity-aware field search),
 > entity display cards, logging, and Telegram UX. 16 new tests, 1234 passing.
 >
-> **`v15.2 M2` — BAKA Brain · Tool Contract Foundation (dormant, current):**
+> **`v15.2 M2` — BAKA Brain · Tool Contract Foundation (dormant, done):**
 > the first v15.2 milestone. `core/ai/tools.py` is extended into the single,
 > unified tool abstraction the future AI Worker will run on: `RiskLevel`
 > (READ_ONLY/MUTATING/DESTRUCTIVE/SYSTEM), validated `ToolSpec` metadata
@@ -145,12 +145,31 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > `ToolRegistry.execute` never lets invalid args reach a handler, and
 > `Tool.execute` contains every failure. **1380 offline tests passing** (79
 > new in `tests/test_tool_contract.py`), self-test probe "AI Tool Contract",
-> regression suite TLC-001…004. No Worker, no loop, no `main.py` routing
-> change — the contract is dormant and health-verifiable via `/selftest`.
-> See `docs/engineering/V15_2_BAKA_BRAIN.md`. **Next (M3):** the tool adapter
-> surface — concrete `Tool`s per capability (tasks/reminders/habits/goals/
-> entities/workspace/memory/Telegram projection) with honest risks, then the
-> Worker's planned calls route through `ToolRegistry.execute`.
+> regression suite TLC-001…004.
+>
+> **`v15.2 M3` — BAKA Brain · Real Tool Adapters (dormant, current):**
+> `core/ai/tool_adapters.py` maps each real capability to **24 thin
+> M2-contract `Tool`s** (`build_tool_registry(user_id, …)`): tasks
+> (list/find/create/update/complete/delete), habits (create/list/complete),
+> goals (create/list/update-progress), entities (create/get/update/list/find
+> — reusing the M1 ReferenceResolver), workspace (list/get/open/inspect) and
+> memory/recall (get/search/grounded recall). Every tool is argument
+> translation + validation + a call into BAKA's existing services (Storage
+> facade, EntityEngine, WorkspaceGroups, TelegramProjection) with a
+> structured `ToolResult` (ids, fields, workspace, projection status). Honest
+> risks (writes MUTATING incl. `open_workspace`, `delete_task` DESTRUCTIVE
+> with a confirmation message, nothing SYSTEM). Entity create/update drive
+> the **same alpha.13 projection** `/add` uses — one topic, append-only
+> updates, never a second topic mechanism. **1423 offline tests passing** (43
+> new in `tests/test_tool_adapters.py`, incl. Genshin acceptance fixtures +
+> RecorderProj/FakeClient integration proving the projection is not
+> bypassed), selftest "AI Tool Adapter Registry" + "… Round-trip", regression
+> suite TAD-001…005. No Worker, no loop, no `main.py` routing change — the
+> adapters are dormant and health-verifiable via `/selftest`.
+> See `docs/engineering/V15_2_BAKA_BRAIN.md`. **Next (M4):** the AI Worker —
+> the agent loop that calls `ToolRegistry.execute`, GLM tool-calling, worker
+> routing, automatic worker activation, and the `main.py` routing migration.
+> M3 does not claim any of that exists.
 >
 > **`v15.1.0-alpha.13` — Telegram Entity Topic Projection & Backfill (M10,
 > current):** closes the topic gap. Every entity-creation path — `/add`,

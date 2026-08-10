@@ -16,7 +16,7 @@ supplies domain args like a workspace name or a status.
 """
 from __future__ import annotations
 
-from core.ai.tools import Tool, ToolRegistry, ToolSpec
+from core.ai.tools import RiskLevel, Tool, ToolRegistry, ToolSpec
 from core.storage import Storage
 from core.workspace.engine import EntityEngine
 
@@ -152,14 +152,20 @@ class RecentNotesTool(_WSTool):
 
 class OpenWorkspaceTool(_WSTool):
     """Sets the active workspace -- the conversation-context write that makes
-    later questions resolve without naming the workspace again (PART 7)."""
+    later questions resolve without naming the workspace again (PART 7).
+
+    v15.2 M3: reclassified READ_ONLY → MUTATING. open_workspace persists the
+    active-workspace context (tg_bindings.set_active); it changes state, so
+    the default READ_ONLY risk was dishonest. The /ws engine calls run()
+    directly (never Tool.execute), so /ws behavior is unchanged."""
 
     @property
     def spec(self):
         return ToolSpec(
             "open_workspace",
             "Make a workspace the active one for this conversation.",
-            {"type": "object", "properties": {"workspace": {"type": "string"}}})
+            {"type": "object", "properties": {"workspace": {"type": "string"}}},
+            risk=RiskLevel.MUTATING)
 
     def run(self, workspace=None, **kwargs):
         ws = self._resolve_ws(workspace)

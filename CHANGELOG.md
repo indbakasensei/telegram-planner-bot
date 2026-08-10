@@ -84,6 +84,48 @@ then route the Worker's planned calls through `ToolRegistry.execute`.
 - **`core/regression/suites/tool_contract_m2.py` (new):** TLC-001…004 Quick
   Release Suite specs for the contract checks.
 
+### M3 — Real Tool Adapters
+
+> **DORMANT ADAPTERS — not released, no user command routes through them.**
+> This milestone wraps BAKA's **existing** business logic in 24 M2-contract
+> `Tool`s, but **nothing in `main.py` calls `build_tool_registry`** and no
+> normal message is routed through it. There is **no AI Worker, no agent loop,
+> no GLM tool-calling, no worker routing, no automatic worker activation, and
+> no `main.py` routing migration** here. Version number is NOT bumped. The
+> adapters are health-verifiable now via `/selftest → AI → 'AI Tool Adapter
+> Registry'` and `'… Round-trip'`. Full design:
+> [docs/engineering/V15_2_BAKA_BRAIN.md](docs/engineering/V15_2_BAKA_BRAIN.md).
+
+New `core/ai/tool_adapters.py`: `build_tool_registry(user_id, …)` returns a
+per-user M2 `ToolRegistry` of **24 thin adapters** — tasks (`list_tasks`,
+`find_task`, `create_task`, `update_task`, `complete_task`, `delete_task`),
+habits (`create_habit`, `list_habits`, `complete_habit`), goals (`create_goal`,
+`list_goals`, `update_goal_progress`), entities (`create_entity`,
+`get_entity`, `update_entity`, `list_entities`, `find_entity`), workspace
+(`list_workspaces`, `get_workspace`, `open_workspace`, `inspect_workspace`),
+memory/recall (`get_memories`, `search_memories`, `recall`). Each is argument
+translation + validation + calls into the real services (Storage facade,
+EntityEngine, WorkspaceGroups, M1 ReferenceResolver/Retriever,
+TelegramProjection) + a structured `ToolResult` with machine-readable `data`
+(ids, fields, workspace, projection status). Honest risks: every write tool is
+MUTATING (including `open_workspace` — persists active state), `delete_task`
+is DESTRUCTIVE with a `confirmation_message`, nothing is SYSTEM. Entity
+creation/update drive the **same alpha.13 projection contract** `/add` and NL
+creation use (create_entity → WorkspaceGroups.create_entity; update_entity →
+per-field engine.update_field + append-only post_entity_update). **1423
+offline tests passing** (43 new: `tests/test_tool_adapters.py`, incl. Genshin
+acceptance fixtures Xiao/Kinich/Xilonen/Nefer/Lauma/Columbina as test data,
+adversarial list, and RecorderProj/FakeClient integration proving the
+projection is not bypassed), selftest "AI Tool Adapter Registry" + "AI Tool
+Adapter Round-trip" added, regression suite TAD-001…005 added. Also: the `/ws`
+`OpenWorkspaceTool` is reclassified `READ_ONLY → MUTATING` (honest — behavior
+unchanged), and `MemoryStorage` was added to the Storage facade (the recall
+tools read through the same facade every domain uses — no raw SQL). Bug fixed
+by the suite: `_task_dict` no longer indexes past the 5-column rows
+`search_tasks_by_title` returns. **Next (M4):** the AI Worker — agent loop,
+GLM tool-calling, worker routing, and `main.py` routing migration. M3 does
+not claim any of that exists.
+
 ## v15.1.0-alpha.13 — Telegram Entity Topic Projection & Backfill (M10)
 
 The topic-projection milestone. Every entity-creation path — `/add`,
