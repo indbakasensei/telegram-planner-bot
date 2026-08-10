@@ -450,6 +450,17 @@ provider-agnostic is later AI-Router scope. The reliability primitives
 (`core/ai/retrieval.py`, `core/ai/tools.py`) are foundations for the
 upcoming AI Intelligence Layer.
 
+**v15.2 BAKA Brain (dormant — no user command routes through it yet):**
+`core/ai/tools.py` is now the **unified Tool Contract** (v15.2 M2) — the
+single tool abstraction the future AI Worker will run on. `RiskLevel`
+(READ_ONLY/MUTATING/DESTRUCTIVE/SYSTEM), validated `ToolSpec` metadata,
+a unified `ToolResult`, stable `ToolError` codes, and fail-closed argument
+validation (`ToolRegistry.register` rejects malformed schemas + duplicate
+names; `ToolRegistry.execute` never lets invalid args reach a handler).
+**There is no AI Worker, agent loop, or GLM tool-calling yet** — the contract
+is health-verifiable via `/selftest → AI → 'AI Tool Contract'`. Design:
+[docs/engineering/V15_2_BAKA_BRAIN.md](docs/engineering/V15_2_BAKA_BRAIN.md).
+
 The old stored-analytics commands (`usage`, `performance`, `errors`)
 return empty data — the pipeline behind them was never assembled, and
 its stranded source files were removed in v14.12. `status` /
@@ -481,7 +492,7 @@ telegram-planner-bot/
 ├── log_sanitizer.py      — Secret masking for bot.log
 ├── fmt.py                — Telegram HTML helpers
 ├── ui.py / debug_system.py / preferences.py / notification_service.py
-├── tests/                — 1100+ offline tests (pytest)
+├── tests/                — 1300+ offline tests (pytest)
 ├── docs/
 │   ├── adr/              — ADR-001 … ADR-013 (design decisions)
 │   ├── architecture/     — Subsystem deep-dives (intent, routing, offline, …)
@@ -512,11 +523,12 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v15.1.0-alpha.10–11 | Natural Language Entity Management + release standards; final stabilization |
 | v15.1.0-alpha.12 | Conversational entity references & active entity (M1) |
 | v15.1.0-alpha.13 | Telegram entity topic projection & backfill (M10): NL create auto-projects topic + card, append-only updates, idempotent /topicbackfill |
+| v15.2 (in dev) | BAKA Brain · M2 — Tool Contract Foundation (dormant): unified tool abstraction — RiskLevel, validated ToolSpec, ToolResult/ToolError, fail-closed args, strict registry. No Worker/loop yet |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)
 (next: canary-enable `WORKSPACE` → default-on, then user-facing Workspace
-commands/UI and more templates).
+commands/UI and more templates; then v15.2 BAKA Brain milestones M3+).
 
 ---
 
@@ -538,7 +550,7 @@ pytest -q                       # full offline suite (~20s)
 pytest tests/test_workspace_*   # just the Workspace OS suites
 ```
 
-- **1100+ offline unit/integration tests** — deterministic, and they
+- **1300+ offline unit/integration tests** — deterministic, and they
   **never touch Telegram or a live AI provider** (senders and the AI
   interpreter are dependency-injected in tests). See [TESTING.md](TESTING.md).
 - **`/selftest`** — a live health probe (database, scheduler, storage,

@@ -22,6 +22,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from core.ai.tools import ToolResult
 from core.ai.workspace_tools import build_workspace_registry
 from core.storage import Storage
 from core.workspace.engine import EntityEngine
@@ -46,13 +47,6 @@ class CognitiveContext:
     user_id: int
     active_workspace_id: int | None
     workspace_titles: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ToolResult:
-    tool: str
-    output: str
-    ok: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,12 +125,15 @@ def execute(plan: Plan, registry) -> list[ToolResult]:
     for step in plan.steps:
         tool = registry.get(step.tool)
         if tool is None:
-            out.append(ToolResult(step.tool, f"(no such tool: {step.tool})", ok=False))
+            out.append(ToolResult(tool=step.tool,
+                                  output=f"(no such tool: {step.tool})", ok=False))
             continue
         try:
-            out.append(ToolResult(step.tool, tool.run(**(step.args or {})), ok=True))
+            out.append(ToolResult(tool=step.tool,
+                                  output=tool.run(**(step.args or {})), ok=True))
         except Exception as e:   # pragma: no cover - defensive
-            out.append(ToolResult(step.tool, f"(tool error: {e})", ok=False))
+            out.append(ToolResult(tool=step.tool,
+                                  output=f"(tool error: {e})", ok=False))
     return out
 
 

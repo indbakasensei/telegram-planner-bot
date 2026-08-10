@@ -7,7 +7,8 @@ import pytest
 
 from core.ai import (
     AIBadRequest, AIRateLimited, AITimeout, AIUnavailable,
-    Document, NullRetriever, Retriever, RetryPolicy, ToolRegistry, ToolSpec,
+    Document, NullRetriever, Retriever, RetryPolicy, ToolRegistry,
+    ToolRegistryError, ToolSpec,
     Tool, call_with_retry, classify_status, get_preset, provider_names,
     resolve_config,
 )
@@ -182,8 +183,12 @@ def test_registry_rejects_non_tool():
         ToolRegistry().register(object())
 
 
-def test_registry_register_is_idempotent_by_name():
+def test_registry_register_rejects_duplicate_name():
+    # v15.2 M2 contract change: a tool name may be registered only once --
+    # silent replace-on-reregister is gone (a duplicate would silently mask
+    # an intended-tool collision for the future worker).
     reg = ToolRegistry()
     reg.register(_Echo())
-    reg.register(_Echo())
+    with pytest.raises(ToolRegistryError):
+        reg.register(_Echo())
     assert len(reg.all()) == 1

@@ -61,6 +61,24 @@ Mitigation today: phrase entity questions with a keyword ("What level is she?",
 "Show her weapon") — those route correctly. Tracked for a later milestone
 (field-aware retrieval, M3; the AI-worker routing, M8).
 
+### AI Tool Contract is dormant — not a bug, a state (v15.2 M2)
+
+`core/ai/tools.py` now ships the full Tool Contract (RiskLevel, validated
+`ToolSpec`, unified `ToolResult`/`ToolError`, fail-closed `validate_args`,
+strict `ToolRegistry` with duplicate detection + `execute`). **No user command
+routes through it yet** — there is no AI Worker, no agent loop, and no
+`main.py` routing change. If you see the contract "doing nothing," that is
+correct; its health is verifiable via `/selftest → AI → 'AI Tool Contract'`
+and the offline `tests/test_tool_contract.py`. Two documented limitations to
+know before building on it:
+- **`open_workspace` is still declared `READ_ONLY`** while actually setting
+  the active workspace — an honest-risk assignment is deferred to the M3
+  adapter pass (the mechanism for risk exists now).
+- **`confirmation_message` / `requires_admin` are metadata only** — no
+  confirmation/permission flow enforces them yet (the stable error codes
+  `confirmation_required` / `permission_denied` are reserved for that
+  milestone).
+
 ### The `analytics` package doesn't exist — AI analytics commands are silently broken
 
 `usage_logger.py`, `usage_service.py`, `model_metrics.py`,

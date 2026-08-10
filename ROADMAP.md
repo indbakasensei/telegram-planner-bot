@@ -135,6 +135,23 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > (added `weapon` field vs `weapon_type`), retrieval (entity-aware field search),
 > entity display cards, logging, and Telegram UX. 16 new tests, 1234 passing.
 >
+> **`v15.2 M2` — BAKA Brain · Tool Contract Foundation (dormant, current):**
+> the first v15.2 milestone. `core/ai/tools.py` is extended into the single,
+> unified tool abstraction the future AI Worker will run on: `RiskLevel`
+> (READ_ONLY/MUTATING/DESTRUCTIVE/SYSTEM), validated `ToolSpec` metadata
+> (risk / confirmation_message / requires_admin), a unified `ToolResult` +
+> stable `ToolError` codes, and fail-closed argument validation —
+> `ToolRegistry.register` rejects malformed schemas and duplicate names,
+> `ToolRegistry.execute` never lets invalid args reach a handler, and
+> `Tool.execute` contains every failure. **1380 offline tests passing** (79
+> new in `tests/test_tool_contract.py`), self-test probe "AI Tool Contract",
+> regression suite TLC-001…004. No Worker, no loop, no `main.py` routing
+> change — the contract is dormant and health-verifiable via `/selftest`.
+> See `docs/engineering/V15_2_BAKA_BRAIN.md`. **Next (M3):** the tool adapter
+> surface — concrete `Tool`s per capability (tasks/reminders/habits/goals/
+> entities/workspace/memory/Telegram projection) with honest risks, then the
+> Worker's planned calls route through `ToolRegistry.execute`.
+>
 > **`v15.1.0-alpha.13` — Telegram Entity Topic Projection & Backfill (M10,
 > current):** closes the topic gap. Every entity-creation path — `/add`,
 > natural language ("Create character Arlecchino"), and the new admin-only

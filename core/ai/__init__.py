@@ -8,7 +8,9 @@ the retrieval + tool interfaces -- not the planner/orchestrator.
   * provider    -- env → ProviderConfig, with GLM / NVIDIA-NIM / local presets
   * reliability -- typed AI errors + retry/backoff policy
   * retrieval   -- Retriever interface (+ NullRetriever)
-  * tools       -- Tool interface + ToolRegistry
+  * tools       -- the unified Tool Contract (v15.2 M2): Tool/ToolSpec/
+                   ToolRegistry + RiskLevel, ToolError (stable codes),
+                   ToolResult, and fail-closed argument validation
 """
 from __future__ import annotations
 
@@ -32,7 +34,19 @@ from core.ai.reliability import (  # noqa: F401
     classify_status,
 )
 from core.ai.retrieval import Document, NullRetriever, Retriever  # noqa: F401
-from core.ai.tools import Tool, ToolRegistry, ToolSpec  # noqa: F401
+# v15.2 M2 -- the unified Tool Contract (RiskLevel, ToolError, ToolResult,
+# registry validation/execution). ToolResult is shared with the Cognitive
+# Engine below (single tool abstraction, no parallel class).
+from core.ai.tools import (  # noqa: F401
+    RiskLevel,
+    Tool,
+    ToolError,
+    ToolErrorCode,
+    ToolRegistry,
+    ToolRegistryError,
+    ToolResult,
+    ToolSpec,
+)
 # v15.1.0-alpha.3 Cognitive Engine (Phase 1: planner + tool orchestration).
 from core.ai.cognition import (  # noqa: F401
     CognitiveContext,
@@ -42,7 +56,6 @@ from core.ai.cognition import (  # noqa: F401
     Planner,
     PlanStep,
     RuleBasedPlanner,
-    ToolResult,
     execute,
 )
 from core.ai.llm_planner import KNOWN_TOOLS, LLMPlanner  # noqa: F401

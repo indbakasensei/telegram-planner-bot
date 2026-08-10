@@ -11,6 +11,79 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v15.2 (in development) — BAKA Brain · M2: Tool Contract Foundation
+
+> **DORMANT FOUNDATION — not released, no user command routes through it.**
+> This milestone builds the *tool contract* the future AI Worker will run on.
+> There is **no AI Worker, no agent loop, no GLM tool-calling, and no
+> `main.py` routing change** here. Version number is NOT bumped: the
+> repository's release convention bumps on a completed, released milestone,
+> and v15.2 is mid-build. The contract is health-verifiable now via
+> `/selftest → AI → 'AI Tool Contract'`. Full design:
+> [docs/engineering/V15_2_BAKA_BRAIN.md](docs/engineering/V15_2_BAKA_BRAIN.md).
+
+Extends the existing `core/ai/tools.py` into the single, validated Tool
+Contract (one abstraction, no second registry): `RiskLevel`
+(READ_ONLY/MUTATING/DESTRUCTIVE/SYSTEM), `ToolSpec` now carries `risk` /
+optional `confirmation_message` / optional `requires_admin`, a unified
+`ToolResult` (tool, ok, output, optional structured `data`, `warnings`,
+stable `error_code`), `ToolError` with stable machine-readable codes
+(`ToolErrorCode`), fail-closed argument validation (`validate_spec` /
+`validate_args` — invalid args never reach a handler), and a stricter
+`ToolRegistry` (spec validation at registration, duplicate-name rejection,
+`execute(name, args)` dispatcher). **1380 offline tests passing** (79 new:
+`tests/test_tool_contract.py`, A–G + adversarial), self-test probe
+"AI Tool Contract" added, regression suite TLC-001…004 added. See
+`docs/engineering/V15_2_BAKA_BRAIN.md`. **Next (M3):** the tool adapter
+surface — map each real capability (tasks/reminders/habits/goals/entities/
+workspace/memory/Telegram projection) to concrete `Tool`s with honest risks,
+then route the Worker's planned calls through `ToolRegistry.execute`.
+
+- **`core/ai/tools.py` — the full Tool Contract (single file, single
+  abstraction):** `RiskLevel` classifies what a tool may do; `ToolSpec`
+  gained `risk` (default `READ_ONLY`), `confirmation_message` (optional) and
+  `requires_admin` (optional) beside `name`/`description`/JSON-Schema
+  `parameters` (`to_openai()` unchanged); `Tool.execute(**kwargs)` is the one
+  sanctioned run path — validate → run → contain, returning a `ToolResult`
+  that never raises for ordinary input (`ToolError` keeps its code,
+  unexpected exceptions become `error_code='internal'`, `str`/`ToolResult`/
+  `None` returns normalized); `ToolRegistry.register` now validates the spec
+  and **rejects duplicate names** (replaces pre-M2 idempotent-replace), and
+  `ToolRegistry.execute(name, args)` dispatches (unknown tool →
+  `unknown_tool`, non-object args → `invalid_args`).
+- **`core/ai/tools.py` — validation:** `validate_spec` rejects malformed
+  schemas (empty name/description, non-object top-level type, unknown property
+  types, empty type lists, undefined `required` refs, non-dict property
+  schemas, bad nested objects, non-`RiskLevel` risk, non-string
+  `confirmation_message`, non-bool `requires_admin`); `validate_args` enforces
+  required args, JSON types (bool ≠ integer; `None` only where `null` is
+  declared, e.g. `["string","null"]`), `enum`, `minLength`, nested objects —
+  and **rejects unknown arguments for MUTATING/DESTRUCTIVE/SYSTEM tools**
+  while **silently dropping them for READ_ONLY** tools. Invalid arguments
+  never reach a handler.
+- **`core/ai/cognition.py` — ToolResult unification:** removed its **local**
+  `ToolResult(tool, output, ok)` and now imports the unified contract
+  `ToolResult` from `core.ai.tools` (construction sites converted to keyword
+  args; the old positional order would have silently bound the second
+  argument to `ok`). `cognition.execute()` itself is **unchanged** — the
+  Cognitive Engine's live `/ws` behavior is byte-identical.
+- **`core/ai/__init__.py`:** exports `RiskLevel`, `ToolError`,
+  `ToolErrorCode`, `ToolRegistryError`, `ToolResult` from `core.ai.tools`;
+  `ToolResult` dropped from the cognition re-export (single class now).
+- **`tests/test_tool_contract.py` (new, 79 tests):** ToolSchema (A),
+  argument validation (B), risk behaviour (C), ToolResult (D), ToolError (E),
+  ToolRegistry (F), execution contract (G) + adversarial (malformed JSON
+  schemas, junk nested keys, wrong primitive types, empty strings, `None`/
+  `null`, duplicate/colliding names, exceptions inside tools, missing tools,
+  dangerous metadata, invalid OpenAI function schema).
+- **`tests/test_ai_foundation.py`:** `test_registry_register_is_idempotent_by_name`
+  → `test_registry_register_rejects_duplicate_name` (contract change).
+- **`core/selftest/tests/test_ai.py`:** new offline **"AI Tool Contract"**
+  probe (register → validate → execute → contain) so the dormant contract's
+  health is verifiable from `/selftest`.
+- **`core/regression/suites/tool_contract_m2.py` (new):** TLC-001…004 Quick
+  Release Suite specs for the contract checks.
+
 ## v15.1.0-alpha.13 — Telegram Entity Topic Projection & Backfill (M10)
 
 The topic-projection milestone. Every entity-creation path — `/add`,

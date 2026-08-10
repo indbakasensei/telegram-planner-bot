@@ -8,13 +8,13 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**1301 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**1380 tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
 ```bash
 pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~25 seconds, all 1301 tests
+pytest                             # ~50 seconds, all 1380 tests
 ```
 
 | File | Tests | Covers |
@@ -51,6 +51,7 @@ pytest                             # ~25 seconds, all 1301 tests
 | `tests/test_reference_resolution.py` | 35 | M1 conversational references (v15.1.0-alpha.12): `core/ai/reference_context.py` + `reference_resolver.py` wired into EntityManager — create-then-pronoun ("create Furina" → "show her"), pronoun variants, ordinal selection (first/second/last), ordered-list persistence across activation, full-sentence pronoun retrieval, ambiguity + clarification, explicit-name-beats-active precedence, stale/deleted-entity self-heal, deterministic field updates, workspace isolation. Resolver is pure and LLM-free; tests assert bare references never reach the LLM |
 | `tests/test_topic_projection.py` | 24 | v15.1.0-alpha.13 (M10) topic projection: `ensure_entity_topic` idempotency (no duplicate topic/card), initial card on NEW topics only, card-send failure swallowed, unlinked workspace → no call, `post_entity_update` append-only + self-heal, `backfill_topics` created/existing classification, re-run idempotency, initial cards reflect live DB state, unlinked/soft-deleted/empty-workspace handling, per-entity error collection, partial-then-retry recovery, transient vs persistent binding-write failure, stale bindings, cross-workspace same-name, duplicate create, long/Unicode names, card HTML escaping + sparse/dense fields |
 | `tests/test_entity_manager_projection.py` | 8 | v15.1.0-alpha.13 (M10) EntityManager projection seam: NL create projects topic + initial card and activates, create/update without projection makes no call, projection failure keeps the DB op (create warns, update stands), deterministic + LLM update append old→new message with fresh self-heal card, bare reference and retrieve make no projection call |
+| `tests/test_tool_contract.py` | 79 | v15.2 M2 Tool Contract Foundation (`core/ai/tools.py`): ToolSchema validation (A — malformed specs, duplicate names), argument validation (B — required, JSON types incl. bool≠integer + declared-null, enum, minLength, nested objects, unknown-arg drop/reject), risk behaviour (C), ToolResult (D — success/failure/structured data/warnings), ToolError stable codes (E), ToolRegistry (F — register/get/has/all/names/specs/openai_tools/execute), execution contract (G — valid executes, invalid never reaches `run()`, ToolError/exception containment, no-escape matrix), plus adversarial inputs (junk nested keys, wrong primitives, empty strings, None, collisions, dangerous metadata, invalid OpenAI schema). Also: `test_ai_foundation.py::test_registry_register_rejects_duplicate_name` pins the new duplicate-detection contract (replaces pre-M2 idempotent-replace) |
 
 ## Release Verification Guide (v14.21 — the canonical checklist)
 
@@ -149,6 +150,9 @@ confirm flow · `plan week` · `breakdown <id>` · `reschedule <id>` ·
 `status` + `status full` (benchmark card, Re-run button → Home) ·
 `models` · `image <prompt>` · `video <prompt>` · send a photo.
 KNOWN EMPTY (documented): `usage`, `performance`, `errors`.
+DORMANT (v15.2 M2, no user command): the AI Tool Contract — verify via
+`/selftest → AI → 'AI Tool Contract'` (offline probe) + the offline
+`tests/test_tool_contract.py` run; nothing routes through it yet.
 
 ### Settings & Utilities [L]
 `settings` (HTML card) · `quiethours 22:00 07:00` → re-check settings ·
