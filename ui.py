@@ -1379,6 +1379,7 @@ def commands_category_page(category, version, user_is_admin):
                 ("myid", "Your Telegram user ID"),
                 ("claimadmin", "Claim ownership (first run)"),
                 ("topicbackfill", "Create missing entity topics (idempotent)"),
+                ("topicrepair", "Self-heal entity topics (one entity, one topic)"),
             ],
             "related": "Settings",
         }

@@ -1,5 +1,6 @@
 # Secrets
 .env
+.env.*
 admin_id.txt
 
 # Python
@@ -9,6 +10,7 @@ __pycache__/
 
 # Databases (local data)
 *.db
+*.db.*
 planner.db
 bugs.db
 

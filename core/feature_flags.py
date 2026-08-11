@@ -39,3 +39,14 @@ OFFLINE_PROJECTS: bool = _flag("OFFLINE_PROJECTS")
 # stack, so the bot behaves byte-identically to v14.26. A canary flips this
 # in .env to begin rollout (docs/v15/MIGRATION.md §5).
 WORKSPACE: bool = _flag("WORKSPACE")
+
+# v15.2 M4 -- AI Worker master flag (docs/engineering/V15_2_BAKA_BRAIN.md §M4).
+# Default OFF: the GLM-5.2 Worker (core/ai/worker.py) ships complete but
+# DORMANT -- while OFF, nothing constructs or runs it and handle_message is
+# byte-identical to pre-M4. When ON, the Worker activates ONLY for the owner
+# (OWNER_ID, the same is_admin() gate admin commands use); every other user
+# keeps the legacy path. This is the owner-only canary: the owner can exercise
+# the Worker live while nobody else is affected. The Worker runs at the very
+# end of the message cascade, only for messages every deterministic layer
+# declined, and falls through to legacy when it declines or fails.
+WORKER: bool = _flag("WORKER")

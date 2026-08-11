@@ -173,6 +173,15 @@ def make_projection_client(bot, loop, timeout=30):
             fut = asyncio.run_coroutine_threadsafe(bot.send_photo(**kwargs), loop)
             return getattr(fut.result(timeout=timeout), "message_id", None)
 
+        def delete_forum_topic(self, chat_id, topic_id):
+            fut = asyncio.run_coroutine_threadsafe(
+                bot.delete_forum_topic(chat_id=chat_id,
+                                       message_thread_id=topic_id),
+                loop)
+            result = fut.result(timeout=timeout)
+            # deleteForumTopic returns True on success / raises on failure.
+            return bool(result)
+
     return _LiveProjectionClient()
 
 

@@ -1,4 +1,4 @@
-# v15.2 — BAKA Brain / AI Worker · M2 & M3: Tool Contract + Real Tool Adapters
+# v15.2 — BAKA Brain / AI Worker · M2, M3 & M4: Tool Contract + Real Tool Adapters + GLM-5.2 Worker
 
 > **Status: DORMANT FOUNDATION — no user command routes through it yet.**
 > M2 ships the *contract*; M3 ships the *real tool adapters* on top of it.
@@ -372,3 +372,446 @@ self-cleaning). Full offline suite: **1423 passing** (baseline 1380 + 43).
   confirmation gating on MUTATING/DESTRUCTIVE/SYSTEM), automatic worker
   activation, GLM tool-calling, worker routing, and `main.py` routing
   migration. M3 does not claim any of this exists.
+
+---
+
+# v15.2 M4 — GLM-5.2 Worker (the bounded tool-calling executor)
+
+M4 delivers the Worker itself — **DORMANT** behind `feature_flags.WORKER`
+(default OFF) plus the owner-only canary. It replaces NO routing: while OFF,
+`handle_message` is byte-identical to pre-M4. When ON, the Worker activates
+only for the owner (`OWNER_ID`, the same `is_admin()` gate admin commands
+use) and only at the very END of the message cascade — after menu,
+confirming/editing/gathering states, NL maps, EntityManager and the task VIEW
+quick-match have ALL declined. Anything the Worker declines or that fails
+falls through to the legacy path untouched.
+
+## Objective
+
+Convert ONE user message into at most 4 tool calls through a ToolRegistry,
+then one final reply — bounded, observable, honest, and never touching a
+database, Telegram, or raw handler directly. Architecture: see the M4
+Architecture Proposal (Phase0 audit + 18 sections) that preceded this build.
+
+## Modules / files
+
+| File | Responsibility |
+|---|---|
+| `core/ai/worker_contract.py` | Types: `WorkerRequest`/`WorkerDecision`/`WorkerStep`/`WorkerRunResult`, `WorkerAction`, `TerminationReason`, `MAX_TOOL_CALLS=6` (Python constant — not configurable via any input/env) |
+| `core/ai/worker_parser.py` | The robust structured-output parser (fenced/malformed/multi-JSON/missing-fields/injection). Deliberately NOT the greedy `clean_json` `r"{.*}"` extractor (audit F1) — see below |
+| `core/ai/worker_prompt.py` | Compact system contract ("Worker Constitution") + per-request data (date block, deterministic parse result, bounded tasks/memory/history, 30-tool catalog). Never a repo dump |
+| `core/ai/worker.py` | The bounded loop, mechanical confirmation gate, never-fabricate-success guard, structured logging; injected `model_fn` (tests = fake, production = `baka_brain.call_worker_single`) |
+| `baka_brain.py` | `call_worker_single()` — ONE MODEL_MAIN attempt, `temperature=0`, no retry, no MODEL_FAST fallback (the loop owns failure handling; a retry storm is impossible) |
+| `core/feature_flags.py` | `WORKER: bool = _flag("WORKER")` — default OFF, same pattern as the other flags |
+| `main.py` | Seam A (idle BAKA: `if feature_flags.WORKER and is_admin(user_id)`), Seam B (`worker_confirm` branch in the confirming state), `_worker_engine/_worker_ref_ctx/_worker_request/worker_run` |
+| `core/selftest/tests/test_worker_selftest.py` | 2 probes: "AI Worker (dormant)" + "AI Worker Deterministic Round-trip" |
+| `core/regression/suites/worker_m4.py` | WKR-001…031 — the user scenarios + safety/observability specs + generic invariants (S1–S30) + topic-lifecycle/workspace-lifecycle/response-format specs (WKR-028/029/031) |
+
+## Request / response contract
+
+```
+WorkerRequest(user_id, text, registry, ref_ctx, projection, workspace_id,
+              tasks, memory, history, now)   # snapshots are gathered by the
+                                             # CALLER; the Worker never opens DB
+WorkerDecision(action=TOOL|FINAL|DECLINE, tool_name, arguments, reply, reason)
+WorkerStep(number, decision, result, duration_ms)
+WorkerRunResult(handled, reply, steps, termination, request_id, total_ms,
+                confirmation_data)
+```
+
+`handled=True` ⇒ the reply is authoritative; `handled=False` (only DECLINED)
+⇒ the caller falls through to legacy. Every run ends in exactly one
+`TerminationReason` (see failure policy).
+
+## LLM output contract & parser
+
+Model decisions are exactly one JSON object:
+`{"action":"tool","tool":"<name>","arguments":{…}}` |
+`{"action":"final","reply":"<HTML>"}` | `{"action":"decline","reason":…}`.
+
+`worker_parser` accepts exactly ONE well-formed top-level object. It strips a
+``` ```json fence, tolerates surrounding prose, and uses a character-tracking
+nesting scanner (no greedy regex). **Zero objects, a top-level array, or MORE
+THAN ONE object is `MALFORMED`** — the F1 bug class is closed: a duplicated or
+ambiguous decision never executes, never "last one wins". A nested `"tool"` or
+`"action"` inside `arguments` is DATA, never the decision (injection-
+resistant). Tool membership / argument schema are policy in `worker.py` /
+`ToolRegistry`, keeping `UNKNOWN_TOOL` and `INVALID_ARGS` distinct.
+
+## Tool selection & the bounded loop
+
+- Each step = one model call (single attempt, `TIMEOUT_NORMAL_REASONING`,
+  no retry, no fallback model) → parse decision → act:
+  - `decline` → `handled=False` (legacy answers);
+  - `final` → reply through the honesty guard;
+  - `tool` → name must be in the registry (else `UNKNOWN_TOOL`, nothing
+    executed); risk gate below; then `ToolRegistry.execute` — the ONLY run
+    path, fail-closed by M2.
+- At most `MAX_TOOL_CALLS=6` tool executions per request; after the 6th, one
+  final compose call (≤7 model calls total). `MAX_TOOL_CALLS` is a Python
+  constant — not in any prompt, spec, or env flag, so no input can widen it.
+  (Raised from 4 during M4 remediation so compound chains — the biggest Llama
+  failure class — get honest execution instead of budget exhaustion.)
+- Recoverable failures (INVALID_ARGS) feed back into the next step; two
+  consecutive ones terminate early. Non-recoverable failures terminate now.
+
+## Safety model
+
+- **Fail-closed execution**: unknown tool / bad args never reach a `run()`.
+- **Mechanical confirmation gate, before execute**: a DESTRUCTIVE tool (or any
+  tool with a `confirmation_message` — today only `delete_task`) NEVER runs
+  silently. The Worker returns `CONFIRMATION_NEEDED` + `confirmation_data`;
+  main.py routes yes/no through the **EXISTING** `conversation_state.py`
+  pending-action machine (Seam B, `worker_confirm` — same pattern as
+  `offline_add_task` / `offline_delete_task`). There is no second confirmation
+  system and no "LLM decides whether confirmation is needed".
+- **Never-fabricate-success**: a deterministic guard rewrites any final reply
+  that claims a success action (`created|deleted|updated|…`) unless an
+  `ok=True` ToolResult backs it. The model cannot claim "Xiao created
+  successfully" without a create result.
+
+## Reference handling
+
+M1 is authoritative for entity resolution *fallback*; the **typed referent
+store is consulted first** (see the M4 orchestration fixes section below).
+Entity tools resolve via the shared M1 `ReferenceContext`/`ReferenceResolver`
+(active entity from the DB-backed `tg_active_context` + recent-mention stack +
+ordered list) only after the typed store misses. The Worker's `ref_ctx` is a
+per-process singleton (`_worker_ref_ctx()`) so conversational reference
+persists across Worker messages. Ambiguous/stale references → the model asks
+for clarification; nothing is guessed or invented.
+
+## Date handling
+
+Deterministic `date_parser` is authoritative. `worker_prompt` injects
+`date_parser.parse_all(text, now)` (IST) as a `PARSED` block — date, time,
+`time_ambiguous`, recurrence, errors. The contract tells the model to use
+those values verbatim or ask the user; it never computes a date. Tools
+reject invalid formats themselves, so a guessed date surfaces as a non-ok
+`ToolResult`, never silent success.
+
+## Failure policy
+
+| Condition | Termination | Behavior |
+|---|---|---|
+| Model timeout | `MODEL_TIMEOUT` | 1 attempt, graceful fallback, no retry storm |
+| HTTP/auth/5xx | `MODEL_ERROR` | same, handled=False (legacy answers) |
+| Malformed / multi-object / empty | `MALFORMED` / `EMPTY_REPLY` | graceful |
+| Unknown tool | `UNKNOWN_TOOL` | nothing executed |
+| Invalid args ×2 | `INVALID_ARGS_RECURRENT` | stop early |
+| Tool failure / exception | `TOOL_FAILURE` | honest report |
+| DESTRUCTIVE | `CONFIRMATION_NEEDED` | never executes (Seam B) |
+| Ambiguous/stale reference | asked | clarification, never a guess |
+| Budget exhausted | `MAX_STEPS` | one compose call → honest summary |
+| Internal | `INTERNAL` | graceful, run never crashes the bot |
+
+## Observability
+
+One structured INFO line per run:
+`request_id, user_id, workspace_id, termination, total_ms, model_calls,
+steps=[{step, action, tool, args, ok, error_code, duration_ms}], reply_len`.
+**The user message body is never logged** (owner decision: no raw user text in
+new Worker logs), and argument keys matching `/token|key|secret|password|…/`
+are `[REDACTED]` before logging. Tools never carry secrets; this is
+defense-in-depth.
+
+## Cost / latency
+
+≤7 model calls per request (6 tool-decisions + 1 final compose), typically
+1–2; ≤6 tool executions; per-call ceiling `TIMEOUT_NORMAL_REASONING` (45s),
+one attempt each. Worst-case wall latency ≈6-tool chain (GLM-5.2 first token
+>30s on NIM), typical 1-tool ≈20–80s. All calls run off the event loop via
+`run_blocking`; the bot stays responsive. Chat-only messages cost one decision
+call then hand off to legacy.
+
+## M4 orchestration fixes (v15.2 — typed referents, goal-deadline tool,
+type-aware retrieval, routing order)
+
+The M4 Worker's first live pass surfaced ten orchestration failures. They were
+fixed **generically** (no phrase-specific rules) — this section records the
+four architectural changes and the failure→root-cause→fix mapping.
+
+### Root causes (RC1–RC6)
+
+- **RC1 — tool results were prose, not typed identity.** When a tool ran
+  (`create_entity` → `{entity_id, kind, name}`), the follow-up step saw only a
+  rendered text block. Nothing told the next tool-call which exact ID it just
+  created, so the model fell back to stale active context.
+- **RC2 — M1 active-entity-first resolution + all-milestone `kind="milestone"`.**
+  `_resolve_entity` reached for the DB "active entity" before anything else, and
+  every workspace row reported the same kind — so "its" after a goal was
+  created resolved to the active *character* (cross-domain leak), and the
+  create→reference→update chain corrupted the wrong row.
+- **RC3 — no `entity_type` column.** Duplicate detection keyed on
+  `(workspace_id, title)` only, so a character and an artifact with the same
+  display name collided ("already a Golden Troupe"), and there was no way to
+  filter/list by kind.
+- **RC4 — no goal-deadline tool.** "Set its deadline to …" was a goal-domain
+  operation with no tool, so the model misrouted it through
+  `update_entity`'s forward-compat fallback, which wrote deadline-shaped values
+  into a *character's* field map.
+- **RC5 — the Worker seam ran *after* EntityManager + the task VIEW
+  quick-match.** Compound requests ("Show Xiao and then update his level"),
+  typed retrievals ("Show all characters"), and goal operations were hijacked by
+  earlier routers before the Worker ever saw them.
+- **RC6 — `date_parser` lacked "next month end".** The model had to invent a
+  date, which is how a deadline landed as a wrong literal.
+
+### The fixes
+
+1. **`core/ai/typed_referents.py` — `TypedReferentStore`.** Per-kind, recency-
+   ordered referent memory. Every tool `note`s its typed outcome
+   `(user_id, kind, entity_id, name, workspace_id)`; `resolve` returns
+   `ResolveOutcome(referent, conflict, …)`; `snapshot` renders a
+   `KNOWN REFERENTS` prompt block that is rebuilt into the message on every
+   Worker iteration. **Store-first resolution**: an explicit entity/result from
+   the *current* execution is consulted before any stale active context.
+2. **Tool results are first-class.** `create_entity` / `create_goal` /
+   `create_task` etc. note the returned `entity_id`/kind/name into the typed
+   store, so the next step references that exact ID. Compound operations are
+   dependency-aware by construction — later tools resolve against the store the
+   earlier tools just populated.
+3. **Typed references carry `(workspace_id, kind, entity_id, display_name)`.**
+   Cross-domain safety is enforced at resolve time: resolving a reference whose
+   store entry is a different kind raises a refusal ("`X` is a
+   `kind`, not a workspace entity"), and a conflict (multiple recent referents
+   of the same kind) refuses rather than guesses. **Goal/task/entity domains
+   never share unsafe active references.**
+4. **`milestones.entity_type`** (`database.py` additive column, default
+   `"entity"`). Duplicate detection is now
+   `(workspace_id, entity_type, title)`; `ListEntitiesTool` filters by type;
+   `_entity_dict` carries `entity_type`.
+5. **`update_goal_deadline` tool** (+ `database.update_goal_deadline`). The
+   goal domain owns deadlines; the tool resolves strictly within the goal
+   domain (`typed store → id → exact-name`, ambiguous names refused) and
+   validates `YYYY-MM-DD | null`. Never routes a deadline through an entity
+   tool.
+6. **`date_parser` "next month end".** A deterministic period-end block runs
+   *before* the this-month pattern so "next month end" is always the last day of
+   the *next* month, crossing year boundaries correctly.
+7. **Routing order in `main.py`.** The Worker seam now sits **before**
+   EntityManager and the task-VIEW quick-match. A request already recognized as
+   an entity/goal/task operation reaches the Worker first; legacy fallback can
+   no longer hijack it. Exactly one seam remains (line ~1335).
+
+### Failure → fix mapping (F1–F10)
+
+| # | Live failure | Root cause | Generic fix |
+|---|---|---|---|
+| 1 | "Create Bennet … level83" updated Hu Tao, no Bennet | RC1 + RC2 | typed referents, store-first resolve |
+| 2 | "Create Keqing, set level90, show her" → Hu Tao | RC1 + RC2 | same + tool-result IDs as first-class context |
+| 3 | "Show Xiao then update his level" — show dropped | RC5 | Worker before EntityManager; rule12 executes every operation |
+| 4 | "Show Xiao and then show Neuvillette" → task VIEW | RC5 | seam before task VIEW quick-match |
+| 5 | "Set Xiao's level85 and then show Xiao" — no display | RC5 | rule12: never collapse distinct operations |
+| 6 | Goal deadline → Xiao.target_level=30 | RC2 + RC4 | typed per-kind domains + dedicated deadline tool |
+| 7 | "next month end" wrong | RC6 | deterministic `date_parser` block |
+| 8 | Artifact dup by display name | RC3 | `(ws, entity_type, title)` identity |
+| 9 | "Show all artifacts" → task VIEW | RC5 + RC3 | seam order + type-aware `ListEntitiesTool` |
+| 10 | "Show all characters" mixed kinds | RC3 | `entity_type` filter, template-agnostic |
+
+Honesty rules are unchanged: composition never claims created/updated/shown
+unless the tool succeeded; `_fabricate_guard` blocks invented tool names;
+fail-closed parser and mechanical confirmation gate still apply.
+
+## Tests
+
+- `tests/test_worker_parser.py` (26): extraction one-object contract (bare /
+  fenced / prose / multi-object / array / unbalanced / empty), decision shape
+  (missing/non-string/unknown action, non-object args), injection resistance.
+- `tests/test_worker.py` (36): bounded loop; decision actions; confirmation
+  gate; failure policy; honesty guard; M1 references; scenario 14 limitation;
+  scenario 16 reminders; date injection; adversarial (prompt injection,
+  malicious tool-result text, forged tool name); structured logging (no raw
+  text, secrets redacted); source guard (worker.py must not import
+  database/sqlite3/reply_text); MAX_TOOL_CALLS=6 (raised from 4 during M4
+  so compound chains that were previously abandoned mid-way get honest
+  execution instead of budget exhaustion — see the CHANGELOG M4 entry).
+- `tests/test_worker_orchestration.py` (75): the M4 acceptance matrix
+  (WKR-023…027) PLUS 28 parametrized **generic-invariant** tests (S1–S30,
+  WKR-028…030) added by the second-live-pass forensic pass: create→set→show
+  across character/weapon/artifact names, create(A)→set(A)→show(B),
+  show→update→show, update→show, two independent entities, cross-domain
+  same-name identity, stale-active + fresh-create pronoun resolution,
+  goal-referent domain conflicts, failed-tool recovery, success+failed
+  retrieval traces, never-fabricate-success, unknown referents never mutating
+  the active entity, max-steps honest summary, typed list filters never mixed
+  kinds, task/habit domain isolation, artifact/weapon retrieval after create,
+  and **deadline-clear (S30)** — `update_goal_deadline` clearing to `None` is a
+  success, not a false "not found" (the one real code bug found by the
+  forensic pass; fixed in `database.py` + `tool_adapters.py`).
+- `tests/test_worker_render.py` (18): the **response-format restoration**
+  (item12 — the PRODUCT regression). Worker replies are NOT plain prose:
+  `core/ai/worker_render.py` routes each tool result through the existing BAKA
+  formatter (entity/task/goal/habit/workspace cards, topic lifecycle
+  renderers). Pins the latent list-renderer crash (`_list_entity_topics()`
+  took 1 arg but the dispatch passes 3) via
+  `test_render_every_list_tool_accepts_the_3arg_dispatch` — every list tool
+  now accepts `(data, user_id=None, fetcher=None)` — and routes ok=False
+  topic refusals through the data renderer (honest "refused" text, never a
+  generic "failed"). Hostile/empty data never crashes.
+- `tests/test_worker_topics.py` (20): the **topic lifecycle** matrix (items
+  7/8/10 — matrix E): ONE canonical topic per `(workspace_id, entity_id)`
+  through the `_TopicTool` base; ensure idempotent (card only into a NEW
+  topic); lock durable across a fresh registry; locked topics refuse ordinary
+  deletes (ok=False) unless `force=true`; `delete_entity_topic` is DESTRUCTIVE
+  + confirmation-message (mechanical gate → CONFIRMATION_NEEDED, nothing
+  deleted) and NEVER deletes the DB entity; honest no-projection / no-topic
+  refusals; `repair_topics` collapses logical duplicates (canonical row + kind
+  adoption, duplicate rows kept-but-skipped — never deleted, locked state
+  preserved); renderer coverage for every topic op incl. refused deletes.
+- Deterministic fake models drive the majority; no test calls the real GLM.
+  Real-model smoke is a later live-acceptance pass (never part of pytest).
+- Selftest: "AI Worker (dormant)" + "AI Worker Deterministic Round-trip"
+  (offline, zero residue), plus "AI Tool Adapter Registry"/"Round-trip",
+  "Topic Lifecycle Tools"/"Topic Repair" (Workspace category). Regression:
+  WKR-001…031.
+- Full suite: **1631 passed** (~25s). Full selftest: **28 PASS / 0 FAIL / 0
+  WARNING** (the offline network AI-probe now PASSes — the provider is up on
+  `meta/llama-3.1-8b-instruct`).
+- **Forensic result for the second live pass:** bot.log proved the Worker
+  NEVER ran (`WORKER=0`, not in `.env`) — all 7 reported failures were legacy
+  EntityManager/baka_brain with `meta/llama-3.1-8b-instruct`; zero map to
+  GLM-5.2 / the Worker parser / typed referents / Worker composition (see
+  DEBUGGING.md's "Second live pass" section for the A–G classification).
+  Live M4 acceptance is NOT claimed until `WORKER=1` + restart + the manual
+  matrix passes.
+
+## M4 live validation (2026-08-11 — temporary `meta/llama-3.1-8b-instruct`)
+
+**Provider forensics:** NVIDIA `z-ai/glm-5.2` currently serves NO output on
+NVIDIA NIM. Connectivity/auth/request format are healthy (the same key +
+`meta/llama-3.1-8b-instruct` work sub-second), but GLM-5.2 read-times-out at
+60–150s probes (0 bytes streamed); the id lists on `models.list()`. This is
+an **upstream model-serving hang, not a Worker implementation problem** — no
+timeouts/retries/redesign were added around it, and GLM-5.2 was **not**
+removed or deprecated. Per the owner directive, the M4 validation matrix ran
+on `MODEL_MAIN=meta/llama-3.1-8b-instruct` (temporary; `MODEL_THINK` stays
+GLM-5.2 for the `/think` path). Provider/model abstraction is intact for a
+later Z.ai-native / healthy-NVIDIA evaluation.
+
+**Live matrix (31 messages, WORKER=1, real Telegram bot):** the Worker ran on
+every message. **11 genuine full PASSes** (A5, B1, B3, C1, C2, C5, C6, C7,
+E1a, E2, E3) — proven Worker→ToolRegistry→Tool→ToolResult→Worker-final from
+bot.log `[worker …]` lines (real tool calls, ok=True, no legacy fallthrough).
+4 fell through to legacy (A1/B2/E1b Worker `declined`; F2 `tool_failure`
+after a Telegram topic-creation ReadTimeout). 16 ran the Worker but did not
+complete the compound intent. The **7-point acceptance rule** was applied per
+scenario — a DB mutation alone never counted as a PASS.
+
+**Three ARCHITECTURE (tool-contract) fixes** (generic, with regression tests
++ WKR-031): integer workspace ids accepted (C3); "leave-it-out"
+optional-filter markers — `''` and the literal `'omit'`/`'none'`/`'all'`/
+`'any'` the catalog wording invited — normalized to no-filter (C8); unmatched
+workspace-name falls back to the active workspace per the "(defaults to the
+active one)" spec (A2). The C8 fix was bot.log-proven live end-to-end.
+
+**The rest were MODEL CAPABILITY (Llama-3.1-8B)**, not architecture — the
+typed-referents block and tool catalog were correct in every case:
+compound chains abandoned after 1–2 tool calls, "its"-→-goal declines,
+`name='artifact'` extraction, and a retest where Llama declined "Create
+Mizuki" (legacy then created it correctly) and invented a `status='done'`
+filter for "Show all artifacts" (honest empty). Two documented gaps, **not**
+fixed: the never-fabricate guard passes a reply that *overstates partial*
+success (D3 — deterministic fix needs fragile reply parsing), and typed
+vs legacy entity data fragmentation (pre-M4 rows are `entity_type='entity'`,
+so typed lists/dupe-checks only see Worker-created typed entities).
+
+**Acceptance:** **M4 is NOT accepted as production-ready for compound
+commands with Llama-8b.** It is accepted as a bounded executor whose
+tool-contract and routing are sound and regression-pinned; its ceiling is the
+LLM's planning. GLM-5.2 on healthy NVIDIA / Z.ai-native must be re-evaluated
+before M5. Full suite at that point: **1569 passed**, selftest **26 PASS /
+0 FAIL / 0 WARNING**. (CHANGELOG "M4 live validation" entry; DEBUGGING.md
+"Third live pass" section.)
+
+## M4 remediation — the 18-cluster fix list (v15.2, items1–20)
+
+After the first live validation the owner issued the 18–20-cluster
+remediation spec: every fix is **generic** (implementation + automated
+regression tests + multiple NL variants + live validation + documentation),
+none patch only the observed phrases, and M5 is NOT started — this is an M4
+**patch** version. The full list is in the CHANGELOG's "M4 remediation"
+entry. The clusters that materially changed the Worker surface:
+
+### Topic lifecycle — one canonical topic per `(workspace_id, entity_id)` (items6/7/8/10)
+
+**The invariant (item6, CRITICAL):** an entity has EXACTLY ONE Telegram topic.
+Pre-M4 a topic could be created twice for the same entity (different code
+paths each called `create_forum_topic`), leaving a shadow topic with no
+binding. Now every create flows through the `_TopicTool` family
+(`core/ai/tool_adapters.py`, five tools registered in `build_tool_registry`):
+
+| Tool | Risk | Semantics |
+|---|---|---|
+| `get_entity_topic` | READ_ONLY | read the canonical binding; ok even when no topic yet |
+| `ensure_entity_topic` | MUTATING | idempotent — returns the existing topic (created=False), the initial card goes ONLY into a NEW topic |
+| `set_entity_topic_locked` | MUTATING | durable lock (a DB column, survives a fresh registry) |
+| `delete_entity_topic` | DESTRUCTIVE + confirmation_message | deletes the TOPIC only — the entity row stays; ordinary deletes of a LOCKED topic are refused (ok=False) unless `force=true` |
+| `list_entity_topics` | READ_ONLY | bindings + lock state |
+
+The `_TopicTool._resolve_topic_entity()` resolves a workspace + entity ref
+through the shared M1 reference machinery, and every tool returns an honest
+result when no projection is wired (`not_wired`, nothing to do). The binding
+is keyed `(workspace_id, entity_id)` via `tg_get_workspace_entity_topic`, so
+two topics for one entity are structurally impossible on the write path.
+
+**Repair — `/topicrepair` (admin):** `repair_topics` in
+`core/workspace/groups_app.py` is idempotent and self-healing: it collapses
+logical duplicates (one normalized title → ONE entity → ONE topic), adopts the
+entity kind onto the canonical row, reports created/existing/duplicates/errors,
+**never deletes a DB row** (duplicate rows are kept-but-skipped, so no data
+loss), and preserves locked state. Registered in the Admin help cards and
+pinned by a Self-Test ("Topic Repair").
+
+### Workspace lifecycle symmetry audit (item11)
+
+Every destructive workspace operation now carries `RiskLevel.DESTRUCTIVE` +
+`confirmation_message` (the Worker's mechanical confirmation gate refuses to
+execute them before confirmation). Workspace deletion itself is DB-only —
+never reachable from NL — and any future delete/archive *workspace* tool must
+follow the same DESTRUCTIVE + confirmation pattern. Pinned by
+`test_workspace_lifecycle_has_no_silent_destructive_path` and regression
+WKR-026/S23.
+
+### Response-format restoration — Worker decides WHAT happened, BAKA decides HOW it is displayed (item12)
+
+**The PRODUCT regression:** pre-fix the Worker replied in plain prose,
+bypassing the bot's established card/formatting language. Post-fix every
+Worker tool result is rendered through the existing formatter
+(`core/ai/worker_render.py` → the same builders the deterministic commands
+use). A latent crash was caught and fixed generically: the dispatch passes
+`(data, user_id, fetcher)` to every list tool, but several list renderers
+took one argument — any real Worker `list_*` would have crashed. All list
+renderers now accept the 3-arg signature, pinned by
+`test_render_every_list_tool_accepts_the_3arg_dispatch`. Tool refusals
+(locked-topic delete, etc.) render their refusal text through the data
+renderer rather than a generic "failed".
+
+**Automated coverage added:** `tests/test_worker_render.py` (18, matrix H) +
+`tests/test_worker_topics.py` (20, matrix E) bring the full suite to **1631
+passed**; selftest **28 PASS / 0 FAIL / 0 WARNING** (the AI-category
+registry/round-trip/worker-dormant probes were updated for the 30-tool
+surface and MAX_TOOL_CALLS=6, and "Topic Lifecycle Tools" + "Topic Repair"
+added to the Workspace category).
+
+## Known limitations
+
+- **Task ordinal resolution does NOT exist** (scenario 14): "complete the
+  first task" has no deterministic mapping to a task_id. The Worker honestly
+  asks for the id/title — it does not invent one. Task ordinals are M5+
+  scope.
+- The Worker's in-memory recent-mention/ordered-list context is Worker-scoped
+  (`_worker_ref_ctx`); the DB-backed active entity is shared with the rest of
+  the app. Entity-heavy NL is normally handled by EntityManager before the
+  Worker anyway.
+- **No live Telegram acceptance is claimed.** The Worker is dormant; the
+  owner must flip WORKER=1 and run the manual live matrix (WKR-001…031 in
+  TESTING.md) before "live-accepted" is written anywhere.
+- WORKER applies to the owner only (canary). A future milestone widens it.
+
+## M5 scope (NOT done here)
+
+Widening the canary beyond the owner, real-GLM smoke + the live acceptance
+matrix, task ordinal resolution, decline-fast classification if latency
+demands, worker metrics surfaced in the dashboard, and any routing migration
+beyond the current single dormant seam.

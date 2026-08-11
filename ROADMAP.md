@@ -166,10 +166,121 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > bypassed), selftest "AI Tool Adapter Registry" + "… Round-trip", regression
 > suite TAD-001…005. No Worker, no loop, no `main.py` routing change — the
 > adapters are dormant and health-verifiable via `/selftest`.
-> See `docs/engineering/V15_2_BAKA_BRAIN.md`. **Next (M4):** the AI Worker —
-> the agent loop that calls `ToolRegistry.execute`, GLM tool-calling, worker
-> routing, automatic worker activation, and the `main.py` routing migration.
-> M3 does not claim any of that exists.
+> See `docs/engineering/V15_2_BAKA_BRAIN.md`.
+>
+> **`v15.2 M4` — GLM-5.2 Worker (dormant, current):** the bounded tool-calling
+> executor. `core/ai/worker.py` (+ `worker_contract/parser/prompt`) converts
+> ONE message into at most **4 tool calls** through a `ToolRegistry`
+> (`MAX_TOOL_CALLS` is a Python constant, not widenable via any input/env),
+> then one final reply — never touching a database/Telegram/raw handler
+> directly. A fail-closed structured-output parser (replaces the greedy
+> `clean_json` `r"{.*}"` extractor; exactly ONE top-level object; multi-object
+> → `MALFORMED`). A mechanical confirmation gate BEFORE execute reuses the
+> existing `conversation_state.py` pending-action machine (`delete_task` never
+> runs silently) — no second confirmation system. A deterministic
+> never-fabricate-success guard blocks success claims without a backing
+> `ok=True` result. M1 resolver stays authoritative; `date_parser` is
+> authoritative for dates. `call_worker_single` = ONE MODEL_MAIN attempt, no
+> retry, no fallback. Owner-only canary: `WORKER=1` activates only for the
+> owner, running after the deterministic menu/confirming/editing/gathering/
+> NL-map gates but BEFORE the EntityManager + task VIEW quick-match, falling
+> through to EntityManager → VIEW → Legacy when it declines or fails.
+> **1484 offline tests passing** (61 new: `tests/test_worker.py` +
+> `test_worker_parser.py`), selftest "AI Worker (dormant)" + "AI Worker
+> Deterministic Round-trip", regression WKR-001…022, new `feature_flags.WORKER`
+> (OFF). **Known limitation (scenario 14):** task ordinals NOT implemented.
+> **No live Telegram acceptance claimed** until the WKR matrix is run.
+> See `docs/engineering/V15_2_BAKA_BRAIN.md`. **Next (M5):** real-GLM smoke +
+> the live acceptance matrix, widening the canary, task ordinals, any routing
+> migration beyond the single dormant seam.
+>
+> **`v15.2 M4 orchestration` — typed referents, goal-deadline tool, type-aware
+> retrieval, routing order (current):** generic fixes for the ten live M4
+> orchestration failures (DEBUGGING.md's resolved table maps failure → root
+> cause → fix). `core/ai/typed_referents.py` makes tool results first-class
+> typed context (per-kind, recency-ordered; a just-created id beats a stale
+> active entity; a pronoun pointed at a different kind is refused — never
+> reaches across domains). `update_goal_deadline` adapter +
+> `database.update_goal_deadline()` make the goal domain OWN its deadlines
+> (no more target_level corruption). `date_parser` resolves "next month end" /
+> "end of next month" deterministically. `milestones.entity_type` (additive,
+> idempotent migration) makes identity (workspace, kind, id) and enables a
+> structured `list_entities(entity_type=…)` filter — "show all characters"
+> returns ONLY characters. In `handle_message` the owner-only Worker seam now
+> runs AFTER the deterministic menu/confirming/NL-map gates but BEFORE the
+> EntityManager + task VIEW quick-match, so compound / typed-retrieve requests
+> are never hijacked by "Tasks for All Pending" (`WORKER=0` path unchanged).
+> **1563 offline tests passing** (+54: the parametrized GENERIC-INVARIANT
+> suite S1–S30 / WKR-028…030 added after the second live pass — create→set→show
+> across character/weapon/artifact names, show→update→show, two independent
+> entities, cross-domain same-name identity, stale-active + fresh-create
+> pronouns, goal-referent conflicts, failed-tool recovery, success+failed
+> retrieval traces, never-fabricate-success, unknown referents never mutating
+> the active entity, max-steps honest summary, typed list filters never mixed
+> kinds, task/habit domain isolation, artifact/weapon retrieval after create,
+> and deadline-clear S30 — `update_goal_deadline` clearing to `None` is a
+> success, not a false "not found"). Selftest 25 PASS / 0 FAIL / 1 WARNING
+> (offline AI probe). **Forensic note:** the second live pass's 7 failures were
+> ALL legacy-path — bot.log proves the Worker never ran (`WORKER=0`, not in
+> `.env`); ZERO failures map to GLM-5.2 / the Worker / typed referents. **No
+> live Telegram acceptance claimed** until `WORKER=1` + restart + the manual
+> matrix is run.
+>
+> **`v15.2 M4 live validation` — temporary `meta/llama-3.1-8b-instruct`
+> (current, 2026-08-11):** the 31-message live matrix (Phases A–F, real Bot,
+> `WORKER=1`) run on Llama because NVIDIA `z-ai/glm-5.2` serves NO output
+> upstream (60–150s timeout probes; the id lists on `models.list()` but the
+> model worker hangs — a provider problem, NOT a Worker problem; GLM-5.2 is
+> NOT deprecated, the provider/model abstraction stays intact for later Z.ai /
+> healthy-NVIDIA evaluation). **11 genuine full Worker PASSes**; 4 legacy
+> fallthroughs (Worker `declined`/`tool_failure` → legacy, incl. a Telegram
+> topic-creation ReadTimeout); the rest ran the Worker but didn't complete
+> compound intent (Llama capability, not architecture — the referents block
+> and tool catalog were correct in every case). **3 tool-contract ARCHITECTURE
+> fixes** (generic, none phrase-specific): workspace specs accept
+> `string|integer` (KNOWN REFERENTS renders `ws=1` ints); `validate_args`
+> normalizes "leave-it-out" markers (`''`/`omit`/`none`/`all`/`any`) on
+> optional args to "no filter"; `_require_workspace` falls back to the active
+> workspace on an unmatched name. Live-retest verified the C8 fix end-to-end
+> via bot.log (Worker→ToolRegistry→`list_entities(status='',…)`→`ok`→reply).
+> **1569 offline tests passing** (+6 new tool-contract regression tests +
+> WKR-031), selftest 26 PASS / 0 FAIL / 0 WARNING. **M4 NOT accepted as
+> production-ready for compound commands with Llama-8b** — the seam is
+> validated (11 genuine successes), but Llama's single-step/decline/
+> arg-extraction limits are model capability. **Next:** the M4 remediation
+> (below) — per the owner directive, an M4 PATCH version, NOT M5.
+>
+> **`v15.2 M4 remediation` — the 18-cluster fix list (current, 2026-08-11):**
+> **the next release is a v15.2 M4 PATCH, never M5** (owner directive). Every
+> fix is generic + regression-tested + documented — none phrase-specific.
+> Shipped: item 1/15 `EntityKindResolver` (DB→explicit→hint kind resolution,
+> offline-deterministic); item 2 typed `list_entities(kind=…)` invariants;
+> item 3 compound execution (MAX_TOOL_CALLS 4→6 with rationale + renderer +
+> honest MAX_STEPS budget note); item 4 goal-deadline domain safety via typed
+> referents; item 5 `date_parser` relative ranges ("next week", "this/next
+> month end", weekends) resolved against the IST app clock + the intent-engine
+> QUERY-not-ADD guard; item 6 canonical one-topic-per-entity keyed
+> `(workspace_id, entity_id)` + title-normalized dedupe; items 7/8/10 generic
+> TopicProjection tools (`get/ensure/set_locked/delete/list` entity topic,
+> delete is DESTRUCTIVE + confirmation, locked topics refuse ordinary delete);
+> item 9 `/topicrepair` self-heal (duplicates collapse to one topic, kind
+> adopted, idempotent); item 11 workspace-lifecycle audit (deletion stays
+> DB-only — pinned by an invariant that any future delete/archive workspace
+> tool is DESTRUCTIVE + confirmation); items 12/13 response-format restoration
+> (`worker_render.py` — Worker decides WHAT, existing BAKA formatter decides
+> HOW; cards, escaping, emoji, honesty preserved); matrix E (20 topic tests) +
+> matrix H additions; 2 new selftest probes ("Topic Lifecycle Tools", "Topic
+> Repair"); `/topicrepair` in `/help`; regression specs WKR-024…031 (incl. the
+> renderer-invariant + topic-lifecycle specs); the AI-category selftest probes
+> updated to the 30-tool surface + MAX_TOOL_CALLS=6. Full pytest **1631
+> passing**, full offline selftest **28 PASS / 0 FAIL / 0 WARNING**. Version
+> stamped **15.2.0-alpha.14** (item19); final report written
+> ([docs/engineering/V15_2_M4_REPORT.md](docs/engineering/V15_2_M4_REPORT.md)).
+> **Remaining before the M4 patch is accepted:** the live revalidation
+> matrix only (item17 live portion — owner runs WKR-001…031 with WORKER=1).
+> **Next (after M4 is accepted, still not yet):**
+> Z.ai-native / healthy-NVIDIA GLM-5.2 smoke + live acceptance on a stronger
+> model, then widening the canary and task ordinals — that is M5 territory.
 >
 > **`v15.1.0-alpha.13` — Telegram Entity Topic Projection & Backfill (M10,
 > current):** closes the topic gap. Every entity-creation path — `/add`,

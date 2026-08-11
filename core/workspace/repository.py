@@ -51,10 +51,12 @@ class WorkspaceRepository:
 
     # ── Milestones ─────────────────────────────────────
     def add_milestone(self, workspace_id, title, goal_id=None,
-                      sort_order=0, fields=None) -> Milestone:
+                      sort_order=0, fields=None,
+                      entity_type: str | None = None) -> Milestone:
         """Add a milestone, optionally with structured entity fields
-        (v15.1.0-alpha.9)."""
-        ms_id = self._s.milestones.add(workspace_id, title, goal_id, sort_order, fields)
+        (v15.1.0-alpha.9) and a per-entity kind (v15.2 M4)."""
+        ms_id = self._s.milestones.add(workspace_id, title, goal_id,
+                                       sort_order, fields, entity_type)
         return self.get_milestone(ms_id)
 
     def get_milestone(self, milestone_id) -> Milestone | None:
@@ -82,6 +84,11 @@ class WorkspaceRepository:
 
     def get_milestone_fields(self, milestone_id) -> dict:
         return self._s.milestones.get_fields(milestone_id)
+
+    # v15.2 M4 canonical binding: adopt an entity kind on an existing row.
+    def set_milestone_entity_type(self, milestone_id, entity_type) -> Milestone | None:
+        self._s.milestones.update_entity_type(milestone_id, entity_type)
+        return self.get_milestone(milestone_id)
 
     # ── Notes ──────────────────────────────────────────
     def add_note(self, workspace_id, content, kind="note",

@@ -63,6 +63,12 @@ class RiskLevel(Enum):
 _STRICT_RISKS = frozenset({RiskLevel.MUTATING, RiskLevel.DESTRUCTIVE,
                            RiskLevel.SYSTEM})
 
+# "Leave this optional filter out" markers a model legitimately emits for an
+# optional string argument it cannot fill ("show all entities" -> status=''
+# OR the literal 'omit' -- the catalog text says "leave it out", so the model
+# passes the word back). Any of these on a NON-required arg means "no value".
+_OMIT_MARKERS = frozenset({"", "omit", "none", "all", "any"})
+
 
 # ── Errors ────────────────────────────────────────────────────────────────
 class ToolErrorCode:
@@ -380,11 +386,21 @@ def validate_args(spec: ToolSpec, args: dict) -> dict:
                             f"Tool '{spec.name}' got unknown argument(s): "
                             f"{', '.join(sorted(unknown))}.")
         args = {k: v for k, v in args.items() if k in props}
-    for req in spec.parameters.get("required", []):
+    required = spec.parameters.get("required", [])
+    for req in required:
         if req not in args:
             raise ToolError(ToolErrorCode.INVALID_ARGS,
                             f"Tool '{spec.name}' missing required argument '{req}'.")
     for k, v in args.items():
+        if k not in required and isinstance(v, str) \
+                and v.strip().lower() in _OMIT_MARKERS:
+            # A "leave this optional filter out" marker ('' or the word
+            # 'omit'/'none'/'all'/'any' the catalog wording invites) means
+            # "no value": normalize to None and skip schema checks (so an
+            # enum like status is never rejected for it). run() treats None
+            # as "no filter" / "use the default".
+            args[k] = None
+            continue
         _check_value(spec.name, k, v, props.get(k, {}), strict)
     return args
 

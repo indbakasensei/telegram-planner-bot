@@ -129,6 +129,145 @@ def test_entity_duplicate_rejected(temp_db, uid):
     assert len(eng.list_milestones(uid, eng.list_workspaces(uid)[0].id)) == 1
 
 
+# ── M4: kind resolution + canonical one-entity-per-name (items 1/6/14) ────
+def test_create_entity_kind_resolution_from_text(temp_db, uid):
+    """M4 item 1/15: 'Create Artifact Blizzard Slayer' (the live-matrix
+    failure) must store entity_type='artifact' -- resolved generically from
+    the RAW utterance, no name list, no per-game knowledge."""
+    _game(uid)
+    reg = build_tool_registry(uid, user_text="Create Artifact Blizzard Slayer")
+    r = reg.execute("create_entity", {"name": "Blizzard Slayer"})
+    assert r.ok and r.data["entity_type"] == "artifact"
+
+
+def test_create_entity_kind_resolution_weak_hint_in_name(temp_db, uid):
+    """'Staff of Homa' (live failure) → weapon from the generic classifier
+    word 'staff' -- deterministic, offline, template-agnostic."""
+    _game(uid)
+    reg = build_tool_registry(uid, user_text="Create Staff of Homa")
+    r = reg.execute("create_entity", {"name": "Staff of Homa"})
+    assert r.ok and r.data["entity_type"] == "weapon"
+
+
+def test_create_entity_adopts_kind_on_existing_untyped_row(temp_db, uid):
+    """A legacy untyped row + an explicit kind in the utterance is ADOPTED,
+    never duplicated: one entity, one topic. 'create character Xiao' where an
+    untyped Xiao exists upgrades the existing row."""
+    eng, ws = _game(uid)
+    reg = build_tool_registry(uid)
+    assert reg.execute("create_entity", {"name": XIAO}).ok   # untyped
+    reg2 = build_tool_registry(uid, user_text=f"create character {XIAO}")
+    r = reg2.execute("create_entity", {"name": XIAO})
+    assert r.ok and r.data["adopted"] is True
+    assert r.data["entity_type"] == "character"
+    assert r.data["entity_id"] == r.data["entity_id"]
+    # exactly ONE milestone remains -- no duplicate row (the topic root cause)
+    assert [m.title for m in eng.list_milestones(uid, ws.id)] == [XIAO]
+
+
+def test_create_entity_same_kind_collision_rejected(temp_db, uid):
+    """The canonical contract: a same-kind collision is an honest 'already
+    exists -- update it instead', never a duplicate row."""
+    _game(uid)
+    reg = build_tool_registry(uid)
+    assert reg.execute("create_entity", {"name": XIAO}).ok
+    dup = reg.execute("create_entity", {"name": XIAO})
+    assert not dup.ok and dup.error_code == "invalid_args"
+    assert "already exists" in dup.output
+
+
+def test_create_entity_db_kind_wins_over_utterance(temp_db, uid):
+    """Priority 1 (existing DB kind) beats priority 2 (explicit utterance
+    type): 'create weapon Xiao' when character Xiao exists is the SAME entity
+    -- an honest already-exists, NOT a second weapon Xiao (the duplicate-topic
+    root cause)."""
+    eng, ws = _game(uid)
+    reg = build_tool_registry(uid, user_text=f"create character {XIAO}")
+    assert reg.execute("create_entity", {"name": XIAO}).ok
+    assert eng.list_milestones(uid, ws.id)[0].entity_type == "character"
+    reg2 = build_tool_registry(uid, user_text=f"create weapon {XIAO}")
+    r = reg2.execute("create_entity", {"name": XIAO})
+    assert not r.ok and "already exists" in r.output
+    assert len(eng.list_milestones(uid, ws.id)) == 1   # no duplicate
+
+
+def test_create_entity_adopt_ensures_topic_for_existing(temp_db, uid):
+    """The adoption path still drives the SINGLE projection contract: the
+    existing entity's topic is ensured (canonical binding), and no second
+    milestone/topic is created."""
+    proj = RecorderProj()
+    _game(uid)
+    reg = build_tool_registry(uid, projection=proj)
+    assert reg.execute("create_entity", {"name": XIAO}).ok
+    reg2 = build_tool_registry(uid, projection=proj,
+                               user_text=f"create character {XIAO}")
+    r = reg2.execute("create_entity", {"name": XIAO})
+    assert r.ok and r.data["adopted"] is True
+    assert len(proj.ensured) == 2          # create-time + adopt-time ensure
+    assert len(proj.ensured[1]) == 4       # (etype, eid, title, initial)
+    assert proj.ensured[1][0] == "milestone"
+
+
+# ── M4: typed retrieval surface (item 2) ─────────────────────────────────
+def test_list_entities_typed_kinds_do_not_leak(temp_db, uid):
+    """list(kind=X) returns ONLY kind-X; mixed entities never leak across
+    typed lists."""
+    _game(uid)
+    reg = build_tool_registry(uid)
+    reg.execute("create_entity", {"name": XIAO, "entity_type": "character"})
+    reg.execute("create_entity", {"name": "Staff of Homa",
+                                 "entity_type": "weapon"})
+    reg.execute("create_entity", {"name": "Blizzard Slayer",
+                                 "entity_type": "artifact"})
+    chars = reg.execute("list_entities", {"kind": "character"})
+    assert [d["title"] for d in chars.data] == [XIAO]
+    weapons = reg.execute("list_entities", {"kind": "weapon"})
+    assert [d["title"] for d in weapons.data] == ["Staff of Homa"]
+    arts = reg.execute("list_entities", {"kind": "artifact"})
+    assert [d["title"] for d in arts.data] == ["Blizzard Slayer"]
+    # 'all' includes every workspace kind
+    allr = reg.execute("list_entities", {"kind": "all"})
+    assert {d["title"] for d in allr.data} == {XIAO, "Staff of Homa",
+                                               "Blizzard Slayer"}
+
+
+def test_list_entities_cross_domain_kinds(temp_db, uid):
+    """kind=goal/task/habit list the user's OWN cross-domain rows (no
+    workspace required) and never leak into each other."""
+    reg = build_tool_registry(uid)         # no workspace exists at all
+    reg.execute("create_goal", {"title": "Read Book"})
+    reg.execute("create_task", {"title": "Buy milk", "due_date": "2026-08-12"})
+    reg.execute("create_habit", {"title": "Morning run"})
+    goals = reg.execute("list_entities", {"kind": "goal"})
+    assert [d["title"] for d in goals.data] == ["Read Book"]
+    assert all(d["kind"] == "goal" for d in goals.data)
+    tasks = reg.execute("list_entities", {"kind": "task"})
+    assert [d["title"] for d in tasks.data] == ["Buy milk"]
+    habits = reg.execute("list_entities", {"kind": "habit"})
+    assert [d["title"] for d in habits.data] == ["Morning run"]
+
+
+def test_list_entities_all_unions_cross_domain(temp_db, uid):
+    """kind=all returns every supported type with its kind marker."""
+    reg = build_tool_registry(uid)
+    reg.execute("create_goal", {"title": "Read Book"})
+    reg.execute("create_task", {"title": "Buy milk"})
+    data = reg.execute("list_entities", {"kind": "all"}).data
+    kinds = {d["kind"] for d in data}
+    assert kinds == {"goal", "task"}
+
+
+def test_list_entities_requires_kind_and_rejects_unknown(temp_db, uid):
+    """kind is REQUIRED (the model must be explicit -- item 2), and an
+    unknown kind is a fail-closed invalid_args."""
+    _game(uid)
+    reg = build_tool_registry(uid)
+    missing = reg.execute("list_entities", {})
+    assert not missing.ok and missing.error_code == "invalid_args"
+    bad = reg.execute("list_entities", {"kind": "bookshelf"})
+    assert not bad.ok and bad.error_code == "invalid_args"
+
+
 def test_entity_get_by_name_and_workspace_ref(temp_db, uid):
     _, ws = _game(uid)
     reg = _wire(uid)
@@ -148,7 +287,7 @@ def test_entity_list_returns_all(temp_db, uid):
     reg = _wire(uid)
     for name in (XIAO, KINICH, XILONEN):
         reg.execute("create_entity", {"name": name})
-    r = reg.execute("list_entities", {})
+    r = reg.execute("list_entities", {"kind": "all"})
     assert r.ok
     titles = [e["title"] for e in r.data]
     assert titles == [XIAO, KINICH, XILONEN]
@@ -162,9 +301,9 @@ def test_entity_filter_by_status(temp_db, uid):
     reg.execute("create_entity", {"name": KINICH})
     mid = eng.list_milestones(uid, ws.id)[0].id
     eng.complete_milestone(uid, mid)   # Xiao done
-    r = reg.execute("list_entities", {"status": "done"})
+    r = reg.execute("list_entities", {"kind": "all", "status": "done"})
     assert [e["title"] for e in r.data] == [XIAO]
-    r2 = reg.execute("list_entities", {"status": "todo"})
+    r2 = reg.execute("list_entities", {"kind": "all", "status": "todo"})
     assert [e["title"] for e in r2.data] == [KINICH]
 
 
@@ -470,7 +609,7 @@ def test_mixed_capability_chain(temp_db, uid):
     t = reg.execute("create_task", {"title": "Farm Xiao ascension",
                                     "due_date": "2026-08-11"})
     c = reg.execute("complete_task", {"task_id": t.data["task_id"]})
-    lst = reg.execute("list_entities", {})
+    lst = reg.execute("list_entities", {"kind": "all"})
     tasks = reg.execute("list_tasks", {})
     assert all(r.ok for r in (e, u, t, c, lst, tasks))
     assert [x["title"] for x in lst.data] == [XIAO]
@@ -557,6 +696,88 @@ def test_entity_invalid_field_value_rejected(temp_db, uid):
     assert "level" in r.output   # tells the caller WHICH field failed
 
 
+# ── v15.2 M4 live-matrix tool-contract regressions ───────────────────────
+# The 31-message Llama live matrix surfaced three tool-argument contract
+# bugs (all ARCHITECTURE, not model): (C3) integer workspace ids are what
+# KNOWN REFERENTS renders and tells the model to pass, yet the schema only
+# accepted strings; (C8) '' optional filters mean "no filter" but the enum
+# rejected them; (A2) an unmatched workspace name like 'default' should fall
+# back to the active workspace (the spec says it "defaults to the active
+# one") instead of failing the call. These tests lock the fixed contract.
+
+def test_entity_tools_accept_integer_workspace_id(temp_db, uid):
+    """LIVE C3 family: create/get/update_entity accept an integer workspace
+    id. KNOWN REFERENTS renders workspace ids as ints (ws=1) and instructs the
+    model to pass exact ids, so the model legitimately emits workspace=<int>."""
+    _, ws = _game(uid)
+    reg = _wire(uid)
+    c = reg.execute("create_entity", {"name": XIAO, "workspace": ws.id})
+    assert c.ok
+    g = reg.execute("get_entity", {"entity": XIAO, "workspace": ws.id})
+    assert g.ok and g.data["entity_id"] == c.data["entity_id"]
+    u = reg.execute("update_entity", {"entity": XIAO, "workspace": ws.id,
+                                      "fields": {"level": 90}})
+    assert u.ok and u.data["workspace_id"] == ws.id
+
+
+def test_list_entities_accepts_integer_workspace(temp_db, uid):
+    """LIVE C3: list_entities with workspace=<int> (not a string) returns the
+    typed entities instead of invalid_args."""
+    _, ws = _game(uid)
+    reg = _wire(uid)
+    reg.execute("create_entity", {"name": XIAO, "entity_type": "character"})
+    r = reg.execute("list_entities",
+                    {"kind": "character", "workspace": ws.id,
+                     "entity_type": "character"})
+    assert r.ok and [d["title"] for d in r.data] == [XIAO]
+
+
+def test_list_entities_empty_optional_strings_mean_all(temp_db, uid):
+    """LIVE C8: the model emits 'leave-it-out' markers for an optional filter
+    it can't fill -- '' and the literal word 'omit' (the catalog's "Omit for
+    all" wording invited it; the retest showed status='omit'). All of them
+    must mean 'no filter', never a schema error, while a real filter value
+    still applies."""
+    _, ws = _game(uid)
+    reg = _wire(uid)
+    reg.execute("create_entity", {"name": XIAO, "entity_type": "character"})
+    reg.execute("create_entity", {"name": KINICH, "entity_type": "artifact"})
+    for marker in ("", "omit", "none", "all", "any"):
+        r = reg.execute("list_entities", {"kind": "all", "status": marker,
+                                          "entity_type": marker,
+                                          "workspace": marker})
+        assert r.ok, marker
+        assert {d["title"] for d in r.data} == {XIAO, KINICH}, marker
+    # A real filter value still applies (both the typed surface and the
+    # legacy entity_type alias narrow to the same domain).
+    chars = reg.execute("list_entities", {"kind": "character",
+                                          "entity_type": "character"})
+    assert [d["title"] for d in chars.data] == [XIAO]
+
+
+def test_create_entity_unmatched_workspace_name_falls_back_to_active(temp_db, uid):
+    """LIVE A2: the model passed workspace='default' meaning 'use the active
+    workspace'. An unmatched workspace NAME falls back to the active workspace
+    instead of failing the call."""
+    _, ws = _game(uid)
+    reg = _wire(uid)
+    r = reg.execute("create_entity", {"name": XIAO, "entity_type": "character",
+                                      "workspace": "default"})
+    assert r.ok and r.data["workspace_id"] == ws.id
+    eng = EntityEngine()
+    assert [m.title for m in eng.list_milestones(uid, ws.id)] == [XIAO]
+
+
+def test_create_entity_unmatched_name_no_active_still_rejected(temp_db, uid):
+    """The A2 fallback must NOT mask a genuinely missing active workspace: an
+    unmatched name with nothing active still errors (the same failure the
+    fallback-free path reported)."""
+    reg = _wire(uid)                 # nothing created, nothing active
+    r = reg.execute("create_entity", {"name": XIAO, "workspace": "ghost"})
+    assert not r.ok and r.error_code == "invalid_args"
+    assert "workspace" in r.output.lower()
+
+
 def test_registry_rejects_duplicate_names(temp_db, uid):
     reg = ToolRegistry()
     reg.register(_wire(uid).get("list_tasks"))
@@ -584,12 +805,19 @@ def test_risk_classification(temp_db, uid):
         "complete_habit": RiskLevel.MUTATING,
         "create_goal": RiskLevel.MUTATING, "list_goals": RiskLevel.READ_ONLY,
         "update_goal_progress": RiskLevel.MUTATING,
+        "update_goal_deadline": RiskLevel.MUTATING,   # v15.2 M4
         "create_entity": RiskLevel.MUTATING, "get_entity": RiskLevel.READ_ONLY,
         "update_entity": RiskLevel.MUTATING, "list_entities": RiskLevel.READ_ONLY,
         "find_entity": RiskLevel.READ_ONLY,
         "list_workspaces": RiskLevel.READ_ONLY, "get_workspace": RiskLevel.READ_ONLY,
         "open_workspace": RiskLevel.MUTATING,   # honest: changes active state
         "inspect_workspace": RiskLevel.READ_ONLY,
+        # topic lifecycle (v15.2 M4 items 7/8/10)
+        "get_entity_topic": RiskLevel.READ_ONLY,
+        "ensure_entity_topic": RiskLevel.MUTATING,
+        "set_entity_topic_locked": RiskLevel.MUTATING,
+        "delete_entity_topic": RiskLevel.DESTRUCTIVE,   # gated by the Worker
+        "list_entity_topics": RiskLevel.READ_ONLY,
         "get_memories": RiskLevel.READ_ONLY, "search_memories": RiskLevel.READ_ONLY,
         "recall": RiskLevel.READ_ONLY,
     }
@@ -605,6 +833,48 @@ def test_delete_task_carries_confirmation_message(temp_db, uid):
     reg = _wire(uid)
     spec = reg.get("delete_task").spec
     assert spec.confirmation_message and "cannot be undone" in spec.confirmation_message
+
+
+def test_delete_entity_topic_carries_confirmation_message(temp_db, uid):
+    """v15.2 M4 item 7: a topic delete is DESTRUCTIVE (though the entity
+    stays), so it must carry a confirmation_message like delete_task does --
+    the Worker gates on it mechanically, before execute."""
+    reg = _wire(uid)
+    spec = reg.get("delete_entity_topic").spec
+    assert spec.risk is RiskLevel.DESTRUCTIVE
+    assert spec.confirmation_message and "topic" in spec.confirmation_message.lower()
+
+
+def test_workspace_lifecycle_has_no_silent_destructive_path(temp_db, uid):
+    """v15.2 M4 item 11 audit invariant: the workspace lifecycle is
+    deliberately READ + OPEN only in the Worker surface. delete_workspace
+    exists at the DB level (database.py) but must NEVER be reachable from NL
+    without an explicit confirmation gate -- workspace deletion cascades
+    entities, topics and bindings and is effectively irreversible. Pin the
+    current surface and guard the future: any workspace delete/archive tool
+    that is ever added must be DESTRUCTIVE with a confirmation_message (the
+    Worker gates on that mechanically), never a silent MUTATING op."""
+    reg = _wire(uid)
+    names = set(reg.names())
+    ws_tools = {n for n in names if n.startswith(
+        ("list_workspace", "get_workspace", "open_workspace",
+         "inspect_workspace", "create_workspace", "rename_workspace",
+         "archive_workspace", "delete_workspace"))}
+    # Today: read + open only -- create/rename/archive/delete are NOT
+    # reachable from NL (they live behind explicit commands or the DB).
+    assert ws_tools == {"list_workspaces", "get_workspace",
+                        "open_workspace", "inspect_workspace"}, ws_tools
+    for name in ("create_workspace", "rename_workspace", "archive_workspace",
+                 "delete_workspace"):
+        assert name not in names, (
+            f"{name} became NL-reachable -- re-audit it (must be DESTRUCTIVE "
+            "with confirmation) before exposing")
+    # Future-proof guard: a workspace delete/archive tool must never sneak
+    # through as MUTATING.
+    for name, spec in ((n, reg.get(n).spec) for n in ws_tools):
+        if any(w in name for w in ("delete", "destroy", "archive")):
+            assert spec.risk is RiskLevel.DESTRUCTIVE, name
+            assert spec.confirmation_message, name
 
 
 # ── integration: projection not bypassed (real TelegramProjection) ───────

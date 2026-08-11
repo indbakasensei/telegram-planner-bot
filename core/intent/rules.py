@@ -190,6 +190,15 @@ def tier_date_and_recurrence(text: str, now: datetime | None) -> RuleMatch | Non
         return None
 
     if has_date_or_time:
+        # A resolved date/time is an ADD signal only when the message is not
+        # phrased as a query. Since date_parser.py grew relative-range
+        # resolution ("next week", "next month end", item 5), a schedule
+        # QUERY like "show me next week" now resolves a date -- and without
+        # this guard would be forced to ADD_TASK. Reuse the weak query
+        # vocabulary so a query reading falls through to Tier 4
+        # (test_schedule_query_weak_fallback asserts tier == 4).
+        if _QUERY_KEYWORDS.search(text or ""):
+            return None
         resolved = sum(1 for k in ("date", "time") if parsed[k])
         confidence = 0.95 if resolved == 2 else 0.75
         reasoning = ("Tier 1: date parser resolved date and time"

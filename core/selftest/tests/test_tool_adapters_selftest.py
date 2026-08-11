@@ -11,20 +11,25 @@ in finally blocks, so they leave no residue and are safe to re-run.
 from core.selftest.models import SELFTEST_USER_ID, SelfTestFail
 from core.selftest.registry import selftest
 
-# The full M3 tool surface (24 names).
+# The full M3 + M4 tool surface (30 names).
 _EXPECTED_TOOLS = frozenset({
     # tasks
     "list_tasks", "find_task", "create_task", "update_task",
     "complete_task", "delete_task",
     # habits
     "create_habit", "list_habits", "complete_habit",
-    # goals
+    # goals (deadline tool added in v15.2 M4)
     "create_goal", "list_goals", "update_goal_progress",
+    "update_goal_deadline",
     # entities (projection + M1 reference reuse)
     "create_entity", "get_entity", "update_entity", "list_entities",
     "find_entity",
     # workspace
     "list_workspaces", "get_workspace", "open_workspace", "inspect_workspace",
+    # topic lifecycle (added in v15.2 M4, items7/8/10) — one canonical
+    # topic per (workspace_id, entity_id)
+    "get_entity_topic", "ensure_entity_topic", "set_entity_topic_locked",
+    "delete_entity_topic", "list_entity_topics",
     # memory / recall
     "get_memories", "search_memories", "recall",
 })
@@ -33,14 +38,17 @@ _EXPECTED_TOOLS = frozenset({
 _WRITING_TOOLS = frozenset({
     "create_task", "update_task", "complete_task",
     "create_habit", "complete_habit",
-    "create_goal", "update_goal_progress",
+    "create_goal", "update_goal_progress", "update_goal_deadline",
     "create_entity", "update_entity", "open_workspace",
+    # topic lifecycle: ensure + lock persist state (delete is DESTRUCTIVE,
+    # asserted separately below)
+    "ensure_entity_topic", "set_entity_topic_locked",
 })
 
 
 @selftest(name="AI Tool Adapter Registry", category="AI")
 def check_ai_tool_adapter_registry():
-    """build_tool_registry registers the complete M3 surface under the M2
+    """build_tool_registry registers the complete M3+M4 surface under the M2
     contract with honest risk classifications: every write tool is MUTATING
     (open_workspace included — it persists active state), delete_task is
     DESTRUCTIVE, and nothing is misclassified as SYSTEM. No second registry,
@@ -63,6 +71,8 @@ def check_ai_tool_adapter_registry():
             raise SelfTestFail(f"{name} misclassified as READ_ONLY")
     if reg.get("delete_task").spec.risk is not RiskLevel.DESTRUCTIVE:
         raise SelfTestFail("delete_task not classified DESTRUCTIVE")
+    if reg.get("delete_entity_topic").spec.risk is not RiskLevel.DESTRUCTIVE:
+        raise SelfTestFail("delete_entity_topic not classified DESTRUCTIVE")
     if any(t.spec.risk is RiskLevel.SYSTEM for t in reg.all()):
         raise SelfTestFail("a tool is classified SYSTEM (no admin surface in M3)")
     return f"adapter registry ok · {len(names)} tools, risks honest"
@@ -131,7 +141,14 @@ def check_ai_tool_adapter_roundtrip():
         if not (c.ok and c.data.get("done")):
             raise SelfTestFail(f"complete_task failed: {c}")
 
-        lst = reg.execute("list_entities", {})
+        # M4 typed-retrieval contract: kind is REQUIRED. The created entity's
+        # kind is whatever the resolver classified (e.g. "hero" → character via
+        # template hints), so assert against kind='all' — kind-agnostic and
+        # robust to resolver keyword changes; typed filtering is pinned in
+        # pytest (tests/test_tool_adapters.py, test_worker_orchestration.py).
+        lst = reg.execute("list_entities", {"kind": "all"})
+        if not (lst.ok and lst.data):
+            raise SelfTestFail(f"list_entities(kind='all') failed: {lst}")
         if [x["title"] for x in lst.data] != ["[selftest] hero"]:
             raise SelfTestFail(f"list_entities wrong: {lst.data}")
         return (f"adapter round-trip ok · entity→topic + append-only update, "

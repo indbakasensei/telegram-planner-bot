@@ -1638,6 +1638,29 @@ def update_goal_progress(goal_id, user_id, delta):
     conn.close()
     return new_progress, target, bool(done)
 
+def update_goal_deadline(goal_id, user_id, deadline):
+    """Set (or clear, with None) a goal's deadline. Returns the goal_id on
+    success -- INCLUDING when the deadline is cleared to None, because None
+    is a legitimate new value, never a failure signal. Returns None only
+    when the goal does not belong to user_id or the schema lacks a deadline
+    column. v15.2 M4: the goal domain owns deadlines -- a goal request must
+    never mutate a workspace entity (DEBUGGING.md F6/F7)."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(goals)")
+    has_deadline = "deadline" in {r[1] for r in c.fetchall()}
+    if not has_deadline:
+        conn.close()
+        return None
+    c.execute("UPDATE goals SET deadline=? WHERE id=? AND user_id=?",
+              (deadline, goal_id, user_id))
+    if c.rowcount == 0:
+        conn.close()
+        return None
+    conn.commit()
+    conn.close()
+    return goal_id
+
 def get_done_today_count(user_id):
     """How many tasks the user completed today (by last_completed date)."""
     conn = sqlite3.connect(DB_NAME)
@@ -2373,7 +2396,7 @@ WORKSPACE_COLS = ("id, user_id, template, title, status, icon, metadata, "
                   "updated_at, archived_at")
 MILESTONE_COLS = ("id, workspace_id, goal_id, title, status, progress, "
                   "sort_order, created_at, completed_at, archived_at, "
-                  "deleted_at, fields")
+                  "deleted_at, fields, entity_type")
 NOTE_COLS = "id, workspace_id, milestone_id, kind, content, source, created_at"
 TIMELINE_COLS = ("id, user_id, workspace_id, entity_type, entity_id, "
                  "event_type, summary, payload, source, created_at, synced_at")
@@ -2419,7 +2442,8 @@ def _init_workspace_tables(conn):
         progress INTEGER DEFAULT 0,
         sort_order INTEGER DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        completed_at TEXT
+        completed_at TEXT,
+        entity_type TEXT DEFAULT 'entity'
     )""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_milestones_workspace "
               "ON milestones(workspace_id)")
@@ -2468,6 +2492,11 @@ def _init_workspace_tables(conn):
               "ON tg_workspace_bindings(chat_id)")
 
     # One Telegram forum topic per workspace entity (entity_type+entity_id).
+    # v15.2 M4 canonical binding: the SAME workspace+entity must never have
+    # two topics, regardless of how each row was created (legacy /add,
+    # Worker, backfill, a failed run). The unique index on
+    # (workspace_id, entity_id) enforces one binding per workspace entity;
+    # topic_locked is a durable protect bit (item 8).
     c.execute("""CREATE TABLE IF NOT EXISTS tg_entity_topics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -2478,8 +2507,21 @@ def _init_workspace_tables(conn):
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(entity_type, entity_id)
     )""")
+    _safe_add_column(c, "tg_entity_topics", "topic_locked", "INTEGER DEFAULT 0")
     c.execute("CREATE INDEX IF NOT EXISTS idx_tgtopic_ws "
               "ON tg_entity_topics(workspace_id)")
+    try:
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
+                  "idx_tgtopic_ws_entity "
+                  "ON tg_entity_topics(workspace_id, entity_id)")
+    except sqlite3.OperationalError:
+        # A legacy DB that already holds duplicate (workspace_id, entity_id)
+        # bindings cannot get the unique index without a repair first. Keep
+        # the old unique(entity_type, entity_id) guard and let /topicrepair
+        # reconcile -- never crash the bot on startup.
+        logger.warning(
+            "duplicate (workspace_id, entity_id) topic bindings detected; "
+            "canonical unique index skipped — run /topicrepair")
 
     # The user's active workspace + entity (where the next photo/note lands).
     c.execute("""CREATE TABLE IF NOT EXISTS tg_active_context (
@@ -2563,6 +2605,13 @@ def _init_workspace_tables(conn):
     # v15.1.0-alpha.9: structured per-entity fields (JSON TEXT, same
     # pattern as workspaces.metadata). NULL = no structured fields.
     _safe_add_column(c, "milestones", "fields", "TEXT")
+
+    # v15.2 M4: per-entity KIND (character/artifact/weapon/item/entity) so
+    # typed identity is (workspace_id, entity_type, id), duplicate detection
+    # is type-aware, and "show all <kind>" filters structurally (M4 F8/F9).
+    # Additive/idempotent; existing rows read as 'entity'.
+    _safe_add_column(c, "milestones", "entity_type",
+                     "TEXT DEFAULT 'entity'")
 
     conn.commit()
 
@@ -2760,10 +2809,19 @@ def tg_unlink_workspace(workspace_id):
 
 
 def tg_set_entity_topic(user_id, workspace_id, entity_type, entity_id, topic_id):
-    """Record the Telegram topic created for an entity (idempotent)."""
+    """Record the Telegram topic created for an entity (idempotent).
+    v15.2 M4 canonical binding: there is NEVER more than one binding for a
+    (workspace_id, entity_id), no matter what entity_type string a caller
+    uses. Implemented as delete-any-other-canonical-row + upsert on the
+    always-present UNIQUE(entity_type, entity_id), so it works even on a
+    legacy DB where the canonical unique index could not be built."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
+    c.execute("DELETE FROM tg_entity_topics "
+              "WHERE workspace_id=? AND entity_id=? "
+              "AND NOT (entity_type=? AND entity_id=?)",
+              (workspace_id, entity_id, entity_type, entity_id))
     c.execute("""INSERT INTO tg_entity_topics
                  (user_id, workspace_id, entity_type, entity_id, topic_id)
                  VALUES (?,?,?,?,?)
@@ -2772,6 +2830,79 @@ def tg_set_entity_topic(user_id, workspace_id, entity_type, entity_id, topic_id)
               (user_id, workspace_id, entity_type, entity_id, topic_id))
     conn.commit()
     conn.close()
+
+
+def tg_get_workspace_entity_topic(workspace_id, entity_type, entity_id):
+    """The topic_id for a workspace entity, keyed canonically by
+    (workspace_id, entity_id). Falls back to the legacy (entity_type,
+    entity_id) key so pre-canonical rows still resolve."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT topic_id FROM tg_entity_topics "
+              "WHERE workspace_id=? AND entity_id=? LIMIT 1",
+              (workspace_id, entity_id))
+    row = c.fetchone()
+    if row is None:
+        c.execute("SELECT topic_id FROM tg_entity_topics "
+                  "WHERE entity_type=? AND entity_id=? LIMIT 1",
+                  (entity_type, entity_id))
+        row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def tg_delete_entity_topic(workspace_id, entity_type, entity_id):
+    """Remove the canonical topic binding for a workspace entity. Does NOT
+    touch the underlying entity or its Telegram topic -- the binding row is
+    just deleted so ensure_entity_topic can re-create it. v15.2 M4."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM tg_entity_topics WHERE workspace_id=? AND entity_id=?",
+              (workspace_id, entity_id))
+    if c.rowcount == 0:
+        c.execute("DELETE FROM tg_entity_topics "
+                  "WHERE entity_type=? AND entity_id=?",
+                  (entity_type, entity_id))
+    conn.commit()
+    conn.close()
+
+
+def tg_set_entity_topic_locked(workspace_id, entity_type, entity_id, locked: bool):
+    """Durably lock/unlock a topic binding (v15.2 M4 item 8). A locked topic
+    is refused for ordinary delete operations."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("UPDATE tg_entity_topics SET topic_locked=? "
+              "WHERE workspace_id=? AND entity_id=?",
+              (1 if locked else 0, workspace_id, entity_id))
+    if c.rowcount == 0:
+        c.execute("UPDATE tg_entity_topics SET topic_locked=? "
+                  "WHERE entity_type=? AND entity_id=?",
+                  (1 if locked else 0, entity_type, entity_id))
+    conn.commit()
+    conn.close()
+
+
+def tg_get_entity_topic_locked(workspace_id, entity_type, entity_id) -> bool:
+    """Whether a topic binding is locked (v15.2 M4 item 8). False when there
+    is no binding at all (nothing locked)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT topic_locked FROM tg_entity_topics "
+              "WHERE workspace_id=? AND entity_id=? LIMIT 1",
+              (workspace_id, entity_id))
+    row = c.fetchone()
+    if row is None:
+        c.execute("SELECT topic_locked FROM tg_entity_topics "
+                  "WHERE entity_type=? AND entity_id=? LIMIT 1",
+                  (entity_type, entity_id))
+        row = c.fetchone()
+    conn.close()
+    return bool(row[0]) if row else False
 
 
 def tg_get_entity_topic(entity_type, entity_id):
@@ -2838,16 +2969,20 @@ def tg_clear_active(user_id):
 
 
 # ── Milestones ─────────────────────────────────────────
-def add_milestone(workspace_id, title, goal_id=None, sort_order=0, fields=None):
+def add_milestone(workspace_id, title, goal_id=None, sort_order=0, fields=None,
+                  entity_type="entity"):
     """Insert a milestone and return its id. `fields` is an optional dict of
-    template-specific structured per-entity fields, stored as JSON."""
+    template-specific structured per-entity fields, stored as JSON.
+    `entity_type` is the entity's kind (default 'entity' -- see v15.2 M4)."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
     fields_raw = json.dumps(fields) if fields else None
-    c.execute("""INSERT INTO milestones (workspace_id, goal_id, title, sort_order, fields)
-                 VALUES (?,?,?,?,?)""",
-              (workspace_id, goal_id, title, sort_order, fields_raw))
+    c.execute("""INSERT INTO milestones
+                 (workspace_id, goal_id, title, sort_order, fields, entity_type)
+                 VALUES (?,?,?,?,?,?)""",
+              (workspace_id, goal_id, title, sort_order, fields_raw,
+               entity_type or "entity"))
     ms_id = c.lastrowid
     conn.commit()
     conn.close()
@@ -2898,6 +3033,19 @@ def update_milestone(milestone_id, status=None, progress=None, title=None):
     elif status == "archived":
         c.execute("UPDATE milestones SET archived_at=? WHERE id=?",
                   (_now_ist_str(), milestone_id))
+    conn.commit()
+    conn.close()
+
+
+def update_milestone_entity_type(milestone_id, entity_type):
+    """Adopt an entity kind on an existing milestone (v15.2 M4 canonical
+    binding). Used when a create collides by name with an existing row of a
+    different kind -- the row is reused (one entity, one topic) and its kind
+    upgraded rather than a second duplicate row being inserted."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("UPDATE milestones SET entity_type=? WHERE id=?",
+              (entity_type or "entity", milestone_id))
     conn.commit()
     conn.close()
 

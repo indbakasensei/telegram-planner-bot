@@ -41,6 +41,32 @@ def test_plain_date_still_works():
     assert d == "2026-08-08"
 
 
+# ── M4: "this/next month end" determinism (live failure F7) ───────────────
+
+def test_this_month_end():
+    d, _ = parse_date("set deadline to this month end",
+                      now=datetime(2026, 7, 10))
+    assert d == "2026-07-31"
+
+
+def test_next_month_end():
+    d, _ = parse_date("set deadline to next month end",
+                      now=datetime(2026, 7, 10))
+    assert d == "2026-08-31"
+
+
+def test_by_end_of_next_month():
+    d, _ = parse_date("finish by end of next month",
+                      now=datetime(2026, 7, 24))
+    assert d == "2026-08-31"
+
+
+def test_next_month_end_crosses_year():
+    d, _ = parse_date("submit next month end",
+                      now=datetime(2026, 12, 10))
+    assert d == "2027-01-31"
+
+
 # ── DBG-0005: memory key variants collapse ────────────────────────────────
 
 def test_memory_key_variants_collapse(temp_db, uid):

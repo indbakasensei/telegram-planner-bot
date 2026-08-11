@@ -139,6 +139,11 @@ class GoalStorage:
     def update_progress(self, goal_id, user_id, delta):
         return database.update_goal_progress(goal_id, user_id, delta)
 
+    def update_deadline(self, goal_id, user_id, deadline):
+        """v15.2 M4: the goal domain owns deadlines -- a deadline request
+        must never reach a workspace entity (DEBUGGING.md F6/F7)."""
+        return database.update_goal_deadline(goal_id, user_id, deadline)
+
 
 class MemoryStorage:
     """Delegates to database.py's memory (key/value fact) functions.
@@ -278,10 +283,13 @@ class WorkspaceStorage:
 class MilestoneStorage:
     """Delegates to database.py's milestone functions (v15.0-alpha.1)."""
 
-    def add(self, workspace_id, title, goal_id=None, sort_order=0, fields=None):
+    def add(self, workspace_id, title, goal_id=None, sort_order=0, fields=None,
+            entity_type=None):
         """Add a milestone, optionally with structured entity fields.
-        v15.1.0-alpha.9: accepts `fields` dict."""
-        return database.add_milestone(workspace_id, title, goal_id, sort_order, fields)
+        v15.1.0-alpha.9: accepts `fields` dict. v15.2 M4: accepts the
+        per-entity kind `entity_type`."""
+        return database.add_milestone(workspace_id, title, goal_id, sort_order,
+                                      fields, entity_type)
 
     def get(self, milestone_id):
         return database.get_milestone(milestone_id)
@@ -306,6 +314,10 @@ class MilestoneStorage:
     def get_fields(self, milestone_id):
         """Return a milestone's structured entity fields dict."""
         return database.get_milestone_fields(milestone_id)
+
+    # v15.2 M4 canonical binding: adopt an entity kind on an existing row.
+    def update_entity_type(self, milestone_id, entity_type):
+        return database.update_milestone_entity_type(milestone_id, entity_type)
 
 
 class NoteStorage:
@@ -415,8 +427,25 @@ class TelegramBindingStorage:
     def get_entity_topic(self, entity_type, entity_id):
         return database.tg_get_entity_topic(entity_type, entity_id)
 
+    def get_workspace_entity_topic(self, workspace_id, entity_type, entity_id):
+        """Canonical binding lookup keyed by (workspace_id, entity_id)."""
+        return database.tg_get_workspace_entity_topic(
+            workspace_id, entity_type, entity_id)
+
     def get_entity_topics(self, workspace_id):
         return database.tg_get_entity_topics(workspace_id)
+
+    # v15.2 M4 topic lifecycle (items 7/8/9/10).
+    def delete_entity_topic(self, workspace_id, entity_type, entity_id):
+        return database.tg_delete_entity_topic(workspace_id, entity_type, entity_id)
+
+    def set_entity_topic_locked(self, workspace_id, entity_type, entity_id, locked):
+        return database.tg_set_entity_topic_locked(
+            workspace_id, entity_type, entity_id, locked)
+
+    def get_entity_topic_locked(self, workspace_id, entity_type, entity_id):
+        return database.tg_get_entity_topic_locked(
+            workspace_id, entity_type, entity_id)
 
     def set_active(self, user_id, workspace_id, entity_type=None, entity_id=None):
         return database.tg_set_active(user_id, workspace_id, entity_type, entity_id)

@@ -58,6 +58,13 @@ class TelegramClient(ABC):
                    file_id: str, caption: str) -> int:
         """Send a photo (by Telegram file_id) to a topic. Return message id."""
 
+    def delete_forum_topic(self, chat_id: int, topic_id: int) -> bool:
+        """Delete a forum topic via Telegram's deleteForumTopic. Return True
+        when the topic is gone (or was already gone); False if Telegram
+        reports it cannot be deleted. Default returns True (topic treated as
+        gone) so offline fakes stay trivial; the live client overrides with
+        the real call."""
+
 
 @dataclass(frozen=True, slots=True)
 class ProjectionResult:
@@ -106,7 +113,12 @@ class TelegramProjection:
         if binding is None:
             return None
         chat_id, _general = binding
-        existing = self._s.tg_bindings.get_entity_topic(entity_type, entity_id)
+        # Canonical binding (v15.2 M4 item 6): lookup keyed by
+        # (workspace_id, entity_id) so a legacy (entity_type, entity_id) row
+        # and a canonical row for the same entity can never both be live, and
+        # a locked binding is returned untouched (item 8).
+        existing = self._s.tg_bindings.get_workspace_entity_topic(
+            workspace_id, entity_type, entity_id)
         if existing is not None:
             return existing
         topic_id = self._c.create_forum_topic(chat_id, title)
@@ -177,3 +189,64 @@ class TelegramProjection:
         else:
             msg_id = self._c.send_message(chat_id, topic_id, text)
         return ProjectionResult(True, topic_id=topic_id, message_id=msg_id)
+
+    # ── topic lifecycle (v15.2 M4 items 7/8/10) ────────
+    def get_topic(self, workspace_id, entity_type, entity_id) -> ProjectionResult:
+        """Inspect an entity's topic binding: ok=True with topic_id + locked
+        when it exists; ok=False (reason='no_topic') when it doesn't. The
+        entity itself is untouched."""
+        topic_id = self._s.tg_bindings.get_workspace_entity_topic(
+            workspace_id, entity_type, entity_id)
+        if topic_id is None:
+            return ProjectionResult(False, reason="no_topic")
+        locked = self._s.tg_bindings.get_entity_topic_locked(
+            workspace_id, entity_type, entity_id)
+        return ProjectionResult(
+            True, topic_id=topic_id,
+            reason=f"locked={locked}")
+
+    def is_topic_locked(self, workspace_id, entity_type, entity_id) -> bool:
+        return self._s.tg_bindings.get_entity_topic_locked(
+            workspace_id, entity_type, entity_id)
+
+    def set_topic_locked(self, workspace_id, entity_type, entity_id,
+                         locked: bool) -> ProjectionResult:
+        """Durably lock/unlock an entity's topic. Locking does not require the
+        binding to exist (a future ensure honors it); unlocking a missing
+        binding is a no-op. Never touches the entity or the Telegram topic."""
+        binding = self._s.tg_bindings.get_binding(workspace_id)
+        if binding is None:
+            return ProjectionResult(False, reason="not_linked")
+        self._s.tg_bindings.set_entity_topic_locked(
+            workspace_id, entity_type, entity_id, locked)
+        topic_id = self._s.tg_bindings.get_workspace_entity_topic(
+            workspace_id, entity_type, entity_id)
+        return ProjectionResult(True, topic_id=topic_id,
+                                reason="locked" if locked else "unlocked")
+
+    def delete_topic(self, user_id, workspace_id, entity_type, entity_id,
+                     *, force: bool = False) -> ProjectionResult:
+        """Delete an entity's Telegram topic AND its binding. DISTINCT from
+        deleting the entity: the DB entity stays untouched. A locked binding
+        is refused unless ``force``. Reports ok=False (reason='not_linked' /
+        'no_topic' / 'locked') honestly; Telegram's deleteForumTopic limits
+        surface as ok=False (reason='telegram_deleted') while the binding is
+        still removed so a re-ensure can recreate cleanly."""
+        binding = self._s.tg_bindings.get_binding(workspace_id)
+        if binding is None:
+            return ProjectionResult(False, reason="not_linked")
+        chat_id, _general = binding
+        topic_id = self._s.tg_bindings.get_workspace_entity_topic(
+            workspace_id, entity_type, entity_id)
+        if topic_id is None:
+            return ProjectionResult(False, reason="no_topic")
+        if not force and self._s.tg_bindings.get_entity_topic_locked(
+                workspace_id, entity_type, entity_id):
+            return ProjectionResult(False, reason="locked", topic_id=topic_id)
+        ok = self._c.delete_forum_topic(chat_id, topic_id)
+        self._s.tg_bindings.delete_entity_topic(
+            workspace_id, entity_type, entity_id)
+        if not ok:
+            return ProjectionResult(False, reason="telegram_deleted",
+                                    topic_id=topic_id)
+        return ProjectionResult(True, topic_id=topic_id)

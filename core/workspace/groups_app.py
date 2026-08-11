@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from core.storage import Storage
 from core.workspace.engine import EntityEngine
+from core.workspace.models import Milestone
 from core.workspace.render import format_entity_card
 
 # Friendly command name → workspace template.
@@ -25,6 +26,13 @@ KIND_TEMPLATE = {
     "goal": "generic", "workspace": "generic",
 }
 ENTITY_TYPE = "milestone"   # a workspace entity is a milestone under the hood
+
+
+def _normalize_title(title: str) -> str:
+    """Canonical dedupe key for entity titles: case-folded, whitespace-
+    collapsed. Two titles that normalize equal are the SAME logical entity
+    (the historical duplicate-topic root cause), whatever their entity_type."""
+    return " ".join((title or "").split()).lower()
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,11 +94,12 @@ class WorkspaceGroups:
             return None, None
         return self.create_entity(user_id, active[0], name, projection)
 
-    def create_entity(self, user_id, ws_id, name, projection=None):
+    def create_entity(self, user_id, ws_id, name, projection=None,
+                      entity_type="entity"):
         """The single entity/projection contract: create the milestone, ensure
         its Telegram topic (posting the current entity card into a NEWLY
         created topic), and make it the active entity. Returns
-        (milestone, topic_id).
+        (milestone, topic_id). `entity_type` is the entity's kind (v15.2 M4).
 
         Every path that creates an entity which may carry a Telegram topic --
         /add, natural-language creation -- goes through this same contract, so
@@ -99,7 +108,7 @@ class WorkspaceGroups:
         safe: ensure_entity_topic is idempotent and never duplicates a topic
         or an initial card. Does NOT check duplicate titles -- callers that
         need a guard keep their own."""
-        m = self._eng.add_milestone(user_id, ws_id, name)
+        m = self._eng.add_milestone(user_id, ws_id, name, entity_type=entity_type)
         topic_id = None
         if projection is not None:
             topic_id = projection.ensure_entity_topic(
@@ -148,6 +157,82 @@ class WorkspaceGroups:
             report[ws.id] = {
                 "title": ws.title, "linked": True,
                 "created": created, "existing": existing, "errors": errors,
+            }
+        return report
+
+    def repair_topics(self, user_id, projection) -> dict:
+        """Self-heal the entity→topic projection (v15.2 M4, item 9).
+
+        For every non-deleted entity in every Telegram-linked workspace:
+          * Logical duplicates (same normalized title across entity_types --
+            the historical root cause of one entity appearing as two topics)
+            are collapsed: the FIRST row becomes the canonical entity and, if
+            the duplicate carries a concrete kind while the canonical row is
+            still untyped, that kind is adopted onto the canonical row (one
+            row, one topic). The duplicate rows themselves are reported and
+            SKIPPED -- no topic, no binding is created for them.
+          * Each canonical entity's topic is ensured via
+            projection.ensure_entity_topic: idempotent, re-uses a live
+            binding, recreates a missing topic, posts a current card only
+            into a NEWLY created topic, and leaves locked bindings untouched.
+          * Soft-deleted entities are excluded; unlinked workspaces are
+            reported linked:False and trigger no Telegram call.
+
+        Returns {workspace_id: {title, linked, created[], existing[],
+        duplicates[{kept, merged}], errors[]}} so the caller can report
+        exactly what happened. Idempotent: re-running is a no-op when nothing
+        is broken, and a repair that created topics reports them as
+        `created` only once (they are `existing` on the next run)."""
+        report = {}
+        for ws in self._eng.list_workspaces(user_id):
+            if self._s.tg_bindings.get_binding(ws.id) is None:
+                report[ws.id] = {"title": ws.title, "linked": False}
+                continue
+            created, existing, errors = [], [], []
+            duplicates = []
+            # Canonicalize by normalized title: first row wins, later rows of
+            # the same logical entity are reported + skipped.
+            seen: dict[str, Milestone] = {}
+            canonical = []
+            for m in self._eng.list_milestones(user_id, ws.id):
+                key = _normalize_title(m.title)
+                if key in seen:
+                    keep = seen[key]
+                    duplicates.append({"kept": keep.title, "merged": m.title})
+                    # Upgrade the canonical row's kind when the duplicate
+                    # carries a concrete kind and the canonical is untyped.
+                    if m.entity_type not in (None, "entity") and \
+                            keep.entity_type in (None, "entity"):
+                        try:
+                            self._eng.adopt_entity_type(
+                                user_id, keep.id, m.entity_type)
+                        except Exception as exc:
+                            errors.append(
+                                f"{keep.title}: adopt kind failed: {exc}")
+                    continue
+                seen[key] = m
+                canonical.append(m)
+            for m in canonical:
+                had = self._s.tg_bindings.get_workspace_entity_topic(
+                    ws.id, ENTITY_TYPE, m.id)
+                try:
+                    topic_id = projection.ensure_entity_topic(
+                        user_id, ws.id, ENTITY_TYPE, m.id, m.title,
+                        initial_message=format_entity_card(
+                            m, with_timestamp=True))
+                except Exception as exc:
+                    errors.append(f"{m.title}: {type(exc).__name__}: {exc}")
+                    continue
+                if topic_id is None:
+                    continue
+                if had is None:
+                    created.append(m.title)
+                else:
+                    existing.append(m.title)
+            report[ws.id] = {
+                "title": ws.title, "linked": True,
+                "created": created, "existing": existing,
+                "duplicates": duplicates, "errors": errors,
             }
         return report
 

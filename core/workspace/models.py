@@ -96,12 +96,13 @@ class Milestone:
     archived_at: str | None = None  # v15.0-alpha.4
     deleted_at: str | None = None   # v15.0-alpha.4 (soft delete)
     fields: dict = field(default_factory=dict)  # v15.1.0-alpha.9
+    entity_type: str = "entity"     # v15.2 M4: per-entity kind
 
     @classmethod
     def from_row(cls, row) -> "Milestone | None":
         # archived_at/deleted_at were appended to MILESTONE_COLS in
-        # alpha.4; fields appended in v15.1.0-alpha.9. Tolerate older
-        # rows that don't have the newer columns.
+        # alpha.4; fields appended in v15.1.0-alpha.9; entity_type appended
+        # in v15.2 M4. Tolerate older rows that lack the newer columns.
         if row is None:
             return None
         return cls(
@@ -111,6 +112,7 @@ class Milestone:
             archived_at=row[9] if len(row) > 9 else None,
             deleted_at=row[10] if len(row) > 10 else None,
             fields=_parse_metadata(row[11]) if len(row) > 11 else {},
+            entity_type=row[12] if len(row) > 12 else "entity",
         )
 
     @property

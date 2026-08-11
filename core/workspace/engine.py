@@ -158,14 +158,16 @@ class EntityEngine:
         return self.transition_workspace(user_id, workspace_id, STATUS_DONE)
 
     # ── Milestones (scoped through their parent workspace) ──
-    def add_milestone(self, user_id, workspace_id, title) -> Milestone:
+    def add_milestone(self, user_id, workspace_id, title,
+                      entity_type: str | None = None) -> Milestone:
         title = (title or "").strip()
         if not title:
             raise EntityValidationError("milestone title must not be empty")
         self.get_workspace(user_id, workspace_id)  # ownership check
         existing = self._repo.list_milestones(workspace_id)
         ms = self._repo.add_milestone(workspace_id, title,
-                                      sort_order=len(existing))
+                                      sort_order=len(existing),
+                                      entity_type=entity_type)
         self._emit(EV_MILESTONE_ADDED, "milestone", ms, user_id)
         return ms
 
@@ -182,6 +184,23 @@ class EntityEngine:
         if self._repo.get_workspace(ms.workspace_id, user_id) is None:
             raise EntityNotFound(f"milestone {milestone_id}")
         return ms
+
+    def get_milestone(self, user_id, milestone_id) -> Milestone:
+        """Public single-milestone fetch (ownership-checked). v15.2 M4:
+        the Worker renderer uses this to re-fetch a full entity for card
+        rendering from a ToolResult's entity_id."""
+        return self._owned_milestone(user_id, milestone_id)
+
+    def adopt_entity_type(self, user_id, milestone_id, entity_type) -> Milestone:
+        """Adopt an entity kind on an existing milestone (v15.2 M4 canonical
+        binding). Used by create when a same-name row of a different kind
+        already exists: the existing row is reused (one entity, one topic)
+        and its kind upgraded, instead of inserting a second duplicate."""
+        ms = self._owned_milestone(user_id, milestone_id)
+        entity_type = (entity_type or "entity").strip().lower() or "entity"
+        updated = self._repo.set_milestone_entity_type(milestone_id, entity_type)
+        self._emit(EV_MILESTONE_ADDED, "milestone", updated, user_id)
+        return updated
 
     def transition_milestone(self, user_id, milestone_id, to_status) -> Milestone:
         """Move a milestone to `to_status`, validated against

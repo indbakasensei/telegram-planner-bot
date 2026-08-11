@@ -58,11 +58,35 @@ def parse_date(text: str, now: datetime = None) -> tuple:
         return now.replace(year=now.year + 1, month=12, day=31).strftime("%Y-%m-%d"), None
     if re.search(r'\b(this year|by (the )?year[ -]?end|end of (the |this )?year)\b', t):
         return now.replace(month=12, day=31).strftime("%Y-%m-%d"), None
+    # "next month end" → last day of NEXT month (v15.2 M4). Must run BEFORE
+    # the this-month pattern below: "next month end" contains the word
+    # "month", and the correct reading is end-of-next-month, never a
+    # this-month value.
+    if re.search(r'\b(next month|end of (the |this )?next month)\b', t):
+        y, mo = (now.year + 1, 1) if now.month == 12 else (now.year, now.month + 1)
+        last = calendar.monthrange(y, mo)[1]
+        return datetime(y, mo, last, tzinfo=IST).strftime("%Y-%m-%d"), None
     if re.search(r'\b(this month|by (the )?month[ -]?end|end of (the |this )?month)\b', t):
         last = calendar.monthrange(now.year, now.month)[1]
         return now.replace(day=last).strftime("%Y-%m-%d"), None
     if re.search(r'\b(this week|by (the )?week[ -]end|end of (the |this )?week)\b', t):
         return (now + timedelta(days=6 - now.weekday())).strftime("%Y-%m-%d"), None
+    # "next weekend" → the Saturday one week after the upcoming weekend
+    # (v15.2 M4). MUST run before the bare-weekend pattern below, which would
+    # otherwise swallow it.
+    if re.search(r'\bnext weekend\b', t):
+        days = (5 - now.weekday()) % 7 + 7
+        return (now + timedelta(days=days)).strftime("%Y-%m-%d"), None
+    # "weekend" / "this weekend" → the upcoming Saturday (the start of the
+    # nearest weekend; on Sat/Sun the current weekend has started, so the
+    # upcoming Saturday is today / next Saturday). Never a past date.
+    if re.search(r'\b(this |a )?weekend\b', t):
+        return (now + timedelta(days=(5 - now.weekday()) % 7)).strftime("%Y-%m-%d"), None
+    # "next week" → one week from today (v15.2 M4). Aligned with the Worker
+    # prompt's NextWeek block so a bare "next week" never falls through
+    # unparsed and forces the user to type an explicit date.
+    if re.search(r'\bnext week\b', t):
+        return (now + timedelta(days=7)).strftime("%Y-%m-%d"), None
 
     # NOTE: these three checks must run in this order, before the plain
     # "tomorrow" check below. "day after tomorrow" contains the substring

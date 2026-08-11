@@ -7,7 +7,9 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.1.0-alpha.13** — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.2.0-alpha.14** (M4 patch — AI Worker tool contract,
+> typed retrieval, topic lifecycle; dormant behind `WORKER`) — see
+> [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -164,6 +166,7 @@ truth; the group is the human-readable mirror.
 "Create character Arlecchino"  → NL creation ALSO makes its topic + card
 📷 + "got her crown"      → logs it to Hu Tao's topic (photo + note)
 /topicbackfill            → (admin) backfills topics for existing entities
+/topicrepair              → (admin) self-heal: one entity = one topic
 /open Nahida  ·  /current ·  /workspaces  ·  /note <text>
 ```
 
@@ -173,7 +176,14 @@ entity gets **exactly one topic** and a card rendered from its live fields.
 `/topicbackfill` (admin-only) is a safe migration op: it creates only the
 topics that are missing, never duplicates an existing one, skips soft-deleted
 entities, and can be re-run freely. It is an explicit command — nothing runs
-at startup.
+at startup. `/topicrepair` (admin-only) is the self-heal command (v15.2 M4):
+if legacy data ever produced **two topics for one entity**, it collapses the
+duplicate onto a single canonical topic (adopting a concrete kind onto the
+canonical row), ensures a topic + current card for every entity, preserves
+locked topics, reports exactly what it created/found/merged/failed, and is
+idempotent — re-running is a no-op. An entity's topic can also be inspected
+or durably locked/unlocked so ordinary topic deletion refuses to remove a
+protected topic.
 
 Architecture note: the Workspace OS never learns about Telegram — chat/topic
 ids live only in the adapter's binding tables, and topics are a
@@ -256,6 +266,7 @@ the same rollout discipline used since v14. Set them in `.env`.
 | Flag | Default | Enables |
 |---|---|---|
 | `WORKSPACE` | OFF | The entire v15 Workspace OS pipeline (Interpreter → Orchestrator → Entity Engine → Timeline → Sync). OFF ⇒ dormant, empty tables, byte-identical to v14.26. |
+| `WORKER` | OFF | v15.2 M4 Worker (intended GLM-5.2; live validation ran on `meta/llama-3.1-8b-instruct` because NVIDIA `z-ai/glm-5.2` is timing out upstream) — and even when ON it activates **only for the owner** (`OWNER_ID`), after the deterministic menu/confirming/NL-map gates but **before** the EntityManager + task VIEW quick-match (so real entity/goal/task requests aren't hijacked by "Tasks for All Pending"), falling through to EntityManager → VIEW → Legacy when it declines/fails. OFF ⇒ byte-identical to pre-M4. **Not live-accepted; the 2026-08-11 live matrix found Llama-8b incapable of compound commands, and GLM-5.2 must be re-evaluated when healthy.** |
 | `OFFLINE_TASKS` | OFF | Deterministic offline handling of task commands (no AI round-trip). |
 | `OFFLINE_HABITS` | OFF | Deterministic offline handling of habit commands. |
 | `OFFLINE_GOALS` / `OFFLINE_PROJECTS` | OFF | Reserved for the goals/projects offline migration. |
@@ -458,16 +469,37 @@ a unified `ToolResult`, stable `ToolError` codes, and fail-closed argument
 validation (`ToolRegistry.register` rejects malformed schemas + duplicate
 names; `ToolRegistry.execute` never lets invalid args reach a handler).
 On top of it, **`core/ai/tool_adapters.py` (v15.2 M3)** maps each real
-capability — tasks, habits, goals, entities, workspaces, memory/recall —
-to **24 thin M2-contract `Tool`s** (`build_tool_registry()`), each an
+capability — tasks, habits, goals, entities, workspaces, memory/recall,
+topic lifecycle — to **30 thin M2-contract `Tool`s** (`build_tool_registry()`),
+each an
 argument-translation + validation + call into BAKA's existing services with
 a structured `ToolResult`. Entity create/update drive the **same alpha.13
 projection** `/add` uses (one topic, append-only updates — never a second
-topic mechanism). **There is no AI Worker, agent loop, or GLM tool-calling
-yet, and nothing in `main.py` routes through the adapters** — the surface is
-health-verifiable via `/selftest → AI → 'AI Tool Contract'`, 'AI Tool
-Adapter Registry', and 'AI Tool Adapter Round-trip'. Design:
+topic mechanism). On top of it, **`core/ai/worker*.py` (v15.2 M4)** is the
+**GLM-5.2 Worker** — a bounded tool-calling executor (`MAX_TOOL_CALLS=6`, a
+Python constant), a fail-closed structured-output parser (replaces the greedy
+`clean_json` extractor), a mechanical confirmation gate that reuses the
+existing `conversation_state.py` machine, and a never-fabricate-success guard.
+**The Worker is DORMANT**: `WORKER=0` by default, and even with `WORKER=1` it
+activates **only for the owner** and only at the very end of the message
+cascade (after every deterministic layer declined), falling through to Legacy
+when it declines or fails. Nothing in `main.py` routes through it for normal
+users. The M2/M3 surface is health-verifiable via `/selftest → AI → 'AI Tool
+Contract'`, 'AI Tool Adapter Registry'/'Round-trip', plus the two new 'AI
+Worker …' probes. **No live Telegram acceptance is claimed until the owner
+runs the WKR manual matrix.** Design:
 [docs/engineering/V15_2_BAKA_BRAIN.md](docs/engineering/V15_2_BAKA_BRAIN.md).
+
+**v15.2 M4 live validation (temporary model):** the live matrix ran with
+`MODEL_MAIN=meta/llama-3.1-8b-instruct`, because NVIDIA `z-ai/glm-5.2`
+currently serves no output upstream (60–150s timeouts — provider problem,
+not a Worker bug; GLM-5.2 remains the intended stronger Worker candidate and
+has not been removed or deprecated). Three tool-contract defects found by the
+matrix are fixed (integer workspace ids, "leave-it-out" optional-filter
+markers, unmatched-workspace-name fallback) with regression tests. **M4 is
+NOT accepted as production-ready for compound commands with Llama-8b** — the
+honest status after the 2026-08-11 pass. Next: re-evaluate with a healthy
+GLM-5.2 or Z.ai native before M5.
 
 The old stored-analytics commands (`usage`, `performance`, `errors`)
 return empty data — the pipeline behind them was never assembled, and
@@ -531,7 +563,7 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v15.1.0-alpha.10–11 | Natural Language Entity Management + release standards; final stabilization |
 | v15.1.0-alpha.12 | Conversational entity references & active entity (M1) |
 | v15.1.0-alpha.13 | Telegram entity topic projection & backfill (M10): NL create auto-projects topic + card, append-only updates, idempotent /topicbackfill |
-| v15.2 (in dev) | BAKA Brain · M2+M3 (dormant): M2 unified tool abstraction (RiskLevel, validated ToolSpec, ToolResult/ToolError, fail-closed args, strict registry); M3 real tool adapters — 24 thin M2-contract tools over tasks/habits/goals/entities/workspace/memory/recall, alpha.13 projection preserved. No Worker/loop/routing yet |
+| v15.2 (in dev) | BAKA Brain · M2+M3+M4 (dormant): M2 unified tool abstraction (RiskLevel, validated ToolSpec, ToolResult/ToolError, fail-closed args, strict registry); M3 real tool adapters — 25 thin M2-contract tools over tasks/habits/goals/entities/workspace/memory/recall (incl. `update_goal_deadline`), alpha.13 projection preserved, per-kind typed referent store; M4 GLM-5.2 Worker — bounded (max 4 tool calls, hard constant), fail-closed structured-output parser, mechanical confirmation gate reusing the existing state machine, never-fabricate-success guard, owner-only canary behind WORKER=1 (seam sits before EntityManager + VIEW quick-match so typed entity/goal/task requests aren't hijacked; WORKER=0 unchanged). Forensic pass on the second live run (1563 offline tests, 28 generic-invariant S1–S30 cases) proved the 7 reported failures were ALL legacy-path (Worker never ran — `WORKER=0`), and fixed one real bug found by the new suite: clearing a goal deadline to `None` is now a success, not a false "goal not found". No live acceptance yet — requires `WORKER=1` + restart + the WKR matrix |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)

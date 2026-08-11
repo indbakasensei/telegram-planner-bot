@@ -55,6 +55,7 @@ from baka_brain import (
     generate_study_plan, extract_memory_key,
     generate_daily_plan, generate_weekly_plan, benchmark_ai, think_freely,
     call_main, call_fast, call_think, call_vision,
+    call_worker_single,
     generate_image, generate_video, benchmark_all_models,
     MODEL_MAIN, MODEL_FAST, MODEL_THINK, MODEL_VISION, MODEL_IMAGE,
     AI_PROVIDER,
@@ -212,7 +213,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.1.0-alpha.13"
+BAKA_VERSION = "15.2.0-alpha.14"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -978,6 +979,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode=HTML, reply_markup=yes_no_menu()
                     )
             return
+        # v15.2 M4: AI Worker confirmation. The Worker NEVER executes a
+        # DESTRUCTIVE / confirmation-gated tool itself; it stores
+        # {tool, arguments, message} here via the EXISTING pending-action
+        # mechanism (no second confirmation system -- same pattern as
+        # offline_add_task / offline_delete_task above). On yes we re-execute
+        # through a fresh ToolRegistry (the Worker's own sanctioned path).
+        if action_type == "worker_confirm":
+            pos_w = any(w in user_input.lower() for w in
+                        ["yes", "yeah", "yep", "haan", "ha", "ok", "okay", "sure",
+                         "✅", "save", "confirm", "bilkul", "do it", "kar do", "theek"])
+            neg_w = any(w in user_input.lower() for w in
+                        ["no", "nahi", "nope", "cancel", "❌", "mat", "don't", "dont", "band"])
+            if not data.get("tool"):
+                clear_state(user_id)
+                await update.message.reply_text(
+                    "❌ That confirmation is no longer valid.", reply_markup=main_menu())
+            elif pos_w:
+                clear_state(user_id)
+                try:
+                    from core.ai.tool_adapters import build_tool_registry as _btr
+                    _reg = _btr(user_id, projection=_ws_projection(context),
+                                ref_ctx=_worker_ref_ctx(),
+                                typed_refs=_worker_typed_refs())
+                    _res = _reg.execute(data["tool"], data.get("arguments") or {})
+                    if _res.ok:
+                        await update.message.reply_text(
+                            _res.output or "✅ Done!", parse_mode=HTML,
+                            reply_markup=main_menu())
+                    else:
+                        await update.message.reply_text(
+                            f"❌ {esc(_res.output or 'That failed.')}",
+                            parse_mode=HTML, reply_markup=main_menu())
+                except Exception:
+                    logger.exception("worker_confirm execution failed")
+                    await update.message.reply_text(
+                        "❌ Something went wrong carrying that out.",
+                        reply_markup=main_menu())
+            elif neg_w:
+                clear_state(user_id)
+                await update.message.reply_text("❌ Cancelled!", reply_markup=main_menu())
+            else:
+                await update.message.reply_text(
+                    data.get("message") or "Confirm?", reply_markup=yes_no_menu())
+            return
         am_pm = re.match(r"^(\d{1,2})\s*(AM|PM)$", user_input.upper())
         if am_pm:
             h2, period2 = int(am_pm.group(1)), am_pm.group(2)
@@ -1286,6 +1331,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if _low_full in phrases or any(_low_full == p for p in phrases):
             context.args = []
             await handler(update, context)
+            return
+
+    # ── v15.2 M4: AI Worker (GLM-5.2), OWNER-ONLY CANARY ──
+    # Dormant unless WORKER=1 in .env AND the sender is the owner (same
+    # is_admin() gate admin commands use). Runs AFTER the deterministic
+    # menu/confirming/editing/gathering/NL-map gates but BEFORE the
+    # EntityManager and the task VIEW quick-match -- so a request that is
+    # really an entity/goal/task operation ("show Xiao and then show
+    # Neuvillette", "show all artifacts") is handled by the Worker's typed
+    # tools instead of being hijacked by a single-entity classifier or the
+    # "Tasks for All Pending" view. When the Worker declines or fails it
+    # falls through to EntityManager → VIEW → legacy BAKA, so WORKER=0 (or
+    # non-admin) changes nothing: byte-identical to the pre-M4 cascade.
+    # Live acceptance is NOT claimed until the manual live-acceptance matrix
+    # is actually run (TESTING.md).
+    if feature_flags.WORKER and is_admin(user_id):
+        try:
+            worker_result = await run_blocking(worker_run, _worker_request(
+                user_id, user_input, _ws_projection(context)))
+        except Exception:
+            logger.exception("AI Worker failed; falling through to Legacy")
+            worker_result = None
+        if worker_result is not None and worker_result.handled:
+            if worker_result.termination.value == "confirmation_needed":
+                set_pending_action(user_id, "worker_confirm",
+                                   worker_result.confirmation_data)
+                await update.message.reply_text(
+                    worker_result.reply, parse_mode=HTML, reply_markup=yes_no_menu())
+            else:
+                # Response-format restoration (M4 item 12/13): the Worker
+                # decides WHAT happened (the step trace); the existing BAKA
+                # formatters decide HOW it is displayed. Render the trace into
+                # the same Telegram-HTML cards/lines a /use /add or dashboard
+                # reply uses -- never the model's raw prose.
+                from core.ai.worker_render import render_run_reply
+                _engine = _worker_entity_engine()
+                reply = render_run_reply(
+                    worker_result, user_id=user_id,
+                    fetcher=lambda uid, eid: _engine.get_milestone(uid, eid))
+                await update.message.reply_text(
+                    reply, parse_mode=HTML, reply_markup=main_menu())
             return
 
     # ── v15.1.0-alpha.10: Natural Language Entity Management ───
@@ -3841,6 +3927,95 @@ def _entity_manager():
     return _ENTITY_MGR
 
 
+# ── v15.2 M4: AI Worker wiring (dormant; constructed only when routed) ────
+# Nothing here runs unless feature_flags.WORKER=1 AND the sender is the
+# owner; the flag-OFF path never constructs the Worker or its registry.
+_WORKER_ENGINE = None
+_WORKER_REF_CTX = None
+_WORKER_TYPED_REFS = None
+_WORKER_ENTITY_ENGINE = None
+
+
+def _worker_entity_engine():
+    """Shared EntityEngine for the response renderer's card fetcher (same
+    lazy-singleton pattern as _entity_manager). EntityEngine is stateless
+    (it reads/writes via database.py), so one instance per process is fine."""
+    global _WORKER_ENTITY_ENGINE
+    if _WORKER_ENTITY_ENGINE is None:
+        from core.workspace.engine import EntityEngine
+        _WORKER_ENTITY_ENGINE = EntityEngine()
+    return _WORKER_ENTITY_ENGINE
+
+
+def _worker_ref_ctx():
+    """Shared M1 ReferenceContext for Worker messages (same per-process
+    singleton pattern _entity_manager uses) so conversational reference
+    persists across Worker messages. M1's resolver is authoritative; the
+    Worker never builds its own resolver."""
+    global _WORKER_REF_CTX
+    if _WORKER_REF_CTX is None:
+        from core.ai.reference_context import ReferenceContext
+        _WORKER_REF_CTX = ReferenceContext()
+    return _WORKER_REF_CTX
+
+
+def _worker_typed_refs():
+    """Shared v15.2 M4 TypedReferentStore for Worker messages (same singleton
+    pattern as _worker_ref_ctx). Tools note referents they create/list/update
+    into this store, and it is rendered into the prompt as the REFERENTS
+    block -- so a goal created in one message is still the referent for
+    'its' in the next, and a run's created id is used before any stale
+    active entity."""
+    global _WORKER_TYPED_REFS
+    if _WORKER_TYPED_REFS is None:
+        from core.ai.typed_referents import TypedReferentStore
+        _WORKER_TYPED_REFS = TypedReferentStore()
+    return _WORKER_TYPED_REFS
+
+
+def _worker_engine():
+    global _WORKER_ENGINE
+    if _WORKER_ENGINE is None:
+        from core.ai.worker import Worker
+        _WORKER_ENGINE = Worker(model_fn=call_worker_single)
+    return _WORKER_ENGINE
+
+
+def _worker_request(user_id, text, projection):
+    """Assemble a WorkerRequest from ALREADY-GATHERED snapshots (the same
+    get_tasks/get_all_memories/get_history the legacy path feeds
+    get_baka_response). The Worker itself never opens the database."""
+    from core.ai.tool_adapters import build_tool_registry
+    from core.ai.worker_contract import WorkerRequest
+    import database as _db
+    try:
+        _ws_id = _db.tg_get_active(user_id)[1]
+    except Exception:
+        _ws_id = None
+    typed_refs = _worker_typed_refs()
+    return WorkerRequest(
+        user_id=user_id, text=text,
+        registry=build_tool_registry(user_id, projection=projection,
+                                     ref_ctx=_worker_ref_ctx(),
+                                     typed_refs=typed_refs,
+                                     user_text=text),
+        ref_ctx=_worker_ref_ctx(),
+        typed_refs=typed_refs,
+        projection=projection,
+        workspace_id=_ws_id,
+        tasks=tuple(get_tasks(user_id) or ()),
+        memory=tuple(get_all_memories(user_id) or ()),
+        history=tuple(get_history(user_id) or ()),
+        now=datetime.now(IST),
+    )
+
+
+def worker_run(request):
+    """run_blocking target: the Worker is a blocking call (sync OpenAI
+    client + projection bridge), exactly like get_baka_response."""
+    return _worker_engine().run(request)
+
+
 async def ask_cmd(update, context):
     user_id = update.message.from_user.id
     query = " ".join(context.args).strip()
@@ -4006,6 +4181,62 @@ async def topicbackfill_cmd(update, context):
     lines.append(
         f"\nDone: {total_created} created, {total_existing} existing, "
         f"{total_errors} error(s). Re-run is a no-op.")
+    await update.message.reply_text("\n".join(lines), parse_mode=HTML)
+
+
+@admin_only
+async def topicrepair_cmd(update, context):
+    """v15.2 M4 item 9: self-heal the entity→topic projection. Collapses
+    logical duplicates (one normalized title = ONE entity = ONE topic, the
+    historical root cause of a duplicate topic), adopts a concrete kind onto
+    the canonical row, ensures a topic + current card for every canonical
+    entity, preserves locked bindings, and reports exactly what happened
+    (created / existing / duplicates / errors). Idempotent -- re-running
+    creates nothing when nothing is broken."""
+    user_id = update.message.from_user.id
+    try:
+        report = await asyncio.to_thread(
+            _WS_GROUPS.repair_topics, user_id, _ws_projection(context))
+    except Exception as e:
+        await update.message.reply_text(
+            f"Topic repair failed: {esc(str(e))}", parse_mode=HTML)
+        return
+
+    total_created = total_existing = total_duplicates = total_errors = 0
+    lines = ["🧵 <b>Topic repair</b> — one entity, one topic:"]
+    for _ws_id, info in report.items():
+        title = info.get("title") or "(workspace)"
+        if not info.get("linked"):
+            lines.append(f"• {b(esc(title))} — not linked to a group, skipped")
+            continue
+        created = info.get("created") or []
+        existing = info.get("existing") or []
+        duplicates = info.get("duplicates") or []
+        errors = info.get("errors") or []
+        total_created += len(created)
+        total_existing += len(existing)
+        total_duplicates += len(duplicates)
+        total_errors += len(errors)
+        bits = []
+        if created:
+            bits.append(f"🆕 {len(created)} topic(s): {esc(', '.join(created))}")
+        if existing:
+            bits.append(f"✅ {len(existing)} already had topics")
+        if duplicates:
+            bits.append(f"🔀 {len(duplicates)} duplicate(s) merged/skipped")
+            for d in duplicates[:3]:
+                bits.append(f"   • kept {b(esc(d.get('kept') or '?'))}, "
+                            f"skipped {esc(d.get('merged') or '?')}")
+        if errors:
+            bits.append(f"⚠️ {len(errors)} failed")
+        lines.append(f"• {b(esc(title))}: "
+                     + ("; ".join(bits) if bits else "no entities"))
+        for err in errors[:5]:
+            lines.append(f"   • {esc(err)}")
+    lines.append(
+        f"\nDone: {total_created} created, {total_existing} existing, "
+        f"{total_duplicates} duplicate(s) collapsed, {total_errors} error(s). "
+        f"Re-run is a no-op.")
     await update.message.reply_text("\n".join(lines), parse_mode=HTML)
 
 
@@ -5019,6 +5250,8 @@ def main() -> None:
     app.add_handler(CommandHandler("note", note_cmd))
     # v15.1.0-alpha.13: idempotent topic backfill for existing entities
     app.add_handler(CommandHandler("topicbackfill", topicbackfill_cmd))
+    # v15.2 M4 item 9: self-heal the entity→topic projection
+    app.add_handler(CommandHandler("topicrepair", topicrepair_cmd))
     # v15.1.0-alpha.3 Cognitive Engine: ask questions about your workspaces
     app.add_handler(CommandHandler("ws", ask_cmd))
     app.add_handler(CommandHandler("query", ask_cmd))

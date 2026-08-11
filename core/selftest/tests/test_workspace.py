@@ -185,6 +185,161 @@ def check_topic_backfill():
         db.tg_clear_active(SELFTEST_USER_ID)
 
 
+@selftest(name="Topic Lifecycle Tools", category="Workspace")
+def check_topic_lifecycle_tools():
+    """v15.2 M4 items 7/8/10: the generic TopicProjection tool surface
+    (get/ensure/lock/delete/list entity topic) through a REAL registry + real
+    TelegramProjection over a fake client: ensure creates EXACTLY one topic +
+    card, lock is durable across a fresh projection, a locked topic refuses
+    ordinary delete (nothing deleted), force deletes the binding while the DB
+    ENTITY stays (DELETE ENTITY ≠ DELETE TOPIC). Offline."""
+    import database as db
+    from core.ai.tool_adapters import build_tool_registry
+    from core.workspace.adapters.projection import TelegramClient, TelegramProjection
+    from core.workspace.engine import EntityEngine
+    from core.workspace.groups_app import WorkspaceGroups
+
+    class _Fake(TelegramClient):
+        def __init__(self):
+            self.topics = []      # (chat_id, name)
+            self.messages = []    # (chat_id, topic_id, text, parse_mode)
+            self.deleted = []     # (chat_id, topic_id)
+            self._next = 400
+        def create_forum_topic(self, chat_id, name):
+            self.topics.append((chat_id, name))
+            tid = self._next
+            self._next += 1
+            return tid
+        def send_message(self, chat_id, topic_id, text, parse_mode=None):
+            self.messages.append((chat_id, topic_id, text, parse_mode))
+            return 1
+        def send_photo(self, chat_id, topic_id, file_id, caption):
+            return 2
+        def delete_forum_topic(self, chat_id, topic_id):
+            self.deleted.append((chat_id, topic_id))
+            return True
+
+    eng = EntityEngine()
+    app = WorkspaceGroups()
+    ws = eng.create_workspace(SELFTEST_USER_ID, "game", "[selftest] tlife",
+                              seed_milestones=False)
+    try:
+        db.tg_set_active(SELFTEST_USER_ID, ws.id)
+        fake = _Fake()
+        proj = TelegramProjection(fake)
+        app.link_group(SELFTEST_USER_ID, -100701, proj)
+        # Entity created WITHOUT a projection → no topic yet (the shape
+        # ensure_entity_topic exists to fix).
+        m = eng.add_milestone(SELFTEST_USER_ID, ws.id, "[selftest] t-entity",
+                              entity_type="character")
+        eng.update_field(SELFTEST_USER_ID, m.id, "level", 7)
+        reg = build_tool_registry(SELFTEST_USER_ID, projection=proj)
+
+        r = reg.execute("ensure_entity_topic", {"entity": "[selftest] t-entity"})
+        if not (r.ok and r.data["created"] and r.data["topic_id"] == 400):
+            raise SelfTestFail(f"ensure did not create exactly one topic: {r}")
+        if len(fake.topics) != 1 or len(fake.messages) != 1:
+            raise SelfTestFail("ensure made more than one topic/card")
+        if not any("Level: 7" in txt for _, _, txt, _ in fake.messages):
+            raise SelfTestFail("initial card did not reflect stored field")
+
+        r = reg.execute("set_entity_topic_locked",
+                        {"entity": "[selftest] t-entity", "locked": True})
+        if not r.ok or not r.data["locked"]:
+            raise SelfTestFail(f"lock failed: {r}")
+        # Durability: a FRESH projection still sees the lock.
+        if not TelegramProjection(_Fake()).is_topic_locked(
+                ws.id, "milestone", m.id):
+            raise SelfTestFail("topic lock did not persist")
+
+        r = reg.execute("delete_entity_topic", {"entity": "[selftest] t-entity"})
+        if r.ok or r.data["reason"] != "locked":
+            raise SelfTestFail(f"locked topic was not refused deletion: {r}")
+        if fake.deleted or not proj._s.tg_bindings.get_entity_topics(ws.id):
+            raise SelfTestFail("locked topic was deleted anyway")
+
+        r = reg.execute("delete_entity_topic",
+                        {"entity": "[selftest] t-entity", "force": True})
+        if not r.ok or proj._s.tg_bindings.get_entity_topics(ws.id):
+            raise SelfTestFail(f"force delete did not remove the binding: {r}")
+        live = eng.get_milestone(SELFTEST_USER_ID, m.id)
+        if live is None or live.title != "[selftest] t-entity":
+            raise SelfTestFail("delete_entity_topic removed the DB entity")
+        return ("topic tools ok · ensure 1 topic+card, lock durable, "
+                "locked delete refused, force delete leaves entity")
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)
+
+
+@selftest(name="Topic Repair", category="Workspace")
+def check_topic_repair():
+    """v15.2 M4 item 9: repair_topics collapses logical duplicates (two rows
+    of the same normalized title — the historical root cause of one entity
+    appearing as two topics) into ONE entity → ONE topic, adopts the concrete
+    kind onto the canonical row, and reports created/existing/duplicates
+    accurately; a re-run is a no-op. Offline (fake client)."""
+    import database as db
+    from core.workspace.adapters.projection import TelegramClient, TelegramProjection
+    from core.workspace.engine import EntityEngine
+    from core.workspace.groups_app import WorkspaceGroups
+
+    class _Fake(TelegramClient):
+        def __init__(self):
+            self.topics = []
+            self._next = 400
+        def create_forum_topic(self, chat_id, name):
+            self.topics.append((chat_id, name))
+            tid = self._next
+            self._next += 1
+            return tid
+        def send_message(self, chat_id, topic_id, text, parse_mode=None):
+            return 1
+        def send_photo(self, chat_id, topic_id, file_id, caption):
+            return 2
+
+    eng = EntityEngine()
+    app = WorkspaceGroups()
+    ws = eng.create_workspace(SELFTEST_USER_ID, "game", "[selftest] trepair",
+                              seed_milestones=False)
+    try:
+        db.tg_set_active(SELFTEST_USER_ID, ws.id)
+        fake = _Fake()
+        proj = TelegramProjection(fake)
+        app.link_group(SELFTEST_USER_ID, -100702, proj)
+        # Pre-canonical legacy data: one typed row + one untyped duplicate of
+        # the SAME title (bypasses the canonical create contract on purpose).
+        m1 = eng.add_milestone(SELFTEST_USER_ID, ws.id, "[selftest] dup",
+                               entity_type="artifact")
+        eng.update_field(SELFTEST_USER_ID, m1.id, "rarity", 5)
+        eng.add_milestone(SELFTEST_USER_ID, ws.id, "[selftest] dup")
+
+        report = app.repair_topics(SELFTEST_USER_ID, proj)
+        info = report[ws.id]
+        if info.get("linked") is not True:
+            raise SelfTestFail("linked workspace reported unlinked")
+        if info["created"] != ["[selftest] dup"]:
+            raise SelfTestFail(f"repair did not create the canonical topic: {info}")
+        if len(info["duplicates"]) != 1:
+            raise SelfTestFail(f"duplicate not detected: {info}")
+        bindings = proj._s.tg_bindings.get_entity_topics(ws.id)
+        if len(bindings) != 1 or len(fake.topics) != 1:
+            raise SelfTestFail(f"repair made != 1 topic/binding: {bindings}")
+        rows = eng.list_milestones(SELFTEST_USER_ID, ws.id)
+        if len(rows) != 2:                          # duplicate skipped, not deleted
+            raise SelfTestFail("repair should not delete rows")
+        if rows[0].entity_type != "artifact" or rows[0].fields.get("rarity") != 5:
+            raise SelfTestFail("kind/fields not adopted onto canonical row")
+        report2 = app.repair_topics(SELFTEST_USER_ID, proj)
+        if report2[ws.id]["created"] or len(fake.topics) != 1:
+            raise SelfTestFail("repair re-run created topics")
+        return ("topic repair ok · duplicate collapsed to 1 topic, kind "
+                "adopted, re-run no-op")
+    finally:
+        db.delete_workspace(ws.id, SELFTEST_USER_ID)
+        db.tg_clear_active(SELFTEST_USER_ID)
+
+
 @selftest(name="Cognitive Engine", category="Workspace")
 def check_cognitive_engine():
     """The Cognitive Engine answers a question grounded in real Workspace

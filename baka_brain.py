@@ -310,6 +310,24 @@ def call_nvidia(messages: list, temperature=0.1, max_tokens=1024, top_p=1,
         pass
     raise last_exc
 
+def call_worker_single(messages: list, timeout: float = TIMEOUT_NORMAL_REASONING,
+                       max_tokens: int = 700) -> str:
+    """v15.2 M4: one bounded MODEL_MAIN call for the AI Worker.
+
+    Deliberately NOT call_nvidia: the Worker's bounded loop (core/ai/worker.py)
+    owns failure handling, so this makes exactly ONE attempt with no retry
+    loop and no MODEL_FAST fallback -- a retry storm inside the loop is
+    impossible by construction. No analytics write here either: the Worker
+    logs its own structured run. temperature=0 keeps the structured decision
+    deterministic. Exceptions (APITimeoutError, HTTP errors, ...) propagate
+    to the Worker, which maps them onto its failure taxonomy.
+    """
+    resp = client.chat.completions.create(
+        model=MODEL_MAIN, messages=messages, max_tokens=max_tokens,
+        temperature=0.0, timeout=timeout,
+    )
+    return (resp.choices[0].message.content or "").strip()
+
 def get_baka_response(user_input: str, existing_tasks: list,
                         history: list = None, memories: list = None,
                         user_context: dict = None, user_id: int = None) -> dict:

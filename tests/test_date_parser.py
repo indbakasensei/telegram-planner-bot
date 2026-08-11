@@ -112,6 +112,70 @@ def test_parse_date_hindi_weekday():
     assert date_str == d(2)
 
 
+# ── parse_date: relative ranges ("next week", month/week-end, weekend) ────
+# Resolved deterministically against NOW (Wed 2026-03-04). These were added
+# for the v15.2 M4 goal-deadline work ("set its deadline to next month end") --
+# a bare relative range must NEVER fall through unparsed and force the user
+# to type an explicit date. "next month end" must resolve to end-of-NEXT
+# month, never the this-month value the plain "month" pattern would give.
+
+def test_parse_date_next_week():
+    date_str, err = parse_date("next week", NOW)
+    assert date_str == d(7) and err is None
+
+
+def test_parse_date_next_week_in_sentence():
+    date_str, _ = parse_date("set its deadline to next week", NOW)
+    assert date_str == d(7)
+
+
+def test_parse_date_this_month_end():
+    date_str, _ = parse_date("this month", NOW)
+    assert date_str == "2026-03-31"
+
+
+def test_parse_date_this_month_end_in_sentence():
+    date_str, _ = parse_date("by the end of this month", NOW)
+    assert date_str == "2026-03-31"
+
+
+def test_parse_date_next_month_end():
+    date_str, err = parse_date("next month end", NOW)
+    assert date_str == "2026-04-30" and err is None
+
+
+def test_parse_date_next_month_end_year_boundary():
+    # Dec 1, 2026 -> next month end = 2027-01-31 (year rollover).
+    dec = datetime(2026, 12, 1, 10, 0, tzinfo=IST)
+    date_str, _ = parse_date("next month end", dec)
+    assert date_str == "2027-01-31"
+
+
+def test_parse_date_next_month_end_not_this_month():
+    # The regression this guards against: "next month end" contains the word
+    # "month", so it must NOT be swallowed by the this-month pattern (which
+    # would return 2026-03-31, i.e. THIS month's end).
+    date_str, _ = parse_date("next month end", NOW)
+    assert date_str == "2026-04-30"
+
+
+def test_parse_date_weekend():
+    date_str, _ = parse_date("this weekend", NOW)
+    assert date_str == "2026-03-07"          # upcoming Saturday
+
+
+def test_parse_date_next_weekend():
+    date_str, _ = parse_date("next weekend", NOW)
+    assert date_str == "2026-03-14"          # Saturday a week after the upcoming one
+
+
+def test_parse_date_weekend_on_weekend_never_past():
+    # Said ON Saturday, "weekend" must not resolve to a past date (yesterday).
+    sat = datetime(2026, 3, 7, 10, 0, tzinfo=IST)   # a Saturday
+    date_str, _ = parse_date("weekend", sat)
+    assert date_str >= "2026-03-07"
+
+
 # ── parse_date: month/day and ISO ────────────────────────────────────────
 
 def test_parse_date_month_day_this_year():

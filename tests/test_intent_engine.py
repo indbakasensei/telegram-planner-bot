@@ -163,6 +163,25 @@ def test_schedule_query_weak_fallback(engine):
     assert r.tier == 4
 
 
+def test_date_query_phrasing_not_add_after_relative_ranges(engine):
+    """v15.2 M4: date_parser now resolves 'next week' (goal-deadline work).
+    That must NOT turn a schedule QUERY into ADD_TASK -- query phrasing falls
+    through to the weak query fallback (tier 4), never Tier-1 ADD."""
+    for q in ("show me next week", "what's next week",
+              "list tasks next week", "when is next week's plan"):
+        r = engine.classify(q, ctx())
+        assert r.intent == Intent.QUERY_TASK, (q, r)
+
+
+def test_date_add_phrasing_still_add_with_relative_range(engine):
+    """Genuine ADD phrasing with the same resolved date stays ADD_TASK with
+    the date entity -- the relative-range resolution is not lost."""
+    r = engine.classify("add a task next week", ctx())
+    assert r.intent == Intent.ADD_TASK
+    assert r.tier == 1
+    assert r.entities.get("date")
+
+
 # ── Ambiguity scoring ────────────────────────────────────────────────────
 
 def test_tier0_exact_match_has_zero_ambiguity(engine):

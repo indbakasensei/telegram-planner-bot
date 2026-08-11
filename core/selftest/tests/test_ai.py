@@ -26,6 +26,49 @@ def check_ai_configuration():
     return f"{cfg.provider} · {cfg.model_main} · {cfg.base_url}"
 
 
+@selftest(name="AI Tool Contract", category="AI")
+def check_ai_tool_contract():
+    """Offline: the v15.2 M2 tool contract is healthy in the live app — a
+    tool registers, executes through the registry with validated args, and
+    invalid args / duplicate names are rejected before a handler runs. No
+    Telegram surface yet (the AI Worker is a later milestone)."""
+    from core.ai.tools import (
+        RiskLevel, Tool, ToolRegistry, ToolRegistryError, ToolSpec,
+    )
+
+    class _Probe(Tool):
+        @property
+        def spec(self):
+            return ToolSpec(
+                name="probe", description="M2 self-test probe",
+                parameters={"type": "object",
+                            "properties": {"x": {"type": "integer"}}},
+                risk=RiskLevel.MUTATING)
+
+        def run(self, **kwargs):
+            return f"x={kwargs['x']}"
+
+    reg = ToolRegistry()
+    reg.register(_Probe())
+
+    good = reg.execute("probe", {"x": 2})
+    if not good.ok or good.output != "x=2":
+        raise SelfTestFail(f"valid tool call failed: {good.output!r}")
+
+    bad = reg.execute("probe", {"x": "not-an-int"})
+    if bad.ok or bad.error_code != "invalid_args":
+        raise SelfTestFail("invalid args reached the tool handler")
+
+    try:
+        reg.register(_Probe())           # duplicate name must be refused
+    except ToolRegistryError:
+        pass
+    else:
+        raise SelfTestFail("duplicate tool name was not rejected")
+
+    return "register → validate → execute → contain OK"
+
+
 @selftest(name="AI Provider", category="AI")
 def check_ai_provider():
     from baka_brain import check_api_status
