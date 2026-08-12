@@ -848,6 +848,7 @@ def help_cards(version, user_is_admin):
             f"{code('resettasks')} · {code('resethabits')} · {code('resetall')} — destructive resets",
             f"{code('sql <query>')} — raw read-only queries",
             f"{code('diag')} — entity-resolution trace (Requested: X → Resolved: Y)",
+            f"{code('control')} — Manual Control Plane: workspaces · entities · topics · equipment · identity",
             f"{code('misses')} · {code('reviewed <id>')} — capability gap review",
             f"{i('Workspace mode:')} the v15 Workspace OS is gated by the "
             f"{code('WORKSPACE')} env flag (default OFF). When ON, free-text also "

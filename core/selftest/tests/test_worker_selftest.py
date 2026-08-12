@@ -5,10 +5,10 @@ and the owner-only canary (main.py). These probes verify from the live app
 that the dormant surface stays healthy and verifiable from /selftest:
 
   1. "AI Worker (dormant)" — the flag defaults OFF, the gate is owner-only,
-     the tool surface the Worker builds on is the complete 30-tool M4
-     registry (M3's 24 + update_goal_deadline + the 5-tool topic-lifecycle
-     family), MAX_TOOL_CALLS is the hard cap, and there is NO separate
-     "reminders" tool (reminders ARE task due-times).
+     the tool surface the Worker builds on is the complete 37-tool registry
+     (M3's 24 + update_goal_deadline + the 5-tool topic-lifecycle family +
+     the 7 M5 lifecycle tools), MAX_TOOL_CALLS is the hard cap, and there is
+     NO separate "reminders" tool (reminders ARE task due-times).
   2. "AI Worker deterministic round-trip" — ONE run through a deterministic
      fake model (no network, no real GLM) proving the bounded loop compiles
      context, executes a MUTATING tool through the ToolRegistry, honours the
@@ -54,8 +54,8 @@ def check_ai_worker_dormant():
 
     reg = _registry()
     names = {t.spec.name for t in reg.all()}
-    if len(names) != 30:
-        raise SelfTestFail(f"expected 30 tools, got {len(names)}")
+    if len(names) != 37:
+        raise SelfTestFail(f"expected 37 tools, got {len(names)}")
     if "reminders" in names or "list_reminders" in names:
         raise SelfTestFail("a separate 'reminders' tool exists (M4 forbids it; "
                            "reminders ARE task due-times)")
@@ -83,7 +83,22 @@ def check_ai_worker_dormant():
         raise SelfTestFail("delete_entity_topic not classified DESTRUCTIVE "
                            "(M4 item8: a topic delete is destructive + "
                            "confirmation-gated)")
-    return (f"dormant/owner-only ok · WORKER={WORKER} · 30 tools · "
+    # v15.3 M5 — the Manual Control Plane lifecycle tools ride the SAME
+    # registry the Worker executes through (no second logic layer). The
+    # Worker gains them too; the destructive ones stay confirmation-gated.
+    for tname in ("create_workspace", "rename_workspace", "close_workspace",
+                  "archive_workspace", "delete_entity", "repair_topics",
+                  "equip_item"):
+        if tname not in names:
+            raise SelfTestFail(f"{tname} tool missing (M5 lifecycle, v15.3)")
+    for tname in ("archive_workspace", "delete_entity"):
+        spec = reg.get(tname).spec
+        if spec.risk is not RiskLevel.DESTRUCTIVE:
+            raise SelfTestFail(f"{tname} not classified DESTRUCTIVE (M5)")
+        if not spec.confirmation_message:
+            raise SelfTestFail(f"{tname} DESTRUCTIVE without confirmation "
+                               "message (M5-F gate)")
+    return (f"dormant/owner-only ok · WORKER={WORKER} · 37 tools · "
             f"MAX_TOOL_CALLS={MAX_TOOL_CALLS}")
 
 

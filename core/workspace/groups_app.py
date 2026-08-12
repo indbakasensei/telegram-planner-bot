@@ -261,6 +261,13 @@ class WorkspaceGroups:
         return ActiveContext(
             ws_id, ws.title if ws else None, eid, entity_title, linked)
 
+    def close_workspace(self, user_id):
+        """Clear the active workspace (and active entity) WITHOUT touching the
+        workspace row. v15.3 M5: the Manual Control Plane's "Close" action —
+        closing the active context must never delete or archive the workspace.
+        No-op when nothing is active (clear_active on an empty row is safe)."""
+        self._s.tg_bindings.clear_active(user_id)
+
     # ── Telegram-touching ──────────────────────────────
     def link_group(self, user_id, chat_id, projection):
         """Link the active workspace to the Telegram group `chat_id`."""

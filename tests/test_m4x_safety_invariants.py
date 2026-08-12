@@ -254,18 +254,23 @@ class TestCreateVsUpdateSemantics:
 
 
 class TestWorkspaceLifecycleAudit:
-    """M4 item 11 invariant: workspace lifecycle stays safe. No workspace
-    delete/archive tool may exist; every DESTRUCTIVE tool must declare a
-    confirmation_message so the Worker routes it through the existing
-    confirmation mechanism (never executes it directly)."""
+    """M4 item 11 invariant, re-pinned for v15.3 M5: the M5 control plane
+    shares the lifecycle with the Worker, so archive_workspace and
+    delete_entity are now reachable registry tools. The invariant that MUST
+    hold: the cascade op `delete_workspace` never exists, and every
+    DESTRUCTIVE tool declares a confirmation_message so the Worker AND the
+    control plane route it through the shared confirmation mechanism (never
+    execute it directly)."""
 
     def test_no_destructive_workspace_tool(self, temp_db, uid):
         _, ws = _game_ws(uid)
         reg = build_tool_registry(uid)
         names = reg.names()
-        assert "delete_workspace" not in names
-        assert "archive_workspace" not in names
-        assert "delete_entity" not in names    # entities delete only via topic tools
+        assert "delete_workspace" not in names   # the cascade op stays off-surface
+        # M5: archive/delete exist as soft ops, but each is DESTRUCTIVE and
+        # carries a confirmation_message (asserted below).
+        assert "archive_workspace" in names
+        assert "delete_entity" in names
 
     def test_every_destructive_tool_has_confirmation(self, temp_db, uid):
         _, ws = _game_ws(uid)

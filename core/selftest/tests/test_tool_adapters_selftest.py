@@ -1,7 +1,7 @@
-"""Self-tests: v15.2 M3 — AI Tool Adapters (category AI).
+"""Self-tests: v15.2 M3 + v15.3 M5 — AI Tool Adapters (category AI).
 
 Live, offline probes confirming the M3 adapter surface (core/ai/tool_adapters.py)
-is healthy in the running app: the full 24-tool registry builds with the M2
+is healthy in the running app: the full 37-tool registry builds with the M2
 contract and honest risk classifications, and a deterministic entity+task
 round-trip through ONE registry drives the alpha.13 projection (a fake client
 proves the real card/update text is posted — the adapters never bypass the
@@ -11,7 +11,8 @@ in finally blocks, so they leave no residue and are safe to re-run.
 from core.selftest.models import SELFTEST_USER_ID, SelfTestFail
 from core.selftest.registry import selftest
 
-# The full M3 + M4 tool surface (30 names).
+# The full M3 + M4 + M5 tool surface (37 names; the 7 M5 lifecycle tools are
+# pinned here as the deliberate 30→37 registry growth — see V15_3_MANUAL_CONTROL_PLANE.md).
 _EXPECTED_TOOLS = frozenset({
     # tasks
     "list_tasks", "find_task", "create_task", "update_task",
@@ -32,6 +33,11 @@ _EXPECTED_TOOLS = frozenset({
     "delete_entity_topic", "list_entity_topics",
     # memory / recall
     "get_memories", "search_memories", "recall",
+    # v15.3 M5 — Manual Control Plane lifecycle (thin wrappers over the SAME
+    # domain services; archive_workspace + delete_entity are DESTRUCTIVE and
+    # carry confirmation messages, asserted below)
+    "create_workspace", "rename_workspace", "close_workspace",
+    "archive_workspace", "delete_entity", "repair_topics", "equip_item",
 })
 
 # Names that MUST be classified as writing state (never READ_ONLY).
@@ -43,6 +49,10 @@ _WRITING_TOOLS = frozenset({
     # topic lifecycle: ensure + lock persist state (delete is DESTRUCTIVE,
     # asserted separately below)
     "ensure_entity_topic", "set_entity_topic_locked",
+    # v15.3 M5 lifecycle tools persist state (archive/delete are DESTRUCTIVE,
+    # asserted separately below)
+    "create_workspace", "rename_workspace", "close_workspace",
+    "repair_topics", "equip_item",
 })
 
 
@@ -69,10 +79,15 @@ def check_ai_tool_adapter_registry():
         spec = reg.get(name).spec
         if spec.risk is RiskLevel.READ_ONLY:
             raise SelfTestFail(f"{name} misclassified as READ_ONLY")
-    if reg.get("delete_task").spec.risk is not RiskLevel.DESTRUCTIVE:
-        raise SelfTestFail("delete_task not classified DESTRUCTIVE")
-    if reg.get("delete_entity_topic").spec.risk is not RiskLevel.DESTRUCTIVE:
-        raise SelfTestFail("delete_entity_topic not classified DESTRUCTIVE")
+    for name in ("delete_task", "delete_entity_topic", "archive_workspace",
+                 "delete_entity"):
+        if reg.get(name).spec.risk is not RiskLevel.DESTRUCTIVE:
+            raise SelfTestFail(f"{name} not classified DESTRUCTIVE")
+    # every DESTRUCTIVE tool must carry a confirmation message (the M5-F gate)
+    for name in ("delete_task", "delete_entity_topic", "archive_workspace",
+                 "delete_entity"):
+        if not reg.get(name).spec.confirmation_message:
+            raise SelfTestFail(f"{name} DESTRUCTIVE without confirmation message")
     if any(t.spec.risk is RiskLevel.SYSTEM for t in reg.all()):
         raise SelfTestFail("a tool is classified SYSTEM (no admin surface in M3)")
     return f"adapter registry ok · {len(names)} tools, risks honest"

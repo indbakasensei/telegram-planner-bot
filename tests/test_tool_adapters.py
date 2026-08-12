@@ -812,12 +812,20 @@ def test_risk_classification(temp_db, uid):
         "list_workspaces": RiskLevel.READ_ONLY, "get_workspace": RiskLevel.READ_ONLY,
         "open_workspace": RiskLevel.MUTATING,   # honest: changes active state
         "inspect_workspace": RiskLevel.READ_ONLY,
+        # workspace lifecycle (v15.3 M5 — shared with the Worker/control plane)
+        "create_workspace": RiskLevel.MUTATING,
+        "rename_workspace": RiskLevel.MUTATING,
+        "close_workspace": RiskLevel.MUTATING,   # clears active ctx, never deletes
+        "archive_workspace": RiskLevel.DESTRUCTIVE,   # soft, but leaves active surface
         # topic lifecycle (v15.2 M4 items 7/8/10)
         "get_entity_topic": RiskLevel.READ_ONLY,
         "ensure_entity_topic": RiskLevel.MUTATING,
         "set_entity_topic_locked": RiskLevel.MUTATING,
         "delete_entity_topic": RiskLevel.DESTRUCTIVE,   # gated by the Worker
         "list_entity_topics": RiskLevel.READ_ONLY,
+        "delete_entity": RiskLevel.DESTRUCTIVE,   # v15.3 M5: soft-delete the row
+        "repair_topics": RiskLevel.MUTATING,   # v15.3 M5: idempotent self-heal
+        "equip_item": RiskLevel.MUTATING,   # v15.3 M5-E: writes the weapon field
         "get_memories": RiskLevel.READ_ONLY, "search_memories": RiskLevel.READ_ONLY,
         "recall": RiskLevel.READ_ONLY,
     }
@@ -846,31 +854,39 @@ def test_delete_entity_topic_carries_confirmation_message(temp_db, uid):
 
 
 def test_workspace_lifecycle_has_no_silent_destructive_path(temp_db, uid):
-    """v15.2 M4 item 11 audit invariant: the workspace lifecycle is
-    deliberately READ + OPEN only in the Worker surface. delete_workspace
-    exists at the DB level (database.py) but must NEVER be reachable from NL
-    without an explicit confirmation gate -- workspace deletion cascades
-    entities, topics and bindings and is effectively irreversible. Pin the
-    current surface and guard the future: any workspace delete/archive tool
-    that is ever added must be DESTRUCTIVE with a confirmation_message (the
-    Worker gates on that mechanically), never a silent MUTATING op."""
+    """v15.2 M4 item 11 audit invariant, re-pinned for v15.3 M5: the M5
+    control plane shares the lifecycle with the Worker, so create/rename/
+    close/archive are now reachable as registry tools. The invariant that
+    MUST hold is the destructive cascade: `delete_workspace` (the op that
+    drops entities + topics + bindings, effectively irreversible) stays off
+    the surface entirely, and the only destructive lifecycle op that exists —
+    archive_workspace — is DESTRUCTIVE with a confirmation_message (the
+    Worker and the control plane both gate on that mechanically, never a
+    silent MUTATING run). close_workspace only clears the persisted active
+    context, so it is honestly MUTATING."""
     reg = _wire(uid)
     names = set(reg.names())
     ws_tools = {n for n in names if n.startswith(
         ("list_workspace", "get_workspace", "open_workspace",
          "inspect_workspace", "create_workspace", "rename_workspace",
-         "archive_workspace", "delete_workspace"))}
-    # Today: read + open only -- create/rename/archive/delete are NOT
-    # reachable from NL (they live behind explicit commands or the DB).
-    assert ws_tools == {"list_workspaces", "get_workspace",
-                        "open_workspace", "inspect_workspace"}, ws_tools
-    for name in ("create_workspace", "rename_workspace", "archive_workspace",
-                 "delete_workspace"):
-        assert name not in names, (
-            f"{name} became NL-reachable -- re-audit it (must be DESTRUCTIVE "
-            "with confirmation) before exposing")
-    # Future-proof guard: a workspace delete/archive tool must never sneak
-    # through as MUTATING.
+         "close_workspace", "archive_workspace", "delete_workspace"))}
+    # The full M5 lifecycle surface: read/open/create/rename/close/archive.
+    assert ws_tools == {"list_workspaces", "get_workspace", "open_workspace",
+                        "inspect_workspace", "create_workspace",
+                        "rename_workspace", "close_workspace",
+                        "archive_workspace"}, ws_tools
+    # The cascade op never becomes a tool.
+    assert "delete_workspace" not in names, (
+        "delete_workspace must stay off the surface -- it cascades entities, "
+        "topics and bindings and is effectively irreversible")
+    # archive is the ONLY destructive lifecycle op: DESTRUCTIVE + confirm.
+    spec = reg.get("archive_workspace").spec
+    assert spec.risk is RiskLevel.DESTRUCTIVE
+    assert spec.confirmation_message
+    # close only clears the active context -- never destructive.
+    assert reg.get("close_workspace").spec.risk is RiskLevel.MUTATING
+    # Future-proof guard: a workspace delete/destroy/archive tool must never
+    # sneak through as MUTATING.
     for name, spec in ((n, reg.get(n).spec) for n in ws_tools):
         if any(w in name for w in ("delete", "destroy", "archive")):
             assert spec.risk is RiskLevel.DESTRUCTIVE, name
@@ -908,3 +924,231 @@ def test_end_to_end_projection_with_real_client(temp_db, uid):
     assert len(client.messages) == 2
     assert client.messages[1][1] == 101
     assert "Level" in client.messages[1][2]
+
+
+# ── v15.3 M5: workspace lifecycle tools ───────────────────────────────────
+def test_create_workspace_creates_and_activates(temp_db, uid):
+    reg = _wire(uid)
+    r = reg.execute("create_workspace",
+                    {"title": "M5_Test_Workspace_A", "template": "game"})
+    assert r.ok
+    ws_id = r.data["workspace_id"]
+    assert r.data["title"] == "M5_Test_Workspace_A"
+    assert r.data["template"] == "game"
+    assert r.data["active"] is True
+    # created + activated through the real DB path, not a second writer
+    ws = EntityEngine().get_workspace_or_none(uid, ws_id)
+    assert ws is not None and ws.title == "M5_Test_Workspace_A"
+    assert db.tg_get_active(uid)[0] == ws_id
+
+
+def test_create_workspace_rejects_unknown_template(temp_db, uid):
+    reg = _wire(uid)
+    r = reg.execute("create_workspace",
+                    {"title": "M5_X", "template": "spaceship"})
+    assert not r.ok and "unknown workspace kind" in r.output
+
+
+def test_rename_workspace_by_name_and_id(temp_db, uid):
+    eng, ws = _game(uid)
+    reg = _wire(uid)
+    by_id = reg.execute("rename_workspace",
+                        {"workspace": ws.id, "title": "M5_Renamed_A"})
+    assert by_id.ok and by_id.data["title"] == "M5_Renamed_A"
+    assert eng.get_workspace_or_none(uid, ws.id).title == "M5_Renamed_A"
+    by_name = reg.execute("rename_workspace",
+                          {"workspace": "M5_Renamed_A", "title": "M5_Renamed_B"})
+    assert by_name.ok
+    assert eng.get_workspace_or_none(uid, ws.id).title == "M5_Renamed_B"
+
+
+def test_rename_workspace_strict_never_silently_renames_active(temp_db, uid):
+    eng, ws = _game(uid)
+    reg = _wire(uid)
+    r = reg.execute("rename_workspace",
+                    {"workspace": "no such workspace", "title": "M5_Sneaky"})
+    assert not r.ok
+    # the real workspace was NOT touched (strict resolution, M4 item 11)
+    assert eng.get_workspace_or_none(uid, ws.id).title == "Genshin"
+
+
+def test_close_workspace_clears_active_never_deletes(temp_db, uid):
+    eng, ws = _game(uid)
+    reg = _wire(uid)
+    assert db.tg_get_active(uid)[0] == ws.id
+    r = reg.execute("close_workspace", {})
+    assert r.ok and r.data["active"] is False
+    # the workspace row survives, still active in storage -- only the
+    # persisted active context is cleared (M5-A invariant)
+    surviving = eng.get_workspace_or_none(uid, ws.id)
+    assert surviving is not None and surviving.status == "active"
+    assert db.tg_get_active(uid) is None or db.tg_get_active(uid)[0] is None
+
+
+def test_close_workspace_noop_when_nothing_active(temp_db, uid):
+    reg = _wire(uid)
+    r = reg.execute("close_workspace", {})
+    assert r.ok and "nothing is active" in r.output
+
+
+def test_archive_workspace_soft_archive_and_confirmation_gate(temp_db, uid):
+    eng, ws = _game(uid)
+    reg = _wire(uid)
+    spec = reg.get("archive_workspace").spec
+    assert spec.risk is RiskLevel.DESTRUCTIVE
+    assert spec.confirmation_message
+    r = reg.execute("archive_workspace", {"workspace": ws.id})
+    assert r.ok and r.data["status"] == "archived" and r.data["noop"] is False
+    assert eng.get_workspace_or_none(uid, ws.id).status == "archived"
+
+
+def test_archive_workspace_already_archived_is_noop(temp_db, uid):
+    eng, ws = _game(uid)
+    eng.archive_workspace(uid, ws.id)
+    reg = _wire(uid)
+    r = reg.execute("archive_workspace", {"workspace": ws.id})
+    assert r.ok and r.data["noop"] is True
+
+
+# ── v15.3 M5: entity soft-delete ──────────────────────────────────────────
+def test_delete_entity_soft_deletes_row_and_keeps_topic(temp_db, uid):
+    eng, ws = _game(uid)
+    client = FakeClient()
+    proj = TelegramProjection(client)
+    proj.link_group(uid, ws.id, -100999)
+    reg = build_tool_registry(uid, projection=proj)
+    created = reg.execute("create_entity",
+                          {"name": XIAO, "entity_type": "character"})
+    assert created.ok
+    eid = created.data["entity_id"]
+    assert len(client.topics) == 1   # the topic exists (projection created it)
+    r = reg.execute("delete_entity", {"entity": XIAO})
+    assert r.ok and r.data["deleted"] is True
+    # the row reads as gone from the active lists, but is retained in storage
+    assert all(m.id != eid for m in eng.list_milestones(uid, ws.id))
+    # the topic binding + Telegram topic SURVIVE (DELETE ENTITY ≠ DELETE
+    # TOPIC, pinned by M4) -- no delete call exists on the projection path.
+    assert db.tg_get_entity_topic("milestone", eid) is not None
+    assert len(client.topics) == 1
+    # double-delete is a clear error, not a silent no-op
+    again = reg.execute("delete_entity", {"entity": XIAO})
+    assert not again.ok
+
+
+def test_delete_entity_clears_active_entity_keeps_workspace(temp_db, uid):
+    eng, ws = _game(uid)
+    reg = _wire(uid)
+    reg.execute("create_entity", {"name": XIAO, "entity_type": "character"})
+    assert db.tg_get_active(uid)[2] is not None   # entity slot set by create
+    r = reg.execute("delete_entity", {"entity": XIAO})
+    assert r.ok
+    active = db.tg_get_active(uid)
+    assert active[0] == ws.id       # workspace stays active
+    assert active[2] is None        # the deleted entity's slot is cleared
+
+
+def test_delete_entity_confirmation_gate(temp_db, uid):
+    reg = _wire(uid)
+    spec = reg.get("delete_entity").spec
+    assert spec.risk is RiskLevel.DESTRUCTIVE
+    assert spec.confirmation_message and "soft-deletes" in spec.confirmation_message
+
+
+def test_delete_entity_missing_target_is_error(temp_db, uid):
+    _game(uid)
+    reg = _wire(uid)
+    r = reg.execute("delete_entity", {"entity": "No Such Entity"})
+    assert not r.ok and "no entity matches" in r.output
+
+
+# ── v15.3 M5: topic repair as a shared tool ───────────────────────────────
+def test_repair_topics_graceful_without_projection(temp_db, uid):
+    reg = _wire(uid)
+    r = reg.execute("repair_topics", {})
+    # Offline: a graceful, contained refusal (ok, reason=not_wired) -- the
+    # shared tool must never raise when no Telegram client is wired.
+    assert r.ok and r.data.get("reason") == "not_wired"
+    assert "not wired" in r.output.lower()
+
+
+def test_repair_topics_collapses_duplicates_and_is_idempotent(temp_db, uid):
+    eng, ws = _game(uid)
+    client = FakeClient()
+    proj = TelegramProjection(client)
+    proj.link_group(uid, ws.id, -100999)
+    # Historical root cause: two rows with the same title -- one untyped
+    # canonical, one concrete kind -- that each got a topic.
+    m1 = eng.add_milestone(uid, ws.id, XIAO, entity_type=None)
+    m2 = eng.add_milestone(uid, ws.id, XIAO, entity_type="character")
+    proj.ensure_entity_topic(uid, ws.id, "milestone", m1.id, XIAO)
+    proj.ensure_entity_topic(uid, ws.id, "milestone", m2.id, XIAO)
+    assert len(client.topics) == 2
+
+    reg = build_tool_registry(uid, projection=proj)
+    first = reg.execute("repair_topics", {})
+    assert first.ok and first.data["workspaces"] == 1
+    assert first.data["duplicates"] >= 1
+    # the canonical row adopted the duplicate's concrete kind (one row, one
+    # topic); the duplicate is reported + skipped, never given a topic.
+    assert eng.get_milestone(uid, m1.id).entity_type == "character"
+    # the repair created no NEW topics: the canonical was already ensured.
+    assert first.data["created"] == 0
+    assert len(client.topics) == 2
+    # idempotent: a second run creates nothing new either.
+    second = reg.execute("repair_topics", {})
+    assert second.ok and second.data["created"] == 0
+
+
+# ── v15.3 M5-E: minimal equipment (weapon field) ──────────────────────────
+def _equip_fixture(uid):
+    """A game workspace with a character + a weapon entity (test data)."""
+    eng, ws = _game(uid)
+    reg = _wire(uid)
+    reg.execute("create_entity", {"name": "M5_Test_Character_A",
+                                  "entity_type": "character"})
+    reg.execute("create_entity", {"name": "M5_Test_Weapon_A",
+                                  "entity_type": "weapon"})
+    return eng, ws, reg
+
+
+def test_equip_item_writes_weapon_field(temp_db, uid):
+    eng, _, reg = _equip_fixture(uid)
+    r = reg.execute("equip_item",
+                    {"character": "M5_Test_Character_A",
+                     "item": "M5_Test_Weapon_A"})
+    assert r.ok and r.data["value"] == "M5_Test_Weapon_A"
+    ch_id = reg.execute("get_entity",
+                        {"entity": "M5_Test_Character_A"}).data["entity_id"]
+    assert eng.get_fields(uid, ch_id).get("weapon") == "M5_Test_Weapon_A"
+
+
+def test_equip_item_omitting_item_unequips(temp_db, uid):
+    eng, _, reg = _equip_fixture(uid)
+    reg.execute("equip_item", {"character": "M5_Test_Character_A",
+                               "item": "M5_Test_Weapon_A"})
+    u = reg.execute("equip_item", {"character": "M5_Test_Character_A"})
+    assert u.ok and u.data["value"] == ""
+    ch_id = reg.execute("get_entity",
+                        {"entity": "M5_Test_Character_A"}).data["entity_id"]
+    assert eng.get_fields(uid, ch_id).get("weapon") in ("", None)
+
+
+def test_equip_item_refuses_artifact_and_wrong_kinds(temp_db, uid):
+    _, _, reg = _equip_fixture(uid)
+    reg.execute("create_entity", {"name": "M5_Test_Artifact_A",
+                                  "entity_type": "artifact"})
+    # artifact item → refused (M5-E boundary), never silently written
+    artifact = reg.execute("equip_item",
+                           {"character": "M5_Test_Character_A",
+                            "item": "M5_Test_Artifact_A"})
+    assert not artifact.ok and "artifact" in artifact.output.lower()
+    # weapon as character → refused
+    weapon_char = reg.execute("equip_item",
+                              {"character": "M5_Test_Weapon_A",
+                               "item": "M5_Test_Weapon_A"})
+    assert not weapon_char.ok
+    # missing item → error
+    missing = reg.execute("equip_item",
+                          {"character": "M5_Test_Character_A",
+                           "item": "No Such Weapon"})
+    assert not missing.ok

@@ -218,13 +218,17 @@ Mitigation today: phrase entity questions with a keyword ("What level is she?",
 `core/ai/tools.py` ships the full Tool Contract (RiskLevel, validated
 `ToolSpec`, unified `ToolResult`/`ToolError`, fail-closed `validate_args`,
 strict `ToolRegistry` with duplicate detection + `execute`),
-`core/ai/tool_adapters.py` (M3/M4) adds **30 thin adapters** built on it via
+`core/ai/tool_adapters.py` (M3/M4/M5) adds **37 thin adapters** built on it via
 `build_tool_registry(user_id, …)` — tasks, habits, goals, entities,
 workspace, memory/recall (M4 adds `update_goal_deadline`, the goal domain's
 OWN deadline tool, plus the **topic lifecycle family** — get/ensure/
 set_locked/delete/list entity topic — keyed ONE canonical topic per
 `(workspace_id, entity_id)`, with `delete_entity_topic` DESTRUCTIVE +
-confirmation-gated and ordinary deletes of locked topics refused), and
+confirmation-gated and ordinary deletes of locked topics refused; M5 adds
+the **Manual Control Plane lifecycle tools** — `create_workspace`/
+`rename_workspace`/`close_workspace`/`archive_workspace` (DESTRUCTIVE +
+confirmation)/`delete_entity` (DESTRUCTIVE + confirmation, soft-delete —
+never the topic)/`repair_topics`/`equip_item`), and
 `core/ai/worker*.py` (M4) adds the **GLM-5.2
 Worker** — a bounded, tool-calling executor (max 6 tool calls, a hard Python
 constant) with a fail-closed structured-output parser, a mechanical
@@ -259,6 +263,40 @@ Documented limitations to know before building on it:
   first task" has no deterministic task_id mapping — the Worker honestly asks
   for the id/title. Task ordinals are M5+ scope; do not expect the Worker to
   resolve them.
+
+### Manual Control Plane + lifecycle (v15.3 M5) — observations
+
+`core/control/` ships the **Manual Control Plane** — `pages.py` (pure
+renderers returning `(text, keyboard)` from `ui_components`), `registry.py`
+(`build_control_registry` = the SAME `ToolRegistry` the Worker executes —
+the no-second-logic proof: the dashboard never writes DB directly),
+`actions.py` (the ONE shared M5-F confirm flow reading each tool spec's
+`confirmation_message`), and `router.py` (the `ctl:` callback namespace +
+`/control` command, admin-only, silent denial per CLAUDE.md). Observations
+worth recording:
+
+- **`topicbackfill`/`topicrepair` have an admin-gating gap.** Their docstrings
+  say "admin" but the commands carry NO `is_admin` gate (main.py) — a
+  non-admin with the chat can run them. The M5 control plane gates genuinely
+  (`/control` is `is_admin`-gated with silent denial). Fixing the two legacy
+  commands is a small follow-up; they were NOT touched in this change-set
+  because the scope was additive control-plane, and the plan's failure policy
+  forbids silent behavior changes. Tracked for a cleanup pass.
+- **The 30→37 tool-count pin is deliberate and documented.** The selftest
+  probes that asserted a "30-tool registry" (`core/selftest/tests/test_ai.py`
+  via `test_worker_selftest.py`, `test_tool_adapters_selftest.py`) were
+  updated to 37 when the 7 M5 lifecycle tools were added — additive, never
+  weakening. Both now ALSO pin the 4 DESTRUCTIVE tools
+  (`delete_task`, `delete_entity_topic`, `archive_workspace`,
+  `delete_entity`) to carry a `confirmation_message`.
+- **`close_workspace` clears active context, never the row.** It is a 1-line
+  call over `tg_bindings.clear_active(user_id)` — the workspace survives
+  (verified by `test_ws_happy_lifecycle`: after close, `list_workspaces`
+  still shows it). "Close" ≠ "delete", matching the M4 audit item 11
+  invariant.
+- **Cross-kind adoption only fires on an UNTYPED row** (`M5_Test_Adopt_A`).
+  A typed row never adopts from an `entity_type` arg — `EntityKindResolver`
+  priority 1 is DB-kind-wins (M4). See `test_ent_duplicate_cross_kind_adopts`.
 
 ### The `analytics` package doesn't exist — AI analytics commands are silently broken
 

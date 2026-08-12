@@ -282,6 +282,32 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > Z.ai-native / healthy-NVIDIA GLM-5.2 smoke + live acceptance on a stronger
 > model, then widening the canary and task ordinals — that is M5 territory.
 >
+> **`v15.3 M5 — Manual Control Plane + Lifecycle (current):** the owner can
+> reliably control and repair BAKA manually, through the SAME underlying
+> tool/domain capabilities the AI uses (binding layering: AI Worker → Manual
+> Dashboard → Telegram commands → Tool Registry → domain services → DB /
+> Telegram projection — the dashboard NEVER writes the DB directly, and there
+> is no second business-logic layer). Shipped: 7 thin registry tools
+> (`create/rename/close/archive workspace`, `delete_entity`, `repair_topics`,
+> `equip_item` — catalog 30→37, additive); the `core/control/` module (pages,
+> registry, actions, router); admin-only `/control` with `ctl:` callbacks; the
+> ONE shared M5-F confirm flow (`begin_confirm`/`confirm_yes`/`confirm_no`,
+> wording from the tool spec, cancel never executes); the generic entity pages
+> per kind (no Genshin hardcoding); the Topic Control Center (locked topics
+> refuse ordinary delete, [Unlock]/[Force delete]/[Back] dialog); the Identity
+> Inspector (exactly 8 rows, no secrets); minimal M5-E equipment (character
+> `weapon` field only — stats/refinement = M6+); no-active-workspace states
+> everywhere. Offline test surface: `tests/test_control_panel.py` (38),
+> `tests/test_m5_adversarial.py` (41 — the 14-scenario M5-H matrix), the new
+> tool tests in `tests/test_tool_adapters.py`, 2 new selftest probes, and the
+> `control_m5.py` regression spec (CTRL-001…010). **Version stamped
+> v15.3.0-alpha.1.** Full design + layering + invariants:
+> [docs/engineering/V15_3_MANUAL_CONTROL_PLANE.md](docs/engineering/V15_3_MANUAL_CONTROL_PLANE.md).
+> **Remaining before M5 is accepted:** live-Telegram acceptance matrix
+> (owner-run, CTRL-001…010 — documented, not claimed offline). **Next (M6+, out
+> of M5 scope):** richer equipment model (stats/refinement/equipped-to linkage),
+> the M6 media vault, M7 cross-topic retrieval, M8 advanced goal logs.
+>
 > **`v15.1.0-alpha.13` — Telegram Entity Topic Projection & Backfill (M10,
 > current):** closes the topic gap. Every entity-creation path — `/add`,
 > natural language ("Create character Arlecchino"), and the new admin-only

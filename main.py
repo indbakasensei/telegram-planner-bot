@@ -213,7 +213,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "15.2.0-alpha.14"
+BAKA_VERSION = "15.3.0-alpha.1"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -1133,6 +1133,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Gathering ──
     if state == "gathering":
         partial, missing = get_gathering(user_id)
+        # v15.3 M5: Manual Control Plane data entry — deterministic parse,
+        # NO AI. Partial dicts started by core/control carry a "_ctl" marker.
+        if partial.get("_ctl"):
+            from core.control.router import route_control_gathering
+            text, kb = await route_control_gathering(
+                update, context, partial, missing,
+                _control_ctx(context, user_id))
+            await update.message.reply_text(text, parse_mode=HTML,
+                                            reply_markup=kb)
+            return
         parsed = parse_all(user_input)
         result = await run_blocking(get_baka_response,
             f"Context: {partial}. Need: {missing}. User: '{user_input}'",
@@ -2084,6 +2094,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v9.0: dashboard navigation router — handled in dashboard module
     if action == "dash":
         await route_dashboard_callback(update, context, parts)
+        return
+
+    # v15.3 M5: Manual Control Plane — admin-only, denied silently to others
+    # (same obscurity as every admin command). Executes through the SAME
+    # ToolRegistry the AI Worker uses — never a second business-logic layer.
+    if action == "ctl":
+        if not is_admin(user_id):
+            return
+        from core.control.router import route_control_callback
+        await route_control_callback(update, context, parts,
+                                     _control_ctx(context, user_id))
         return
 
     if action == "done":
@@ -4089,6 +4110,18 @@ def _ws_projection(context):
     return TelegramProjection(client)
 
 
+def _control_ctx(context, user_id):
+    """A Manual Control Plane ControlContext for `user_id`, wired to the SAME
+    domain singletons the workspace commands use plus a lazy live Telegram
+    projection (built per execution on the running loop — never in a thread,
+    see core/control/registry.py's threading contract)."""
+    from core.control.registry import build_context
+    from core.workspace.engine import EntityEngine
+    return build_context(
+        user_id, storage=storage, engine=EntityEngine(), groups=_WS_GROUPS,
+        projection_factory=lambda: _ws_projection(context))
+
+
 async def _newws_cmd(update, context, kind):
     user_id = update.message.from_user.id
     title = " ".join(context.args).strip() if context.args else ""
@@ -4291,6 +4324,20 @@ async def topicrepair_cmd(update, context):
         f"{total_duplicates} duplicate(s) collapsed, {total_errors} error(s). "
         f"Re-run is a no-op.")
     await update.message.reply_text("\n".join(lines), parse_mode=HTML)
+
+
+async def control_cmd(update, context):
+    """v15.3 M5: the Manual Control Plane entry (/control, admin-only).
+    Non-admins are denied silently, matching every admin command. The
+    dashboard itself never writes the DB or Telegram directly — every
+    mutation executes through the SAME ToolRegistry the AI Worker uses."""
+    user_id = update.message.from_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❓ Unknown command. Type /help.",
+                                        reply_markup=main_menu())
+        return
+    from core.control.router import control_cmd as _ctl_cmd
+    await _ctl_cmd(update, context, _control_ctx(context, user_id))
 
 
 async def openentity_cmd(update, context):
@@ -5305,6 +5352,8 @@ def main() -> None:
     app.add_handler(CommandHandler("topicbackfill", topicbackfill_cmd))
     # v15.2 M4 item 9: self-heal the entity→topic projection
     app.add_handler(CommandHandler("topicrepair", topicrepair_cmd))
+    # v15.3 M5: Manual Control Plane (admin-only, silently denied otherwise)
+    app.add_handler(CommandHandler("control", control_cmd))
     # v15.2 M4.x: entity-resolution trace viewer (admin). Compact diagnostic —
     # renders ResolutionTrace entries ("Requested: X → Resolved: Y"); the trace
     # never holds secrets, so this can never leak one.

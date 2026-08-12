@@ -5,7 +5,9 @@ Builds the COMPACT message list for each Worker model call. Deliberately NOT
 a whole-repo dump: the constitution (fixed rules) plus a small per-request
 data section (date context, the deterministic date-parser result, bounded
 task/memory/history snapshots, the tool catalog). The tool catalog is the
-only scale-relevant term and it is bounded by the 24 M3 tools.
+only scale-relevant term and it is bounded (37 tools as of v15.3 M5; the
+catalog is rendered from request.registry.specs(), never a hand-written
+list, so a registry growth is reflected here automatically).
 
 Determinism rules encoded here (docs/engineering/V15_2_BAKA_BRAIN.md §M4):
   * Dates: the deterministic date_parser.parse_all() result is injected as

@@ -7,9 +7,9 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.2.0-alpha.14** (M4 patch — AI Worker tool contract,
-> typed retrieval, topic lifecycle; dormant behind `WORKER`) — see
-> [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.3.0-alpha.1** (Manual Control Plane + lifecycle —
+> `/control` admin dashboard, workspace/entity/topic repair, equip; the AI
+> Worker stays dormant behind `WORKER`) — see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -167,6 +167,7 @@ truth; the group is the human-readable mirror.
 📷 + "got her crown"      → logs it to Hu Tao's topic (photo + note)
 /topicbackfill            → (admin) backfills topics for existing entities
 /topicrepair              → (admin) self-heal: one entity = one topic
+/control                  → (admin) Manual Control Plane: workspaces · entities · topics · equipment · identity
 /diag                     → (admin) entity-resolution trace (Requested → Resolved)
 /open Nahida  ·  /current ·  /workspaces  ·  /note <text>
 ```
@@ -185,6 +186,19 @@ locked topics, reports exactly what it created/found/merged/failed, and is
 idempotent — re-running is a no-op. An entity's topic can also be inspected
 or durably locked/unlocked so ordinary topic deletion refuses to remove a
 protected topic.
+
+**Manual Control Plane (v15.3 M5).** The owner can control and repair BAKA
+manually through `/control`: create / rename / close / archive workspaces,
+add / view / edit / delete entities per kind, run the Topic Control Center
+(ensure / lock / unlock / delete / repair), inspect an entity's identity
+(8 rows, no secrets), and equip/unequip weapons (M5-E minimal). The dashboard
+is not a second implementation — it executes the *same* ToolRegistry the AI
+Worker uses (`AI Worker → Manual Dashboard → ToolRegistry → domain services →
+DB / Telegram projection`), every destructive action routes through one shared
+confirm flow, and with no active workspace every page says so explicitly.
+Non-owners are denied silently. The tool catalog the Worker builds on grew
+30 → 37 (additive; the 7 new lifecycle tools are thin wrappers over existing
+domain services).
 
 Architecture note: the Workspace OS never learns about Telegram — chat/topic
 ids live only in the adapter's binding tables, and topics are a
@@ -471,8 +485,9 @@ validation (`ToolRegistry.register` rejects malformed schemas + duplicate
 names; `ToolRegistry.execute` never lets invalid args reach a handler).
 On top of it, **`core/ai/tool_adapters.py` (v15.2 M3)** maps each real
 capability — tasks, habits, goals, entities, workspaces, memory/recall,
-topic lifecycle — to **30 thin M2-contract `Tool`s** (`build_tool_registry()`),
-each an
+topic lifecycle — to **37 thin M2-contract `Tool`s** (`build_tool_registry()`;
+30 through v15.2 M4, +7 lifecycle tools in v15.3 M5 — the Manual Control
+Plane and the Worker execute the same registry), each an
 argument-translation + validation + call into BAKA's existing services with
 a structured `ToolResult`. Entity create/update drive the **same alpha.13
 projection** `/add` uses (one topic, append-only updates — never a second
@@ -565,11 +580,14 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v15.1.0-alpha.12 | Conversational entity references & active entity (M1) |
 | v15.1.0-alpha.13 | Telegram entity topic projection & backfill (M10): NL create auto-projects topic + card, append-only updates, idempotent /topicbackfill |
 | v15.2 (in dev) | BAKA Brain · M2+M3+M4 (dormant): M2 unified tool abstraction (RiskLevel, validated ToolSpec, ToolResult/ToolError, fail-closed args, strict registry); M3 real tool adapters — 25 thin M2-contract tools over tasks/habits/goals/entities/workspace/memory/recall (incl. `update_goal_deadline`), alpha.13 projection preserved, per-kind typed referent store; M4 GLM-5.2 Worker — bounded (max 4 tool calls, hard constant), fail-closed structured-output parser, mechanical confirmation gate reusing the existing state machine, never-fabricate-success guard, owner-only canary behind WORKER=1 (seam sits before EntityManager + VIEW quick-match so typed entity/goal/task requests aren't hijacked; WORKER=0 unchanged). Forensic pass on the second live run (1563 offline tests, 28 generic-invariant S1–S30 cases) proved the 7 reported failures were ALL legacy-path (Worker never ran — `WORKER=0`), and fixed one real bug found by the new suite: clearing a goal deadline to `None` is now a success, not a false "goal not found". No live acceptance yet — requires `WORKER=1` + restart + the WKR matrix |
+| v15.3 (in dev) | Manual Control Plane + Lifecycle (M5): admin `/control` dashboard that drives the **same** ToolRegistry the Worker uses (never a second logic layer). 7 thin lifecycle tools (catalog 30→37): create/rename/close/archive workspace, delete_entity, repair_topics, equip_item. `core/control/` pages+registry+actions+router; ONE shared M5-F confirm flow; generic entity pages per kind; Topic Control Center (locked topics refuse ordinary delete, force-delete keeps the entity); Identity Inspector (8 rows, no secrets); minimal M5-E equipment (character `weapon` field). Offline: `test_control_panel.py` (38), `test_m5_adversarial.py` (41 — the 14-scenario M5-H matrix), 2 new selftest probes, CTRL-001…010 regression spec. `BAKA_VERSION=15.3.0-alpha.1`. Remaining gate: owner-run live-Telegram acceptance matrix CTRL-001…010 |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)
 (next: canary-enable `WORKSPACE` → default-on, then user-facing Workspace
-commands/UI and more templates; then v15.2 BAKA Brain milestones M3+).
+commands/UI and more templates; v15.3 M5 (Manual Control Plane) is in dev —
+the owner-run live-Telegram acceptance matrix CTRL-001…010 is the remaining
+gate before it is stamped done; then M6+ equipment/media/retrieval).
 
 ---
 

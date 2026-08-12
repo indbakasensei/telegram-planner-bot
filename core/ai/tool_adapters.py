@@ -61,19 +61,28 @@ from core.ai.workspace_retriever import WorkspaceRetriever
 from core.storage import Storage
 from core.workspace.engine import EntityEngine
 from core.workspace.errors import EntityValidationError, EntityNotFound
-from core.workspace.groups_app import ENTITY_TYPE, WorkspaceGroups, _normalize_title
+from core.workspace.groups_app import (
+    ENTITY_TYPE,
+    KIND_TEMPLATE,
+    WorkspaceGroups,
+    _normalize_title,
+)
 from core.workspace.render import format_entity_card, format_entity_update
 from date_parser import validate_datetime
 
 __all__ = [
     "build_tool_registry",
-    "CreateGoalTool", "CreateHabitTool", "CreateTaskTool", "CreateEntityTool",
-    "DeleteEntityTopicTool", "DeleteTaskTool", "EnsureEntityTopicTool",
+    "ArchiveWorkspaceTool", "CloseWorkspaceTool", "CreateEntityTool",
+    "CreateGoalTool", "CreateHabitTool", "CreateTaskTool",
+    "CreateWorkspaceTool",
+    "DeleteEntityTopicTool", "DeleteEntityTool", "DeleteTaskTool",
+    "EnsureEntityTopicTool", "EquipItemTool",
     "CompleteHabitTool", "CompleteTaskTool",
     "FindTaskTool", "FindEntityTool", "GetEntityTopicTool", "GetEntityTool",
     "GetMemoriesTool", "GetWorkspaceTool", "ListEntitiesTool", "ListEntityTopicsTool",
     "ListGoalsTool", "ListHabitsTool",
-    "ListTasksTool", "ListWorkspacesTool", "RecallTool", "SearchMemoriesTool",
+    "ListTasksTool", "ListWorkspacesTool", "RecallTool", "RenameWorkspaceTool",
+    "RepairTopicsTool", "SearchMemoriesTool",
     "SetEntityTopicLockedTool", "UpdateEntityTool", "UpdateGoalDeadlineTool",
     "UpdateGoalProgressTool",
     "UpdateTaskTool",
@@ -615,6 +624,19 @@ class _WorkspaceTool(_BoundTool):
                 "one first.")
         return ws.id
 
+    def _require_workspace_strict(self, ref=None) -> int:
+        """Like `_require_workspace` but NEVER falls back to the active
+        workspace when an explicit ref is given yet doesn't resolve (v15.2
+        M4.x invariant: a requested ref is not the active ref without
+        explicit evidence — a stale/wrong name must fail, not mutate the
+        active workspace). Only an empty ref means "the active workspace"."""
+        if ref is None or not str(ref).strip():
+            return self._require_workspace(None)
+        ws = self._find_workspace(ref)
+        if ws is None:
+            raise self._err(f"no workspace matches {ref!r}.")
+        return ws.id
+
 
 class WsListTool(_WorkspaceTool):
     @property
@@ -743,6 +765,15 @@ class _EntityTool(_WorkspaceTool):
     def _entities(self, ws_id):
         return list(self._eng.list_milestones(self._uid, ws_id))
 
+    def _no_projection(self):
+        """Contained, non-error report for a tool that needs a wired
+        TelegramProjection but has none. Shared by the topic tools and the
+        repair tool -- a missing projection is a soft no-op, never a raise."""
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output="Telegram projection is not wired — nothing to do.",
+            data={"reason": "not_wired"})
+
     def _resolve_entity(self, ws_id, ref, action="resolve"):
         """Typed referent store FIRST (current-run wins -- never a stale
         active entity from a previous turn, and a pronoun pointing at a
@@ -844,6 +875,21 @@ class _EntityTool(_WorkspaceTool):
         return {"entity_id": m.id, "title": m.title, "entity_type": m.entity_type,
                 "workspace_id": workspace_id, "workspace_title": workspace_title,
                 "status": m.status, "progress": m.progress, "fields": m.fields}
+
+    def _require_entity_strict(self, ws_id, ref):
+        """Resolve an entity in a workspace STRICTLY: #id, exact title, or a
+        UNIQUE partial — never pronouns/ordinals/active-referent fallback and
+        never a cross-kind reach (v15.2 M4.x invariant). Used by the
+        deterministic manual control plane so a stale or ambiguous ref fails
+        instead of mutating the wrong entity. Returns the Milestone or raises."""
+        ref = (ref or "").strip()
+        if not ref:
+            raise self._err("an entity reference is required.")
+        entities = self._entities(ws_id)
+        target = self._name_match(ref, entities)
+        if target is None:
+            raise self._err(f"no entity matches {ref!r} in workspace #{ws_id}.")
+        return target
 
 
 class CreateEntityTool(_EntityTool):
@@ -1256,12 +1302,6 @@ class _TopicTool(_EntityTool):
             raise self._err(f"no entity matches {ref!r} in workspace #{ws_id}.")
         return ws_id, m
 
-    def _no_projection(self):
-        return ToolResult(
-            tool=self.spec.name, ok=True,
-            output="Telegram projection is not wired — nothing to do.",
-            data={"reason": "not_wired"})
-
 
 class GetEntityTopicTool(_TopicTool):
     @property
@@ -1552,6 +1592,267 @@ class RecallTool(_BoundTool):
                           output=f"Found {len(data)} related item(s).", data=data)
 
 
+# ── v15.3 M5: workspace lifecycle (Manual Control Plane + Lifecycle) ───────
+# Thin tools wrapping the SAME domain methods /newgame, /use, /topicrepair and
+# the M4 topic tools use — never a second implementation. The Manual Control
+# Plane and the AI Worker execute through these identically.
+class _WorkspaceLifecycleTool(_WorkspaceTool):
+    """Workspace lifecycle tools additionally hold the WorkspaceGroups
+    service so create/close/repair use the exact contract the manual commands
+    use (WorkspaceGroups.create, close_workspace, repair_topics)."""
+
+    def __init__(self, user_id, storage=None, engine=None, groups=None,
+                 typed_refs=None):
+        super().__init__(user_id, storage, engine, typed_refs=typed_refs)
+        self._groups = groups or WorkspaceGroups(self._s, self._eng)
+
+
+class CreateWorkspaceTool(_WorkspaceLifecycleTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "create_workspace",
+            "Create a workspace of a friendly kind and make it the ACTIVE "
+            "workspace (same side effect /newgame has). Kinds: game, "
+            "project, goal, workspace.",
+            {"type": "object", "properties": {
+                "title": {"type": "string", "minLength": 1},
+                "template": {"type": "string", "default": "game",
+                             "description": "game, project, goal, or workspace "
+                                            "(default game)"}},
+             "required": ["title"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, title, template="game", **kwargs) -> ToolResult:
+        kind = (template or "game").strip().lower()
+        if kind not in KIND_TEMPLATE:
+            raise self._err(f"unknown workspace kind {template!r} — use "
+                            "game, project, goal, or workspace.")
+        ws = self._groups.create(self._uid, kind, title)
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output=f"Created {kind} workspace #{ws.id} {ws.title!r} and made "
+                   "it active.",
+            data={"workspace_id": ws.id, "title": ws.title,
+                  "template": ws.template, "active": True})
+
+
+class RenameWorkspaceTool(_WorkspaceLifecycleTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "rename_workspace",
+            "Rename a workspace. Strict: an explicit workspace ref that does "
+            "not resolve fails (never silently renames the active workspace).",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"],
+                              "description": "workspace name or #id (defaults "
+                                             "to the active one)"},
+                "title": {"type": "string", "minLength": 1}},
+             "required": ["workspace", "title"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, workspace, title, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace_strict(workspace)
+        ws = self._eng.rename_workspace(self._uid, ws_id, title)
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output=f"Renamed workspace #{ws.id} to {ws.title!r}.",
+            data={"workspace_id": ws.id, "title": ws.title})
+
+
+class CloseWorkspaceTool(_WorkspaceLifecycleTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "close_workspace",
+            "Close the active workspace: clear the persisted active context "
+            "(workspace + entity). NEVER deletes or archives the workspace — "
+            "it stays in storage, just not active. No-op when nothing is "
+            "active.",
+            {"type": "object", "properties": {}},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, **kwargs) -> ToolResult:
+        self._groups.close_workspace(self._uid)
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output="Closed the active workspace (nothing is active now).",
+            data={"active": False})
+
+
+class ArchiveWorkspaceTool(_WorkspaceLifecycleTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "archive_workspace",
+            "Archive a workspace: a SOFT lifecycle transition to 'archived' "
+            "— every entity, note, and Telegram binding stays in storage "
+            "(nothing is deleted). DESTRUCTIVE in the risk sense: the "
+            "workspace leaves the active surface. The Worker asks for "
+            "confirmation before this ever runs.",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"],
+                              "description": "workspace name or #id (defaults "
+                                             "to the active one)"}},
+             "required": ["workspace"]},
+            risk=RiskLevel.DESTRUCTIVE,
+            confirmation_message=("This archives the workspace (soft — nothing "
+                                  "is deleted, it just stops being active). "
+                                  "Archive it?"))
+
+    def run(self, workspace, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace_strict(workspace)
+        before = self._eng.get_workspace_or_none(self._uid, ws_id)
+        ws = self._eng.archive_workspace(self._uid, ws_id)
+        if before is not None and before.status == ws.status:
+            return ToolResult(
+                tool=self.spec.name, ok=True,
+                output=f"Workspace #{ws.id} {ws.title!r} was already "
+                       f"{ws.status}.",
+                data={"workspace_id": ws.id, "title": ws.title,
+                      "status": ws.status, "noop": True})
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output=f"Archived workspace #{ws.id} {ws.title!r}.",
+            data={"workspace_id": ws.id, "title": ws.title,
+                  "status": ws.status, "noop": False})
+
+
+class DeleteEntityTool(_EntityTool):
+    """Soft-delete the DB entity row. DISTINCT from delete_entity_topic: the
+    Telegram topic (if any) is untouched — a topic is deleted through the
+    topic tools, never silently here."""
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            "delete_entity",
+            "Soft-delete a workspace entity: the row is stamped deleted and "
+            "stops appearing in active lists, but stays in storage. Its "
+            "Telegram topic is NEVER touched — delete a topic separately via "
+            "delete_entity_topic. DESTRUCTIVE — the Worker asks for "
+            "confirmation before this ever runs.",
+            {"type": "object", "properties": {
+                "entity": {"type": "string", "minLength": 1},
+                "workspace": {"type": ["string", "integer"]}},
+             "required": ["entity"]},
+            risk=RiskLevel.DESTRUCTIVE,
+            confirmation_message=("This soft-deletes the entity (the Telegram "
+                                  "topic, if any, stays). Delete it?"))
+
+    def run(self, entity, workspace=None, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace_strict(workspace)
+        m = self._require_entity_strict(ws_id, entity)
+        self._eng.delete_milestone(self._uid, m.id)
+        # If it was the active entity, clear just the entity slot (keep the
+        # workspace active) so a later photo/log can't target a deleted row.
+        active = self._s.tg_bindings.get_active(self._uid)
+        if active and active[0] is not None and active[2] == m.id:
+            self._s.tg_bindings.set_active(self._uid, active[0])
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output=f"Deleted entity {m.title!r} (#{m.id}) from workspace "
+                   f"#{ws_id} (topic untouched).",
+            data={"entity_id": m.id, "title": m.title, "workspace_id": ws_id,
+                  "deleted": True})
+
+
+class RepairTopicsTool(_EntityTool):
+    """The /topicrepair command's domain call as a shared tool, so the Topic
+    Control Center's [Repair] button runs the exact idempotent self-heal the
+    command runs (never a second repair implementation)."""
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            "repair_topics",
+            "Self-heal the entity→topic projection across every linked "
+            "workspace: collapse title-duplicate entities onto one canonical "
+            "entity/topic, adopt a concrete kind onto an untyped canonical "
+            "row, ensure a topic + current card for every canonical entity, "
+            "and preserve locked bindings. Idempotent — re-running creates "
+            "nothing when nothing is broken.",
+            {"type": "object", "properties": {}},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, **kwargs) -> ToolResult:
+        if self._projection is None:
+            return self._no_projection()
+        report = self._groups.repair_topics(self._uid, self._projection)
+        created = existing = duplicates = errors = 0
+        for info in report.values():
+            created += len(info.get("created") or [])
+            existing += len(info.get("existing") or [])
+            duplicates += len(info.get("duplicates") or [])
+            errors += len(info.get("errors") or [])
+        summary = (f"Repaired {len(report)} workspace(s): {created} topic(s) "
+                   f"created, {existing} already fine, {duplicates} "
+                   f"duplicate(s) collapsed, {errors} error(s).")
+        return ToolResult(
+            tool=self.spec.name, ok=True, output=summary,
+            data={"workspaces": len(report), "created": created,
+                  "existing": existing, "duplicates": duplicates,
+                  "errors": errors})
+
+
+class EquipItemTool(_EntityTool):
+    """v15.3 M5-E minimal Genshin equipment foundation: equip a WEAPON entity
+    onto a CHARACTER entity by writing the character's existing game-template
+    `weapon` field with the item's title (deterministic, schema-clean — no
+    second equipment database). `item` omitted clears the field (unequip).
+    Artifact slots / refinement / stats are M6+, documented in
+    docs/engineering/V15_3_MANUAL_CONTROL_PLANE.md — an artifact item is
+    refused here, never silently written."""
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            "equip_item",
+            "Equip a weapon entity onto a character entity: writes the "
+            "character's existing game-template 'weapon' field with the "
+            "weapon's title. Omit `item` to unequip (clears the field). "
+            "Artifacts are refused — artifact equipment is not implemented. "
+            "Never touches any other field or the Telegram topic.",
+            {"type": "object", "properties": {
+                "character": {"type": "string", "minLength": 1},
+                "item": {"type": "string", "description": "weapon entity "
+                          "name/#id; omit to unequip"},
+                "workspace": {"type": ["string", "integer"]}},
+             "required": ["character"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, character, item=None, workspace=None, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace_strict(workspace)
+        ch = self._require_entity_strict(ws_id, character)
+        ch_kind = (ch.entity_type or KIND_ENTITY).lower()
+        if ch_kind in (KIND_WEAPON, KIND_ARTIFACT):
+            raise self._err(f"{ch.title!r} is a {ch_kind}, not an equippable "
+                            "character.")
+        if item is None or not str(item).strip():
+            updated = self._eng.update_field(self._uid, ch.id, "weapon", "")
+            return ToolResult(
+                tool=self.spec.name, ok=True,
+                output=f"Unequipped {ch.title!r}'s weapon.",
+                data={"entity_id": ch.id, "title": ch.title, "field": "weapon",
+                      "value": ""})
+        it = self._require_entity_strict(ws_id, item)
+        it_kind = (it.entity_type or KIND_ENTITY).lower()
+        if it_kind not in (KIND_WEAPON, KIND_ARTIFACT):
+            raise self._err(f"{it.title!r} is a {it_kind}, not equippable — "
+                            "only weapon/artifact items.")
+        if it_kind == KIND_ARTIFACT:
+            raise self._err(
+                f"{it.title!r} is an artifact — artifact equipment (slots) "
+                "isn't implemented in M5; see the M5 doc.")
+        updated = self._eng.update_field(self._uid, ch.id, "weapon", it.title)
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output=f"Equipped {it.title!r} on {ch.title!r}.",
+            data={"entity_id": ch.id, "title": ch.title, "field": "weapon",
+                  "value": it.title, "item_id": it.id})
+
+
 # ── registry builder ──────────────────────────────────────────────────────
 def build_tool_registry(user_id: int,
                         storage: Storage | None = None,
@@ -1627,6 +1928,22 @@ def build_tool_registry(user_id: int,
         WsGetTool(user_id, storage, engine, typed_refs=typed_refs),
         WsOpenTool(user_id, storage, engine, typed_refs=typed_refs),
         WsInspectTool(user_id, storage, engine, typed_refs=typed_refs),
+        # v15.3 M5: workspace lifecycle + entity delete + topic repair + equip
+        # (Manual Control Plane + Lifecycle — same tools the manual UI uses)
+        CreateWorkspaceTool(user_id, storage, engine, groups,
+                            typed_refs=typed_refs),
+        RenameWorkspaceTool(user_id, storage, engine, groups,
+                            typed_refs=typed_refs),
+        CloseWorkspaceTool(user_id, storage, engine, groups,
+                           typed_refs=typed_refs),
+        ArchiveWorkspaceTool(user_id, storage, engine, groups,
+                             typed_refs=typed_refs),
+        DeleteEntityTool(user_id, storage, engine, groups, projection, ref_ctx,
+                         typed_refs=typed_refs),
+        RepairTopicsTool(user_id, storage, engine, groups, projection, ref_ctx,
+                         typed_refs=typed_refs),
+        EquipItemTool(user_id, storage, engine, groups, projection, ref_ctx,
+                      typed_refs=typed_refs),
         # memory / recall (read-only)
         GetMemoriesTool(user_id, storage, engine, typed_refs=typed_refs),
         SearchMemoriesTool(user_id, storage, engine, typed_refs=typed_refs),

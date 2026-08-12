@@ -11,6 +11,77 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v15.3.0-alpha.1 — Manual Control Plane + Lifecycle (M5)
+
+> **BAKA can be reliably controlled and repaired manually, using the same
+> underlying tool/domain capabilities that AI uses.** Binding layering (never
+> a second logic layer): `AI Worker → Manual Dashboard → Telegram commands →
+> Tool Registry → domain services → DB / Telegram projection`. The dashboard
+> NEVER writes the DB directly — every mutation executes a ToolRegistry tool
+> (the identical path `worker_confirm` uses). Admin-only `/control`, silently
+> denied to others (CLAUDE.md obscurity rule). Full design:
+> [docs/engineering/V15_3_MANUAL_CONTROL_PLANE.md](docs/engineering/V15_3_MANUAL_CONTROL_PLANE.md).
+
+**What shipped** (user-visible surface):
+- **`/control`** — the owner's Manual Control Plane: Workspaces · Entities ·
+  Topics · Equipment · Identity pages, with an explicit "no workspace active"
+  state on every page instead of a crash or a silent empty list.
+- **Workspace control (M5-A)** — create / rename / open-switch / close /
+  archive. `Close` clears the active context but NEVER deletes the workspace
+  row; `Archive` is a soft lifecycle transition (DESTRUCTIVE + confirmation).
+- **Entity control (M5-B)** — generic add / view / edit / delete pages per
+  kind (Character / Weapon / Artifact) generated from the template's FieldSpecs
+  (no Genshin hardcoding; only schema-supported fields are offered). Delete is
+  a soft-delete behind confirmation; a topic, if any, stays.
+- **Topic Control Center (M5-C)** — ensure / lock / unlock / delete / repair.
+  One canonical topic per entity; a LOCKED topic refuses ordinary delete and
+  shows `[Unlock] [Force delete] [Back]`; force-delete keeps the entity.
+  `Repair` is idempotent and reconciles missing/duplicate topics.
+- **Identity Inspector (M5-D)** — exactly 8 rows (Name / Entity ID / Kind /
+  Workspace / Topic ID / Topic status / Lock status / Active); never secrets.
+- **Equipment (M5-E, minimal)** — equip/unequip a weapon onto a character via
+  the existing game-template `weapon` field (no second DB; artifacts and
+  non-characters are refused). Richer model (stats/refinement/equipped-to
+  linkage) is explicitly deferred to M6+.
+- **One shared confirm flow (M5-F)** — every destructive / data-entry action
+  uses `begin_confirm`/`confirm_yes`/`confirm_no` with wording from the tool
+  spec; Cancel discards and never executes.
+
+**Implementation** (files touched):
+- `core/ai/tool_adapters.py` — 7 thin registry tools (catalog 30→37, additive):
+  `create_workspace`, `rename_workspace`, `close_workspace`,
+  `archive_workspace` (DESTRUCTIVE + confirm), `delete_entity` (DESTRUCTIVE +
+  confirm), `repair_topics`, `equip_item`. `_no_projection` moved to the common
+  entity-tool base.
+- `core/control/` (new) — `registry.py` (`ControlContext`, `build_context`,
+  `build_control_registry`, `execute_tool`, `execute_tool_async`; the
+  threading-contract projection freeze), `pages.py` (13 pure renderers),
+  `actions.py` (the M5-F confirm flow), `router.py` (`ctl:` namespace routing +
+  gathering-driven data entry).
+- `core/workspace/groups_app.py` — `WorkspaceGroups.close_workspace` (1 line
+  over `tg_bindings.clear_active`).
+- `main.py` — `ctl` branch in `handle_callback`, `/control` CommandHandler
+  (admin-gated), the `_ctl` gathering branch, help entry in `ui.help_cards`.
+- Selftest probes — `core/selftest/tests/test_control_panel.py` (2 new), the
+  pinned tool surface updated 30→37 in `test_tool_adapters_selftest.py` and
+  `test_worker_selftest.py` (both also pin the M5 destructive confirmations).
+- Regression spec — `core/regression/suites/control_m5.py` (CTRL-001…010).
+
+**Tests**: `tests/test_control_panel.py` (38: pages, router, M5-F confirm,
+gathering, no-second-logic proof), `tests/test_m5_adversarial.py` (41: the
+14-scenario M5-H matrix — happy/duplicate/missing/wrong-kind/wrong-workspace/
+already-locked/already-unlocked/missing-topic/repeated/cancel-confirm/
+invalid-input/stale-identity/cross-workspace/permission-boundary), new tool
+tests in `tests/test_tool_adapters.py`, pinned risk/surface checks updated.
+Offline selftest: 2 new probes pass (registry + pages/confirm); the two
+pre-existing date-of-run flakes (hardcoded `2026-08-11`) are the only
+failures. **`BAKA_VERSION = 15.3.0-alpha.1`.**
+
+**Remaining gate (not claimed offline)**: the owner-run live-Telegram
+acceptance matrix `CTRL-001…010` (documented in
+`core/regression/suites/control_m5.py` and
+`V15_3_MANUAL_CONTROL_PLANE.md §Acceptance`).
+
 ## v15.2.0-alpha.14 — BAKA Brain · M2: Tool Contract Foundation
 
 > **DORMANT FOUNDATION — not released, no user command routes through it.**
