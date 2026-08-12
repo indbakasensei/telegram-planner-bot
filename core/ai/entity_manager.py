@@ -57,6 +57,20 @@ _UPDATE_BAD_VALUE_FIRST = frozenset({
     "of", "for", "from", "in", "on", "at", "as", "than", "about",
 })
 
+# ── v15.2 M4.x safety invariants ────────────────────────────────────────────
+# 1. NOT_FOUND must NEVER fall back to the active entity for a mutation. A
+#    message that LEADS with a create-intent verb and names an entity that is
+#    not in the workspace is CREATE for a NEW entity ("Create Citlali and set
+#    her level to 83" must create Citlali -- never "update Diona").
+_CREATE_INTENT_LEAD = re.compile(r"^(?:create|make|new|add|introduce|start)\b",
+                                 re.IGNORECASE)
+# 2. Goal-domain vocabulary: a message carrying one of these is a GOAL/TASK
+#    deadline operation. The goal domain OWNS deadlines; a workspace
+#    character/weapon/artifact never does. Such a message must never be
+#    classified as an entity field update ("Set its deadline to this month
+#    end" → "Wolf's Gravestone target_level → 30", DEBUGGING.md F6/M4).
+_GOAL_DEADLINE_SIGNALS = ("deadline", "due date")
+
 
 def _default_ai(prompt_text: str) -> str:
     """Build messages in OpenAI format and send through call_fast.
@@ -289,6 +303,20 @@ class EntityManager:
                      user_id, resolved.kind,
                      active_entity.title if active_entity else None)
 
+        # 3b. GOAL/TASK deadline guard (v15.2 M4.x): a message carrying
+        #     deadline vocabulary is a goal/task operation -- the goal domain
+        #     owns deadlines and a workspace character/weapon/artifact never
+        #     does. Route it deterministically to the goal domain (or ask)
+        #     and NEVER let it fall through to an entity field update (which
+        #     previously wrote "Set its deadline…" to Wolf's Gravestone
+        #     target_level). Runs BEFORE the pre-check so it is never
+        #     swallowed by a classification pre-filter.
+        if self._has_goal_deadline_signal(text):
+            reply = self._goal_deadline_reply(user_id, text)
+            logger.info("EntityManager[%s] goal-domain deadline → %s",
+                        user_id, reply[:80])
+            return True, reply
+
         # 4.  Quick keyword pre-check — bail early if nothing looks
         #     entity-related, avoiding a useless LLM call on every message.
         low = text.lower()
@@ -460,6 +488,62 @@ class EntityManager:
                        "the current one", "the current character",
                        "the current entity", "the one")
 
+    @staticmethod
+    def _has_goal_deadline_signal(text: str) -> bool:
+        """True when `text` carries goal/task deadline vocabulary. Deadlines
+        belong to the GOAL/TASK domain; no workspace entity (character /
+        weapon / artifact) has one, so such a message must never be routed to
+        an entity mutation (see _GOAL_DEADLINE_SIGNALS)."""
+        low = (text or "").lower()
+        return any(s in low for s in _GOAL_DEADLINE_SIGNALS)
+
+    def _goal_deadline_reply(self, user_id: int, text: str) -> str:
+        """Deterministically handle a goal/task deadline message in the LEGACY
+        path (the Worker's update_goal_deadline tool is the primary path; this
+        is the safe fallback when the Worker declined/fell through). Reuses
+        the SAME GoalStorage facade the Worker tool uses -- no new data layer.
+
+        Resolution order: explicit goal title in the text wins; a pronoun
+        ("its", "it") or bare "the goal" resolves to the MOST RECENT goal.
+        If no goal can be resolved confidently, ASK -- never touch another
+        domain."""
+        goals = list(self._s.goals.get_all_full(user_id))  # most recent first
+        low = text.lower()
+        # 1. Explicit goal title mentioned in the text (longest first so a
+        #    longer goal name wins over a substring).
+        gid = title = None
+        for row in sorted(goals, key=lambda r: len(str(r[1])), reverse=True):
+            t = str(row[1])
+            if len(t) > 1 and t.lower() in low:
+                gid, title = row[0], t
+                break
+        # 2. Pronoun / bare "the goal" → most recent goal.
+        if gid is None and goals and any(
+                w in low for w in ("its", "it", "the goal", "this goal",
+                                   "my goal")):
+            gid, title = goals[0][0], str(goals[0][1])
+        if gid is None:
+            if goals:
+                names = ", ".join(f"<b>{esc(str(r[1]))}</b>" for r in goals[:4])
+                return ("That looks like a goal/task deadline. Which goal do "
+                        f"you mean? ({names}…) Say something like "
+                        "<code>set the deadline of &lt;goal&gt; to &lt;date&gt;"
+                        "</code>.")
+            return ("That looks like a goal/task deadline, but I don't see "
+                    "any goals yet. Create one first, e.g. "
+                    '<code>add goal Read 5 Books</code>.')
+
+        from date_parser import parse_all
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        date = parse_all(text, now).get("date")
+        self._s.goals.update_deadline(gid, user_id, date)
+        if date:
+            return (f"✅ Set the deadline of <b>{esc(title)}</b> to "
+                    f"<b>{esc(date)}</b>.")
+        return f"✅ Cleared the deadline of <b>{esc(title)}</b>."
+
     def _try_extract_update(self, text: str, entities: list,
                             active_entity: object | None, ws) -> tuple | None:
         """Deterministically recognise a single-field update without the LLM.
@@ -490,6 +574,16 @@ class EntityManager:
                 title = ent.title
                 break
         if title is None and active_entity is not None:
+            if _CREATE_INTENT_LEAD.match(low):
+                # NOT_FOUND ≠ ACTIVE (M4.x invariant): "Create Citlali and
+                # set her level to 83" is CREATE for a NEW entity. Redirecting
+                # the fresh name to the active entity (Diona) is exactly the
+                # corruption this guard exists to forbid. Hand the message to
+                # the LLM classify path, which produces a create.
+                logger.info(
+                    "EntityManager create-intent + fresh name → refusing "
+                    "active-entity fallback for a mutation")
+                return None
             title = active_entity.title
             used_active = True
         if title is None:
@@ -645,18 +739,52 @@ class EntityManager:
         state -- never invented). Append-only: old messages are untouched.
         A projection failure is logged; the DB update stands.
         """
-        # M1: a resolved referent takes precedence over name lookup.
-        target = preferred if preferred is not None else self._find_entity(entity_name, entities)
+        # M1: a resolved referent (pronoun/ordinal) is authoritative, but an
+        # EXPLICIT entity name in the message wins over any active referent —
+        # "set Xiao's level to 85" updates Xiao, never the active entity; and
+        # a not-found explicit name NEVER falls back to the active entity
+        # (NOT_FOUND ≠ ACTIVE, M4.x invariant).
+        target = (self._find_entity(entity_name, entities)
+                  if entity_name else None)
+        # Only an EMPTY entity_name (pure pronoun/ordinal form) may fall back
+        # to the active referent. An explicit-but-not-found name must NEVER
+        # resolve to the active entity (NOT_FOUND ≠ ACTIVE, M4.x invariant):
+        # "Create Citlali and set her level to 83" classified as an update
+        # on "Citlali" must not write level 83 onto the active Diona.
+        if target is None and not entity_name:
+            target = preferred
         if target is None:
-            logger.info("EntityManager[%s] update '%s' → entity not found", user_id, entity_name)
-            return (
-                f"I don't see an entity called <b>{esc(entity_name)}</b> in this "
-                f"workspace. Want to create it first? "
-                f"Say something like <code>Create {esc(entity_name)}</code>."
-            )
+            logger.info("EntityManager[%s] update '%s' → entity not found",
+                        user_id, entity_name)
+            if entity_name:
+                return (
+                    f"I don't see an entity called <b>{esc(entity_name)}</b> "
+                    f"in this workspace. Want to create it first? "
+                    f"Say something like <code>Create {esc(entity_name)}"
+                    f"</code>."
+                )
+            return ("I couldn't tell which entity to update. Say its name, "
+                    'e.g. <code>Xiao level is 85</code> or '
+                    '<code>set Xiao level to 85</code>.')
 
         logger.info("EntityManager[%s] update entity id=%s '%s' fields=%s",
                     user_id, target.id, target.title, fields)
+
+        # M4.x: record the resolution into the shared trace so `/diag` shows
+        # "Requested: X → Resolved: Y" even for the legacy (non-Worker) path
+        # where the historical "Citlali → Diona" corruption happened.
+        try:
+            from core.ai.resolution_trace import get_resolution_trace
+            get_resolution_trace().record(
+                user_id=user_id, workspace_id=ws_id, action="update",
+                requested=entity_name or "(pronoun/active)",
+                kind=target.entity_type or "entity",
+                resolution="FOUND",
+                fallback="REFERENT" if (not entity_name and preferred
+                                        and preferred.id == target.id) else "EXACT",
+                entity_title=target.title, entity_id=target.id)
+        except Exception:
+            logger.debug("resolution-trace record failed", exc_info=True)
 
         # Apply each field — unknown keys are allowed (forward-compat).
         # Capture the PRE-update DB state for the projection's change list;

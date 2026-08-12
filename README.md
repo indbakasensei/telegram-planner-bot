@@ -167,6 +167,7 @@ truth; the group is the human-readable mirror.
 📷 + "got her crown"      → logs it to Hu Tao's topic (photo + note)
 /topicbackfill            → (admin) backfills topics for existing entities
 /topicrepair              → (admin) self-heal: one entity = one topic
+/diag                     → (admin) entity-resolution trace (Requested → Resolved)
 /open Nahida  ·  /current ·  /workspaces  ·  /note <text>
 ```
 

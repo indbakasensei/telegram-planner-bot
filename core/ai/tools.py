@@ -401,6 +401,18 @@ def validate_args(spec: ToolSpec, args: dict) -> dict:
             # as "no filter" / "use the default".
             args[k] = None
             continue
+        if k not in required and v is None:
+            # An EXPLICIT JSON null on an OPTIONAL argument means the same as
+            # omitting the key: "no value". Model callers routinely emit
+            # `"workspace": null` for "use the active workspace" (the spec
+            # wording invites it) and `"deadline": null` for "clear it"; the
+            # run() adapters already treat None as "defaults to the active
+            # one" / "no value". Rejecting null here made create_entity fail
+            # with "does not accept null" and forced the model to guess a
+            # workspace. Required args still go through the type check, so a
+            # required value can never be null.
+            args[k] = None
+            continue
         _check_value(spec.name, k, v, props.get(k, {}), strict)
     return args
 

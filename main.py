@@ -700,6 +700,23 @@ async def execute_task_action(user_id: int, data: dict, update: Update):
 
 
 # ── Main message handler ──────────────────────────────
+_TOPIC_OP_VERBS = (
+    "lock ", "unlock ", "delete ", "remove ", "del ",
+    "what is ", "what's ", "show ", "get ", "create ",
+    "ensure ", "repair ", "rename ")
+
+
+def _is_topic_operation(low_text: str) -> bool:
+    """True when a message is an ENTITY-TOPIC operation ("lock X's topic",
+    "delete X's topic", "what is X's topic") and therefore must be routed to
+    the Worker's entity-topic tools, never to the task-delete NL-map gate.
+    v15.2 M4.x live-failure fix: "Delete Columbina's topic" was swallowed by
+    the `delete ` prefix → delete_task_cmd → "Usage: /delete <id>". Pure
+    string predicate on the already-lowercased message (no I/O), so the NL
+    seam decision is deterministically testable offline."""
+    return "topic" in low_text and any(v in low_text for v in _TOPIC_OP_VERBS)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_input = update.message.text.strip()
@@ -1256,7 +1273,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (["addhabit ", "add habit ", "new habit "], addhabit_cmd, None),
         (["skiphabit ", "skip habit ", "reset streak "], skiphabit_cmd, None),
     ]
+    # v15.2 M4.x: a message carrying TOPIC vocabulary is an ENTITY-TOPIC
+    # operation, never a task deletion. "Delete Columbina's topic" must reach
+    # the Worker's topic tools (set_entity_topic_locked / delete_entity_topic
+    # / get_entity_topic, prompt rule 13) -- NOT delete_task_cmd, which
+    # answered "Usage: /delete <id>". The task-delete NL-map entry is skipped
+    # for topic operations; the message falls through to the Worker seam
+    # below (and, when the Worker is dormant/declines, to legacy BAKA -- which
+    # never corrupts a topic delete into an entity or task delete).
+    _is_topic_op = _is_topic_operation(_low_full)
     for prefixes, handler, default_args in _starts_with_handlers:
+        if _is_topic_op and handler is delete_task_cmd:
+            logger.info("Topic-op '%s' → skipping task-delete NL gate", user_input)
+            continue
         for prefix in prefixes:
             if _low_full.startswith(prefix):
                 args_str = user_input[len(prefix):].strip()
@@ -3516,6 +3545,23 @@ async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"[dashboard] render home user={user_id}")
     await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
 
+
+async def diag_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entity-resolution trace viewer (v15.2 M4.x). Admin-gated like the rest
+    of the diagnostic surface. Renders the in-memory ResolutionTrace —
+    "Requested: X → Resolved: Y" per decision. The trace never records
+    secrets or raw user text, so this view can never leak one."""
+    if not is_admin(update.message.from_user.id):
+        return
+    try:
+        from core.ai.resolution_trace import get_resolution_trace
+        trace = get_resolution_trace().recent(update.message.from_user.id)
+        text, kb = UI.diagnostics_card(trace)
+    except Exception:
+        logger.exception("diag_cmd failed")
+        text, kb = "⚠️ Diagnostics unavailable.", None
+    await update.message.reply_text(text, parse_mode=HTML, reply_markup=kb)
+
 async def route_dashboard_callback(update, context, parts):
     """
     Centralized dashboard callback router (spec #13).
@@ -3988,8 +4034,15 @@ def _worker_request(user_id, text, projection):
     from core.ai.tool_adapters import build_tool_registry
     from core.ai.worker_contract import WorkerRequest
     import database as _db
+    # tg_get_active() returns (workspace_id, entity_type, entity_id); the
+    # authoritative ACTIVE WORKSPACE is index [0]. Index [1] is the active
+    # entity's TYPE ("milestone") -- reading it here fed the Worker a bogus
+    # workspace ("workspace=milestone" in bot.log) and starved the model of
+    # the real active workspace (Genshin #1), so it left `workspace` unset
+    # and create_entity failed. Fall back gracefully when no active context.
     try:
-        _ws_id = _db.tg_get_active(user_id)[1]
+        _row = _db.tg_get_active(user_id)
+        _ws_id = _row[0] if _row else None
     except Exception:
         _ws_id = None
     typed_refs = _worker_typed_refs()
@@ -5252,6 +5305,10 @@ def main() -> None:
     app.add_handler(CommandHandler("topicbackfill", topicbackfill_cmd))
     # v15.2 M4 item 9: self-heal the entity→topic projection
     app.add_handler(CommandHandler("topicrepair", topicrepair_cmd))
+    # v15.2 M4.x: entity-resolution trace viewer (admin). Compact diagnostic —
+    # renders ResolutionTrace entries ("Requested: X → Resolved: Y"); the trace
+    # never holds secrets, so this can never leak one.
+    app.add_handler(CommandHandler("diag", diag_cmd))
     # v15.1.0-alpha.3 Cognitive Engine: ask questions about your workspaces
     app.add_handler(CommandHandler("ws", ask_cmd))
     app.add_handler(CommandHandler("query", ask_cmd))

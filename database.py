@@ -1584,7 +1584,13 @@ def get_goals_full(user_id):
     target_expr = "COALESCE(target,100)" if has_target else "100"
     deadline_expr = "deadline" if has_deadline else "NULL"
     where_done = " AND COALESCE(done,0)=0" if has_done else ""
-    order_clause = " ORDER BY created_at DESC" if has_created else " ORDER BY id DESC"
+    # created_at is second-granularity (CURRENT_TIMESTAMP), so two goals
+    # created in the same second TIE and ORDER BY created_at DESC becomes a
+    # coin flip -- "most recent goal" must be deterministic. id is AUTOINCREMENT
+    # and monotonic with insert order, so id DESC is the correct tiebreaker
+    # (M4.x live-observation fix: pronoun deadline hit the wrong goal).
+    order_clause = (" ORDER BY created_at DESC, id DESC"
+                    if has_created else " ORDER BY id DESC")
 
     try:
         _c.execute(

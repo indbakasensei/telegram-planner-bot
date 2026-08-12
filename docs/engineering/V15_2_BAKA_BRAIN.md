@@ -815,3 +815,27 @@ Widening the canary beyond the owner, real-GLM smoke + the live acceptance
 matrix, task ordinal resolution, decline-fast classification if latency
 demands, worker metrics surfaced in the dashboard, and any routing migration
 beyond the current single dormant seam.
+
+## Genshin equipment model — M4.x boundary (v15.2 remediation, 2026-08-11)
+
+The **foundation shipped in M4 is the correct one and is NOT being expanded**
+in this remediation:
+
+- Equipment is modeled as **first-class workspace entities** with a typed
+  `milestones.entity_type` column (`character` / `weapon` / `artifact` /
+  `entity`), resolved generically at create time (EntityKindResolver) and
+  **enforced at the DB + engine layer**, never trusted to the LLM's prose.
+  One entity per `(workspace, kind, normalized title)`; identity is
+  `(workspace, kind, id)`.
+- Game-template entity fields (`level`, `element`, `weapon_type`, `weapon`,
+  `materials`, `target_level`, `priority`, …) are the attribute vocabulary
+  the tools validate against. A character's `weapon` field stores the weapon
+  *name*; the weapon/artifact themselves are entities you can create, list,
+  update, and retrieve through the same tools.
+
+**What is deliberately M5 (documented, NOT implemented — would need a new
+entity sub-schema + template):** artifact main stat / sub stats / set /
+rarity/level; weapon refinement rank / main stat; set-bonus logic; an
+"equipped-to" linkage table. Fabricating any of that now would violate the
+"do NOT fake the model" rule; the current typed-entity foundation is the
+correct seam it will plug into.

@@ -35,6 +35,31 @@ Found during the 2026-07 documentation pass. These are real, current gaps
 between behavior and what earlier comments/docs claimed — not hypothetical.
 Tracked with more remediation detail in [ROADMAP.md](ROADMAP.md#fix-it-list-found-during-the-2026-07-documentation-pass).
 
+### Date-of-run test flakes — task-create tests fail after 2026-08-11 18:00 IST
+
+Several offline tests hardcode `due_date: "2026-08-11"` (with or without an
+explicit `due_time`) as a "today" reminder. Once the bot's default reminder
+time for that day has passed, `create_task` correctly rejects with
+`Date 2026-08-11 is in the past!` and the test fails. Verified **pre-existing
+and independent of the M4.x remediation**: the identical five tests fail on a
+clean `git stash` of the M4.x working tree.
+
+Affected (as of 2026-08-11): `test_tool_adapters.py::test_task_reminder_surface_carries_due_fields`,
+`test_task_create_duplicate_rejected`, `test_mixed_capability_chain`,
+`test_worker_orchestration.py::test_invariant_task_create_retrieve`,
+`test_worker_render.py::test_render_create_task_with_date`.
+
+The same flake hits two **live `/selftest` probes** (AI category):
+`AI Tool Adapter Round-trip` and `AI Worker Deterministic Round-trip` both
+create a task with `due_date: "2026-08-11"` and fail once that day's default
+reminder time has passed. Neither was touched by the M4.x remediation.
+
+Not a production bug — the bot correctly refuses past reminders. The tests are
+wrong: they should use a dynamic "today + 1 day" date like
+`date_parser`'s fixtures instead of a hardcoded run-date. Fix is a test-only
+change and is deliberately out of scope for the M4.x remediation
+(no logic change; tracked for a later test-hygiene pass).
+
 ### M4 Worker orchestration failures — FIXED generically (v15.2, tests/test_worker_orchestration.py)
 
 The ten live Telegram failures after M4 all shared ROOT CAUSES, so the fix

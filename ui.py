@@ -477,6 +477,35 @@ def debug_toggle_card(on):
     return uic.render_info("Debug mode OFF", "Back to normal responses.")
 
 
+def diagnostics_card(trace):
+    """Compact entity-resolution trace (v15.2 M4.x). `trace` is the list of
+    ResolutionEntry (newest first) from core.ai.resolution_trace. Shows
+    "Requested: X → Resolved: Y" per decision so a wrong-entity mutation is
+    visible at a glance. The trace NEVER records secrets or raw user text,
+    so this card cannot leak a BOT_TOKEN / API key by construction."""
+    header = uic.render_header(
+        "dev", "Entity Resolution Trace",
+        caption_text=f"{len(trace)} recent" if trace else None)
+    if not trace:
+        return (uic.render_page(
+            header,
+            uic.empty_dev("no entity resolutions recorded yet — the Worker "
+                          "and EntityManager record each one here")), None)
+    lines = []
+    for e in trace:
+        resolved = b(esc(e.entity_title)) if e.entity_title else i("none")
+        req = esc(e.requested or "(pronoun/active)")
+        ws = f" ws=#{e.workspace_id}" if e.workspace_id is not None else ""
+        lines.append(
+            f"• {e.ts} · <b>{esc(e.action)}</b> → "
+            f"Requested: {req} → Resolved: {resolved}"
+            f"{ws}")
+        lines.append(
+            f"   {uic.caption(f'{esc(e.kind)} · {e.resolution} · fallback={e.fallback}')}")
+    footer = uic.render_footer("Open /use + a command to record resolutions.")
+    return (uic.render_page(header, *lines, footer=footer), None)
+
+
 def bugs_card(bugs):
     """Open-bugs list (Phase 5: components; §14 dev empty state).
     Inputs: get_open_bugs() rows. Returns text."""
@@ -818,6 +847,7 @@ def help_cards(version, user_is_admin):
             f"{code('admin')} · {code('adminmode')} — admin dashboard",
             f"{code('resettasks')} · {code('resethabits')} · {code('resetall')} — destructive resets",
             f"{code('sql <query>')} — raw read-only queries",
+            f"{code('diag')} — entity-resolution trace (Requested: X → Resolved: Y)",
             f"{code('misses')} · {code('reviewed <id>')} — capability gap review",
             f"{i('Workspace mode:')} the v15 Workspace OS is gated by the "
             f"{code('WORKSPACE')} env flag (default OFF). When ON, free-text also "

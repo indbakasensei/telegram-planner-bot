@@ -323,6 +323,55 @@ when the upstream hang clears), which should handle the compound chains Llama
 cannot. Version NOT bumped; live M4 acceptance for a stronger model still
 pending.
 
+### M4.x remediation — CURRENT LIVE OBSERVATIONS (2026-08-11, uncommitted)
+
+Follow-up to the 18-cluster remediation: 13 fresh live failures, all traced to
+two generic bugs — the Worker *declined* entity/goal messages (so the LEGACY
+EntityManager ran) and the legacy path **fell back NOT_FOUND → the active
+entity for a mutation** ("Create Citlali and set her level to83" updated the
+active Diona; "Set its deadline to this month end" wrote `target_level` on
+Wolf's Gravestone). Fixes are generic + regression-tested, no phrase-patches,
+version stays `15.2.0-alpha.14`, M5 not started:
+
+- **NOT_FOUND never mutates the active entity.** `EntityManager._handle_update`
+  now only falls back to the active referent when the message carried NO
+  explicit name; `_try_extract_update` refuses the active-entity fallback on a
+  create-intent lead (`create/make/new/add/…`) + fresh name. The legacy
+  Citlali→Diona and Noelle→Wolf's-Gravestone corruptions are pinned closed by
+  `tests/test_m4x_safety_invariants.py`.
+- **Goal-domain deadline guard.** A message with "deadline"/"due date" is a
+  GOAL/TASK operation: `EntityManager._goal_deadline_reply` resolves the goal
+  deterministically (explicit title wins, else most-recent via "its"/"the
+  goal") and parses the date through `date_parser` (this/next month end, ISO,
+  "clear"); it NEVER touches a workspace entity. Ambiguous → asks. The Worker
+  prompt rule 14 mirrors it (`update_goal_deadline`, never a character field).
+- **Active workspace context preserved for the Worker.** `main.py._worker_request`
+  now reads `tg_get_active()[0]` (workspace_id) instead of `[1]` (entity_type
+  string "milestone"); `validate_args` normalizes an explicit JSON `null` on an
+  optional arg to "no value" (so `workspace:null` → active, not "does not
+  accept null"); the Worker prompt now includes an authoritative ACTIVE
+  WORKSPACE block. 5-rule workspace-context tests (explicit/active/entity-own/
+  none-ask/never-ask-with-active).
+- **CREATE vs UPDATE semantics.** `create_entity` on an existing name reports
+  "already exists — update it instead" (prompt rule 12 tells the Worker to then
+  run `update_entity`); compound create→set→show chains are pinned by tool-level
+  tests. `update_entity` on a missing name errors — never creates.
+- **Topic NL never hits the task-delete gate.** `main._is_topic_operation`
+  ("lock/delete/remove/what-is … <X>'s topic") skips the `delete `/`remove `
+  NL-map entry, so "Delete Columbina's topic" reaches the Worker's topic tools
+  instead of `delete_task_cmd` → "Usage: /delete <id>".
+- **Entity-resolution diagnostic + `/diag`.** Every entity resolution (Worker
+  tools AND legacy EntityManager) emits a structured non-secret
+  `entity_resolution: …` log line and records into an in-memory
+  `ResolutionTrace` (`core/ai/resolution_trace.py`); the admin `/diag` command
+  renders it ("Requested: Citlali → Resolved: …"). The trace never holds
+  secrets, so `/diag` cannot leak one. Two `/selftest` probes + offline tests.
+- **Genshin equipment model boundary documented** in
+  `docs/engineering/V15_2_BAKA_BRAIN.md` (§M5 scope): the typed
+  `entity_type` foundation is correct and unchanged; a richer equipment schema
+  (artifact main/sub stats, weapon refinement, set bonuses) is M5, deliberately
+  NOT faked now.
+
 ### M4 remediation — the 18-cluster fix list (items 1–20, generic fixes only)
 
 > **Version rule: the next release is a v15.2 M4 PATCH, never M5.** Per the

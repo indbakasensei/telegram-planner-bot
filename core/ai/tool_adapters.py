@@ -743,20 +743,29 @@ class _EntityTool(_WorkspaceTool):
     def _entities(self, ws_id):
         return list(self._eng.list_milestones(self._uid, ws_id))
 
-    def _resolve_entity(self, ws_id, ref):
+    def _resolve_entity(self, ws_id, ref, action="resolve"):
         """Typed referent store FIRST (current-run wins -- never a stale
         active entity from a previous turn, and a pronoun pointing at a
         DIFFERENT domain is a conflict, never a silent reach across kinds),
         then the M1 resolver (pronoun/ordinal/deictic against conversation
         context), then a thin name match mirroring
-        EntityManager._find_entity. Returns (milestone | None, entities)."""
+        EntityManager._find_entity. Returns (milestone | None, entities).
+
+        Every outcome is recorded as a structured, non-secret
+        `entity_resolution:` log line (M4.x spec) so bot.log forensics can
+        answer "requested X, why did Y get mutated?" without the raw message
+        or any secrets."""
         ref = (ref or "").strip()
         entities = self._entities(ws_id)
         if not ref:
+            self._resolution_diag(ref="", ws_id=ws_id, resolution="NO_REF",
+                                  referent=None, action=action)
             return None, entities
         if self._typed_refs is not None:
             out = self._typed_refs.resolve(self._uid, ref, "entity")
             if out.conflict:
+                self._resolution_diag(ref=ref, ws_id=ws_id, resolution="CONFLICT",
+                                      referent=None, action=action)
                 raise self._err(
                     f"{out.conflict_name!r} is a {out.conflict_kind}, not a "
                     "workspace entity — refusing to apply an entity operation "
@@ -764,11 +773,47 @@ class _EntityTool(_WorkspaceTool):
             if out.referent is not None:
                 m = next((e for e in entities if e.id == out.referent.id), None)
                 if m is not None:
+                    self._resolution_diag(ref=ref, ws_id=ws_id, resolution="FOUND",
+                                          referent=m, action=action)
                     return m, entities
         res = self._resolver.resolve(self._uid, ref, ws_id, entities)
         if res.kind == "entity" and res.entity is not None:
+            self._resolution_diag(ref=ref, ws_id=ws_id, resolution="FOUND",
+                                  referent=res.entity, action=action)
             return res.entity, entities
-        return self._name_match(ref, entities), entities
+        target = self._name_match(ref, entities)
+        self._resolution_diag(ref=ref, ws_id=ws_id,
+                              resolution="FOUND" if target else "NOT_FOUND",
+                              referent=target, action=action)
+        return target, entities
+
+    def _resolution_diag(self, *, ref, ws_id, resolution, referent, action):
+        """The structured `entity_resolution:` diagnostic. Requested reference
+        (the name/id the model passed, NOT raw user text), workspace id, and
+        resolution outcome only — never a secret, never the full message.
+        Also recorded into the in-memory ResolutionTrace (core/ai/
+        resolution_trace.py) so `/diag` can surface it."""
+        if referent is not None:
+            fallback = ("REFERENT" if str(ref or "").strip()
+                        and referent.title.lower() != str(ref or "").lower()
+                        else "EXACT")
+        else:
+            fallback = "NONE"
+        logger.info(
+            "entity_resolution: user=%s workspace_id=%s requested_name=%r "
+            "kind=%s resolution=%s fallback=%s action=%s",
+            self._uid, ws_id, ref, referent.entity_type if referent else "entity",
+            resolution, fallback, action)
+        try:
+            from core.ai.resolution_trace import get_resolution_trace
+            get_resolution_trace().record(
+                user_id=self._uid, workspace_id=ws_id, action=action,
+                requested=str(ref or ""), kind=referent.entity_type if referent
+                else "entity", resolution=resolution, fallback=fallback,
+                entity_title=referent.title if referent else None,
+                entity_id=referent.id if referent else None)
+        except Exception:   # diagnostics must never break a tool call
+            logger.debug("resolution-trace record failed", exc_info=True)
 
     @staticmethod
     def _name_match(ref, entities):
@@ -854,6 +899,9 @@ class CreateEntityTool(_EntityTool):
         norm = _normalize_title(name)
         existing = next((m for m in rows
                          if _normalize_title(m.title) == norm), None)
+        self._resolution_diag(ref=name, ws_id=ws_id,
+                              resolution="EXISTS" if existing else "NOT_FOUND",
+                              referent=existing, action="create")
         if existing is not None:
             cur = (existing.entity_type or KIND_ENTITY).lower()
             if cur == final:
@@ -926,7 +974,7 @@ class GetEntityTool(_EntityTool):
 
     def run(self, entity, workspace=None, **kwargs) -> ToolResult:
         ws_id = self._require_workspace(workspace)
-        m, _ = self._resolve_entity(ws_id, entity)
+        m, _ = self._resolve_entity(ws_id, entity, action="get")
         if m is None:
             raise self._err(f"no entity matches {entity!r} in workspace #{ws_id}.")
         self._note_mention(ws_id, m)
@@ -959,7 +1007,7 @@ class UpdateEntityTool(_EntityTool):
         if not isinstance(fields, dict) or not fields:
             raise self._err("'fields' must be a non-empty object.")
         ws_id = self._require_workspace(workspace)
-        target, _ = self._resolve_entity(ws_id, entity)
+        target, _ = self._resolve_entity(ws_id, entity, action="update")
         if target is None:
             raise self._err(f"no entity matches {entity!r} in workspace #{ws_id}.")
         old_values = {k: target.fields.get(k) for k in fields}
@@ -1203,7 +1251,7 @@ class _TopicTool(_EntityTool):
         """→ (ws_id, milestone). Resolves the entity in the active (or given)
         workspace through the SAME chain the entity tools use."""
         ws_id = self._require_workspace(workspace)
-        m, _ = self._resolve_entity(ws_id, ref)
+        m, _ = self._resolve_entity(ws_id, ref, action="topic")
         if m is None:
             raise self._err(f"no entity matches {ref!r} in workspace #{ws_id}.")
         return ws_id, m
