@@ -92,3 +92,27 @@ def claims_messages(state: str) -> bool:
     so intent-gated Offline dispatch must not run (ADR-011 Option A).
     main.py's Offline gate consults this before OfflineEngine.execute()."""
     return state in INTERACTIVE_STATES
+
+
+# ── v15.5 M7: Search state accumulation ──────────────────────────────────────
+
+_search_state = {}
+
+
+def get_search_state(user_id: int) -> dict:
+    """Get accumulated search filters for M7 Control Plane search builder.
+    Returns a dict with workspace_id, q, entities, entity_mode, tags, tag_mode,
+    media_type, created_after, created_before, limit, scope."""
+    return _search_state.get(user_id, {})
+
+
+def set_search_state(user_id: int, **updates):
+    """Update search state with new filter values. Merges with existing state."""
+    if user_id not in _search_state:
+        _search_state[user_id] = {}
+    _search_state[user_id].update(updates)
+
+
+def clear_search_state(user_id: int):
+    """Clear all accumulated search filters."""
+    _search_state[user_id] = {}

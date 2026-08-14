@@ -58,6 +58,7 @@ from core.ai.tools import (
     ToolSpec,
 )
 from core.ai.workspace_retriever import WorkspaceRetriever
+from core.retrieval.service import CrossReferenceService, build_retrieval_service
 from core.storage import Storage
 from core.workspace.engine import EntityEngine
 from core.workspace.errors import EntityValidationError, EntityNotFound
@@ -74,17 +75,28 @@ __all__ = [
     "build_tool_registry",
     "ArchiveWorkspaceTool", "CloseWorkspaceTool", "CreateEntityTool",
     "CreateGoalTool", "CreateHabitTool", "CreateTaskTool",
+    "CreateNoteTool", "CreateTagTool",
     "CreateWorkspaceTool",
-    "DeleteEntityTopicTool", "DeleteEntityTool", "DeleteTaskTool",
+    "DeleteEntityTopicTool", "DeleteEntityTool", "DeleteMediaTool",
+    "DeleteNoteTool", "DeleteTagTool", "DeleteTaskTool",
     "EnsureEntityTopicTool", "EquipItemTool",
     "CompleteHabitTool", "CompleteTaskTool",
     "FindTaskTool", "FindEntityTool", "GetEntityTopicTool", "GetEntityTool",
-    "GetMemoriesTool", "GetWorkspaceTool", "ListEntitiesTool", "ListEntityTopicsTool",
-    "ListGoalsTool", "ListHabitsTool",
+    "GetMediaTool", "GetMemoriesTool", "GetNoteTool", "GetWorkspaceTool",
+    "PostNoteTool",
+    "ListEntitiesTool", "ListEntityTopicsTool",
+    "ListGoalsTool", "ListHabitsTool", "ListMediaTool", "ListNotesTool",
+    "ListTagsTool",
+    "LinkMediaEntityTool", "LinkMediaTagTool", "LinkNoteEntityTool",
+    "LinkNoteTagTool",
     "ListTasksTool", "ListWorkspacesTool", "RecallTool", "RenameWorkspaceTool",
-    "RepairTopicsTool", "SearchMemoriesTool",
-    "SetEntityTopicLockedTool", "UpdateEntityTool", "UpdateGoalDeadlineTool",
-    "UpdateGoalProgressTool",
+    "RenameTagTool", "RepairTopicsTool", "SearchMemoriesTool",
+    "SearchKnowledgeTool", "SearchNotesCrossTool", "SearchMediaCrossTool",
+    "SetEntityTopicLockedTool", "StoreMediaTool",
+    "UnlinkMediaEntityTool", "UnlinkMediaTagTool", "UnlinkNoteEntityTool",
+    "UnlinkNoteTagTool",
+    "UpdateEntityTool", "UpdateGoalDeadlineTool",
+    "UpdateGoalProgressTool", "UpdateMediaTool", "UpdateNoteTool",
     "UpdateTaskTool",
     "WsGetTool", "WsInspectTool", "WsListTool", "WsOpenTool",
 ]
@@ -883,6 +895,8 @@ class _EntityTool(_WorkspaceTool):
         deterministic manual control plane so a stale or ambiguous ref fails
         instead of mutating the wrong entity. Returns the Milestone or raises."""
         ref = (ref or "").strip()
+        if ref.startswith("#"):
+            ref = ref[1:].strip()  # '#471' → '471' (the documented #id form)
         if not ref:
             raise self._err("an entity reference is required.")
         entities = self._entities(ws_id)
@@ -1853,6 +1867,1064 @@ class EquipItemTool(_EntityTool):
                   "value": it.title, "item_id": it.id})
 
 
+# ── v15.4 M6 Knowledge + Media + Tags ─────────────────────────────────────
+# Thin adapters over the SAME EntityEngine methods the manual control plane
+# calls -- no second business-logic path. Notes/media/tags are workspace-
+# scoped; ownership is enforced by the engine on every call. Telegram stays
+# the blob store: store_media persists metadata + Telegram identifiers only.
+
+
+class _KnowledgeTool(_EntityTool):
+    """Shared resolution helpers for the knowledge/media/tag tools."""
+
+    def _note_id(self, ref, what="note"):
+        """A resource id is an INTEGER -- the Worker lists/searches first to
+        find it, and never invents one (spec §5). Accepts a '#id' string too."""
+        if isinstance(ref, bool) or not isinstance(ref, (int, str)):
+            raise self._err(f"a {what} id is required (integer).")
+        s = str(ref).strip()
+        if s.startswith("#"):
+            s = s[1:]
+        if not s.isdigit():
+            raise self._err(f"{what} id must be an integer, got {ref!r}.")
+        return int(s)
+
+    def _media_id(self, ref):
+        return self._note_id(ref, what="media")
+
+    def _get_note_or_err(self, note_id):
+        try:
+            return self._eng.get_note(self._uid, note_id)
+        except EntityNotFound:
+            raise self._err(f"note {note_id} not found.")
+
+    def _get_media_or_err(self, media_id):
+        try:
+            return self._eng.get_media(self._uid, media_id)
+        except EntityNotFound:
+            raise self._err(f"media {media_id} not found.")
+
+    def _resolve_entity_ref(self, ws_id, ref, strict=True) -> tuple[str, int] | tuple[None, None]:
+        """An entity reference (name/#id), resolved STRICTLY to its stable
+        junction key. Today the only entity row kind is 'milestone' -- the
+        junction stores that stable discriminator, so a later re-adopt of a
+        semantic kind never orphans a link.
+
+        When strict=False (for search/list filters), returns (None, None) instead
+        of raising if the entity doesn't exist, allowing the search to return
+        empty results gracefully."""
+        try:
+            m = self._require_entity_strict(ws_id, ref)
+            return ENTITY_TYPE, m.id
+        except ToolError:
+            if strict:
+                raise
+            return None, None
+
+    def _resolve_tag(self, ws_id, name) -> int | None:
+        """Read-only tag-by-name lookup within a workspace (case-insensitive).
+        None when no such tag -- list filters use this and never create."""
+        name = (name or "").strip()
+        if not name:
+            return None
+        for t in self._eng.list_tags(self._uid, ws_id):
+            if t.name.lower() == name.lower():
+                return t.id
+        return None
+
+    def _require_tag(self, ws_id, name) -> int:
+        """Resolve a tag by name, CREATING it when missing -- the link tools'
+        'dump this under 1v4' contract: one call creates the category."""
+        name = (name or "").strip()
+        if not name:
+            raise self._err("a tag name is required.")
+        return self._eng.create_tag(self._uid, ws_id, name).id
+
+    def _link_entities(self, note_or_media_id, entities, ws_id, media=False):
+        for ref in entities or []:
+            etype, eid = self._resolve_entity_ref(ws_id, ref)
+            if media:
+                self._eng.link_media_entity(self._uid, note_or_media_id,
+                                            etype, eid)
+            else:
+                self._eng.link_note_entity(self._uid, note_or_media_id,
+                                           etype, eid)
+
+    def _link_tags(self, note_or_media_id, tags, ws_id, media=False):
+        for name in tags or []:
+            tag_id = self._require_tag(ws_id, name)
+            if media:
+                self._eng.link_media_tag(self._uid, note_or_media_id, tag_id)
+            else:
+                self._eng.link_note_tag(self._uid, note_or_media_id, tag_id)
+
+
+def _note_dict(note, ws_id):
+    return {"note_id": note.id, "title": note.title, "kind": note.kind,
+            "content": note.content, "workspace_id": ws_id,
+            "created_at": note.created_at, "updated_at": note.updated_at}
+
+
+def _media_dict(att, ws_id):
+    return {"media_id": att.id, "file_type": att.file_type,
+            "telegram_file_id": att.telegram_file_id, "file_name": att.file_name,
+            "caption": att.caption, "workspace_id": ws_id,
+            "note_id": att.note_id, "message_id": att.message_id,
+            "chat_id": att.chat_id, "topic_id": att.topic_id,
+            "entity_type": att.entity_type, "entity_id": att.entity_id,
+            "extracted_text": att.extracted_text, "created_at": att.created_at}
+
+
+def _tag_dict(tag, ws_id):
+    return {"tag_id": tag.id, "name": tag.name, "workspace_id": ws_id}
+
+
+class CreateNoteTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "create_note",
+            "Save a knowledge note into a workspace: title + content (the "
+            "text dump), an optional kind, zero or more entity links "
+            "(`entities` -- name or #id), and zero or more tag names "
+            "(`tags` -- created on the fly when missing). Content is required; "
+            "a note is a DB record by default (topic projection is OPTIONAL "
+            "via `project`).",
+            {"type": "object", "properties": {
+                "title": {"type": "string", "description": "short title"},
+                "content": {"type": "string", "minLength": 1},
+                "kind": {"type": "string",
+                         "description": "note kind (free-form, e.g. 'build')"},
+                "entities": {"type": "array", "items": {"type": "string"},
+                             "description": "entity names/#ids to link"},
+                "tags": {"type": "array", "items": {"type": "string"},
+                         "description": "tag names (created when missing)"},
+                "workspace": {"type": ["string", "integer"],
+                              "description": "defaults to the active workspace"},
+                "project": {"type": "boolean",
+                            "description": "post to the linked entity's topic "
+                                           "when a projection is wired"}},
+             "required": ["content"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, content, title=None, kind="note", entities=None, tags=None,
+            workspace=None, project=False, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        note = self._eng.add_note(self._uid, ws_id, content, kind=kind or "note",
+                                  title=title)
+        self._link_entities(note.id, entities, ws_id)
+        self._link_tags(note.id, tags, ws_id)
+        posted = False
+        if project and self._projection is not None:
+            first = (self._eng.note_entities(self._uid, note.id) or [None])[0]
+            if first:
+                ent_type, ent_id = first
+                self._projection.post_note(
+                    self._uid, ws_id, content, entity_type=ent_type,
+                    entity_id=ent_id, entity_title=title or content[:40])
+                posted = True
+        out = f"Saved note {note.id}: {title or content[:40]!r}"
+        if entities:
+            out += f" linked to {len(entities)} entity/ies"
+        if tags:
+            out += f", tagged {len(tags)}"
+        if project:
+            out += " (posted to topic)" if posted else " (no topic — DB only)"
+        return ToolResult(tool=self.spec.name, ok=True, output=out,
+                          data={"note_id": note.id, "title": title,
+                                "workspace_id": ws_id, "posted": posted})
+
+
+class UpdateNoteTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "update_note",
+            "Edit a saved note's content/title/kind by note_id. Only the "
+            "fields provided are changed; the rest are left untouched.",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]},
+                "content": {"type": "string"},
+                "title": {"type": "string"},
+                "kind": {"type": "string"}},
+             "required": ["note_id"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, note_id, content=None, title=None, kind=None,
+            **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        self._get_note_or_err(note_id)
+        updated = self._eng.update_note(self._uid, note_id, content, title, kind)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Updated note {note_id}.",
+                          data=_note_dict(updated, updated.workspace_id))
+
+
+class DeleteNoteTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "delete_note",
+            "Soft-delete a saved note by note_id: the row is stamped deleted "
+            "and stops appearing in every read, but stays in storage. Its "
+            "Telegram topic and any projected message are NEVER touched. "
+            "DESTRUCTIVE -- the Worker asks for confirmation before this "
+            "ever runs.",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]}},
+             "required": ["note_id"]},
+            risk=RiskLevel.DESTRUCTIVE,
+            confirmation_message="This soft-deletes the note (no Telegram "
+                                 "message is touched). Delete it?")
+
+    def run(self, note_id, **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        self._get_note_or_err(note_id)
+        self._eng.delete_note(self._uid, note_id)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Deleted note {note_id} (row hidden, "
+                                 "Telegram untouched).",
+                          data={"note_id": note_id, "deleted": True})
+
+
+class PostNoteTool(_KnowledgeTool):
+    """M6 spec §8-A: project an EXISTING note to its linked entity's Telegram
+    topic. The note stays DB-first; this is the explicit 'show it in the
+    topic' action. Requires a live projection and at least one linked entity.
+    A thin wrapper over the same projection.post_note contract create_note's
+    `project` flag uses -- no second business path."""
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            "post_note",
+            "Project an existing saved note to its first linked entity's "
+            "Telegram topic (append the note text to that topic). The DB "
+            "record is untouched. Refuses when no projection is wired or the "
+            "note has no linked entity.",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]}},
+             "required": ["note_id"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, note_id, **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        note = self._get_note_or_err(note_id)
+        if self._projection is None:
+            raise self._err("no live projection wired -- the topic cannot "
+                            "be reached.")
+        first = (self._eng.note_entities(self._uid, note_id) or [None])[0]
+        if first is None:
+            raise self._err("note has no linked entity -- link one first.")
+        ent_type, ent_id = first
+        self._projection.post_note(
+            self._uid, note.workspace_id, note.content,
+            entity_type=ent_type, entity_id=ent_id,
+            entity_title=note.title or note.content[:40])
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Posted note {note_id} to its topic.",
+                          data={"note_id": note_id, "entity_type": ent_type,
+                                "entity_id": ent_id})
+
+
+class GetNoteTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "get_note",
+            "Fetch one saved note by note_id, including its linked entities "
+            "and tags (so a follow-up can resolve by id deterministically).",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]}},
+             "required": ["note_id"]},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, note_id, **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        note = self._get_note_or_err(note_id)
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output=f"Note {note_id}: {note.title or note.kind}",
+            data={**_note_dict(note, note.workspace_id),
+                  "entities": [{"entity_type": e, "entity_id": i}
+                               for e, i in self._eng.note_entities(self._uid, note_id)],
+                  "tags": [{"tag_id": t.id, "name": t.name}
+                           for t in self._eng.note_tags(self._uid, note_id)]})
+
+
+class ListNotesTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "list_notes",
+            "Search/list saved notes in a workspace (default: active). "
+            "Filters combine: free-text q (title/content substring), kind, a "
+            "linked entity (name/#id), a tag name, and a created range "
+            "(YYYY-MM-DD). Newest first. This is the deterministic retrieval "
+            "primitive -- the model searches here, then calls get_note.",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"]},
+                "q": {"type": "string"}, "kind": {"type": "string"},
+                "entity": {"type": "string"},
+                "tag": {"type": "string"},
+                "created_after": {"type": "string"},
+                "created_before": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+             "required": []},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, q=None, kind=None, entity=None, tag=None, workspace=None,
+            created_after=None, created_before=None, limit=50,
+            **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        etype = eid = tag_id = None
+        if entity:
+            etype, eid = self._resolve_entity_ref(ws_id, entity, strict=False)
+            # Entity was specified but doesn't exist - return empty results
+            if etype is None or eid is None:
+                return ToolResult(tool=self.spec.name, ok=True,
+                                  output="No notes match.", data=[])
+        if tag:
+            tag_id = self._resolve_tag(ws_id, tag)
+        notes = self._eng.search_notes(
+            self._uid, ws_id, q=q, kind=kind, entity_type=etype,
+            entity_id=eid, tag_id=tag_id, created_after=created_after,
+            created_before=created_before, limit=limit)
+        if not notes:
+            return ToolResult(tool=self.spec.name, ok=True,
+                              output="No notes match.", data=[])
+        data = [_note_dict(n, ws_id) for n in notes]
+        lines = [f"#{n['note_id']} {n['title'] or n['content'][:40]} "
+                 f"({n['kind']})" for n in data]
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"{len(notes)} note(s):\n" + "\n".join(lines),
+                          data=data)
+
+
+class LinkNoteEntityTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "link_note_entity",
+            "Attach a saved note to a workspace entity (name or #id) in the "
+            "note's own workspace. Many-to-many -- a note can reference "
+            "several entities and an entity several notes.",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]},
+                "entity": {"type": "string", "minLength": 1}},
+             "required": ["note_id", "entity"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, note_id, entity, **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        note = self._get_note_or_err(note_id)
+        etype, eid = self._resolve_entity_ref(note.workspace_id, entity)
+        self._eng.link_note_entity(self._uid, note_id, etype, eid)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Linked note {note_id} to entity {entity!r}.",
+                          data={"note_id": note_id, "entity_type": etype,
+                                "entity_id": eid})
+
+
+class UnlinkNoteEntityTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "unlink_note_entity",
+            "Remove a note's link to a workspace entity. The note and the "
+            "entity themselves are untouched.",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]},
+                "entity": {"type": "string", "minLength": 1}},
+             "required": ["note_id", "entity"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, note_id, entity, **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        note = self._get_note_or_err(note_id)
+        etype, eid = self._resolve_entity_ref(note.workspace_id, entity)
+        self._eng.unlink_note_entity(self._uid, note_id, etype, eid)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Unlinked note {note_id} from {entity!r}.",
+                          data={"note_id": note_id, "entity_type": etype,
+                                "entity_id": eid})
+
+
+class LinkNoteTagTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "link_note_tag",
+            "Tag a saved note by tag NAME -- the tag is created on the fly "
+            "when it doesn't exist yet ('dump this under 1v4' works in one "
+            "call). Same-name tags in different workspaces stay distinct.",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]},
+                "tag": {"type": "string", "minLength": 1}},
+             "required": ["note_id", "tag"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, note_id, tag, **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        note = self._get_note_or_err(note_id)
+        tag_id = self._require_tag(note.workspace_id, tag)
+        self._eng.link_note_tag(self._uid, note_id, tag_id)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Tagged note {note_id} with {tag!r}.",
+                          data={"note_id": note_id, "tag": tag,
+                                "tag_id": tag_id})
+
+
+class UnlinkNoteTagTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "unlink_note_tag",
+            "Remove a tag from a saved note by tag name. The tag itself "
+            "survives (it may still tag other notes/media).",
+            {"type": "object", "properties": {
+                "note_id": {"type": ["integer", "string"]},
+                "tag": {"type": "string", "minLength": 1}},
+             "required": ["note_id", "tag"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, note_id, tag, **kwargs) -> ToolResult:
+        note_id = self._note_id(note_id)
+        note = self._get_note_or_err(note_id)
+        tag_id = self._resolve_tag(note.workspace_id, tag)
+        if tag_id is not None:
+            self._eng.unlink_note_tag(self._uid, note_id, tag_id)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Removed tag {tag!r} from note {note_id}.",
+                          data={"note_id": note_id, "tag": tag})
+
+
+class StoreMediaTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "store_media",
+            "Record a media METADATA record into a workspace. Telegram is "
+            "the blob store -- pass the Telegram file_id and optional message/"
+            "chat/topic ids; SQLite holds only this index row plus the "
+            "optional caption/file name. May bind the media to a note, "
+            "entities, and tags. Never stores a binary.",
+            {"type": "object", "properties": {
+                "file_id": {"type": "string", "minLength": 1},
+                "media_type": {"type": "string", "enum":
+                               ["photo", "video", "document", "audio", "voice"]},
+                "caption": {"type": "string"},
+                "filename": {"type": "string"},
+                "message_id": {"type": "integer"},
+                "chat_id": {"type": "integer"},
+                "topic_id": {"type": "integer"},
+                "note": {"type": ["integer", "string"], "description": "note_id"},
+                "entities": {"type": "array", "items": {"type": "string"}},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "workspace": {"type": ["string", "integer"]},
+                "extracted_text": {"type": "string"}},
+             "required": ["file_id"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, file_id, media_type="photo", caption=None, filename=None,
+            message_id=None, chat_id=None, topic_id=None, note=None,
+            entities=None, tags=None, workspace=None, extracted_text=None,
+            **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        note_id = self._note_id(note) if note is not None else None
+        att = self._eng.store_media(
+            self._uid, ws_id, telegram_file_id=file_id,
+            file_type=media_type or "photo", file_name=filename,
+            caption=caption, note_id=note_id, message_id=message_id,
+            chat_id=chat_id, topic_id=topic_id, extracted_text=extracted_text)
+        self._link_entities(att.id, entities, ws_id, media=True)
+        self._link_tags(att.id, tags, ws_id, media=True)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Stored media record {att.id} "
+                                 f"({att.file_type}).",
+                          data={"media_id": att.id, "file_type": att.file_type,
+                                "telegram_file_id": att.telegram_file_id,
+                                "workspace_id": ws_id})
+
+
+class UpdateMediaTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "update_media",
+            "Edit a media record's caption/file name/extracted text by "
+            "media_id. Only the fields provided change. Never rewrites the "
+            "Telegram message itself.",
+            {"type": "object", "properties": {
+                "media_id": {"type": ["integer", "string"]},
+                "caption": {"type": "string"},
+                "filename": {"type": "string"},
+                "extracted_text": {"type": "string"}},
+             "required": ["media_id"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, media_id, caption=None, filename=None, extracted_text=None,
+            **kwargs) -> ToolResult:
+        media_id = self._media_id(media_id)
+        self._get_media_or_err(media_id)
+        updated = self._eng.update_media(self._uid, media_id, caption=caption,
+                                         file_name=filename,
+                                         extracted_text=extracted_text)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Updated media record {media_id}.",
+                          data=_media_dict(updated, updated.workspace_id))
+
+
+class DeleteMediaTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "delete_media",
+            "Soft-delete a media METADATA record by media_id. The Telegram "
+            "message and file are NEVER touched -- deleting the index never "
+            "deletes the blob. DESTRUCTIVE -- the Worker asks for "
+            "confirmation before this ever runs.",
+            {"type": "object", "properties": {
+                "media_id": {"type": ["integer", "string"]}},
+             "required": ["media_id"]},
+            risk=RiskLevel.DESTRUCTIVE,
+            confirmation_message="This deletes the media metadata record only "
+                                 "(the Telegram file stays). Delete it?")
+
+    def run(self, media_id, **kwargs) -> ToolResult:
+        media_id = self._media_id(media_id)
+        self._get_media_or_err(media_id)
+        self._eng.delete_media(self._uid, media_id)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Deleted media record {media_id} "
+                                 "(Telegram message untouched).",
+                          data={"media_id": media_id, "deleted": True})
+
+
+class GetMediaTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "get_media",
+            "Fetch one media record by media_id, including linked entities "
+            "and tags, so a follow-up can re-post via telegram_file_id or "
+            "resolve by id deterministically.",
+            {"type": "object", "properties": {
+                "media_id": {"type": ["integer", "string"]}},
+             "required": ["media_id"]},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, media_id, **kwargs) -> ToolResult:
+        media_id = self._media_id(media_id)
+        att = self._get_media_or_err(media_id)
+        return ToolResult(
+            tool=self.spec.name, ok=True,
+            output=f"Media {media_id}: {att.file_type}",
+            data={**_media_dict(att, att.workspace_id),
+                  "entities": [{"entity_type": e, "entity_id": i}
+                               for e, i in self._eng.media_entities(self._uid, media_id)],
+                  "tags": [{"tag_id": t.id, "name": t.name}
+                           for t in self._eng.media_tags(self._uid, media_id)]})
+
+
+class ListMediaTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "list_media",
+            "Search/list media records in a workspace (default: active). "
+            "Filters combine: free-text q (caption/file name/extracted text "
+            "substring), media_type, a linked entity (name/#id), a tag name, "
+            "and a created range. Newest first. Deterministic -- no binary "
+            "data is ever returned, only metadata + Telegram ids.",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"]},
+                "q": {"type": "string"},
+                "media_type": {"type": "string", "enum":
+                               ["photo", "video", "document", "audio", "voice"]},
+                "entity": {"type": "string"},
+                "tag": {"type": "string"},
+                "created_after": {"type": "string"},
+                "created_before": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+             "required": []},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, q=None, media_type=None, entity=None, tag=None,
+            workspace=None, created_after=None, created_before=None, limit=50,
+            **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        etype = eid = tag_id = None
+        if entity:
+            etype, eid = self._resolve_entity_ref(ws_id, entity)
+        if tag:
+            tag_id = self._resolve_tag(ws_id, tag)
+        media = self._eng.search_media(
+            self._uid, ws_id, q=q, media_type=media_type, entity_type=etype,
+            entity_id=eid, tag_id=tag_id, created_after=created_after,
+            created_before=created_before, limit=limit)
+        if not media:
+            return ToolResult(tool=self.spec.name, ok=True,
+                              output="No media match.", data=[])
+        data = [_media_dict(m, ws_id) for m in media]
+        lines = [f"#{m['media_id']} {m['file_type']} "
+                 f"{(m['caption'] or m['file_name'] or '')[:40]}" for m in data]
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"{len(media)} media record(s):\n"
+                                 + "\n".join(lines), data=data)
+
+
+class LinkMediaEntityTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "link_media_entity",
+            "Attach a media record to a workspace entity (name or #id) in "
+            "the media's own workspace. Many-to-many -- one file can belong "
+            "to several entities, and one entity to several files.",
+            {"type": "object", "properties": {
+                "media_id": {"type": ["integer", "string"]},
+                "entity": {"type": "string", "minLength": 1}},
+             "required": ["media_id", "entity"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, media_id, entity, **kwargs) -> ToolResult:
+        media_id = self._media_id(media_id)
+        att = self._get_media_or_err(media_id)
+        etype, eid = self._resolve_entity_ref(att.workspace_id, entity)
+        self._eng.link_media_entity(self._uid, media_id, etype, eid)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Linked media {media_id} to {entity!r}.",
+                          data={"media_id": media_id, "entity_type": etype,
+                                "entity_id": eid})
+
+
+class UnlinkMediaEntityTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "unlink_media_entity",
+            "Remove a media record's link to a workspace entity. The file "
+            "metadata and the entity are untouched.",
+            {"type": "object", "properties": {
+                "media_id": {"type": ["integer", "string"]},
+                "entity": {"type": "string", "minLength": 1}},
+             "required": ["media_id", "entity"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, media_id, entity, **kwargs) -> ToolResult:
+        media_id = self._media_id(media_id)
+        att = self._get_media_or_err(media_id)
+        etype, eid = self._resolve_entity_ref(att.workspace_id, entity)
+        self._eng.unlink_media_entity(self._uid, media_id, etype, eid)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Unlinked media {media_id} from {entity!r}.",
+                          data={"media_id": media_id, "entity_type": etype,
+                                "entity_id": eid})
+
+
+class LinkMediaTagTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "link_media_tag",
+            "Tag a media record by tag NAME -- the tag is created on the fly "
+            "when missing. Same-name tags in different workspaces stay "
+            "distinct.",
+            {"type": "object", "properties": {
+                "media_id": {"type": ["integer", "string"]},
+                "tag": {"type": "string", "minLength": 1}},
+             "required": ["media_id", "tag"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, media_id, tag, **kwargs) -> ToolResult:
+        media_id = self._media_id(media_id)
+        att = self._get_media_or_err(media_id)
+        tag_id = self._require_tag(att.workspace_id, tag)
+        self._eng.link_media_tag(self._uid, media_id, tag_id)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Tagged media {media_id} with {tag!r}.",
+                          data={"media_id": media_id, "tag": tag,
+                                "tag_id": tag_id})
+
+
+class UnlinkMediaTagTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "unlink_media_tag",
+            "Remove a tag from a media record by tag name. The tag itself "
+            "survives.",
+            {"type": "object", "properties": {
+                "media_id": {"type": ["integer", "string"]},
+                "tag": {"type": "string", "minLength": 1}},
+             "required": ["media_id", "tag"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, media_id, tag, **kwargs) -> ToolResult:
+        media_id = self._media_id(media_id)
+        att = self._get_media_or_err(media_id)
+        tag_id = self._resolve_tag(att.workspace_id, tag)
+        if tag_id is not None:
+            self._eng.unlink_media_tag(self._uid, media_id, tag_id)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Removed tag {tag!r} from media {media_id}.",
+                          data={"media_id": media_id, "tag": tag})
+
+
+class CreateTagTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "create_tag",
+            "Create a workspace tag by name (case-insensitive, idempotent): "
+            "a same-name tag already in the workspace is returned instead of "
+            "duplicated. Tags are the category/label system -- same name in "
+            "different workspaces stays distinct.",
+            {"type": "object", "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "workspace": {"type": ["string", "integer"]}},
+             "required": ["name"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, name, workspace=None, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        tag = self._eng.create_tag(self._uid, ws_id, name)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Tag {tag.name!r} (#{tag.id}) ready.",
+                          data=_tag_dict(tag, ws_id))
+
+
+class RenameTagTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "rename_tag",
+            "Rename a workspace tag: `tag` is the current name, `new_name` "
+            "the replacement. Links survive the rename.",
+            {"type": "object", "properties": {
+                "tag": {"type": "string", "minLength": 1},
+                "new_name": {"type": "string", "minLength": 1},
+                "workspace": {"type": ["string", "integer"]}},
+             "required": ["tag", "new_name"]},
+            risk=RiskLevel.MUTATING)
+
+    def run(self, tag, new_name, workspace=None, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace_strict(workspace)
+        tag_id = self._resolve_tag(ws_id, tag)
+        if tag_id is None:
+            raise self._err(f"no tag named {tag!r} in workspace #{ws_id}.")
+        updated = self._eng.rename_tag(self._uid, tag_id, new_name)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Renamed tag {tag!r} → {updated.name!r}.",
+                          data=_tag_dict(updated, ws_id))
+
+
+class DeleteTagTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "delete_tag",
+            "Delete a workspace tag by name: every link to it (notes/media/"
+            "entities) is removed, the tagged items themselves are kept. "
+            "DESTRUCTIVE -- the Worker asks for confirmation before this "
+            "ever runs.",
+            {"type": "object", "properties": {
+                "tag": {"type": "string", "minLength": 1},
+                "workspace": {"type": ["string", "integer"]}},
+             "required": ["tag"]},
+            risk=RiskLevel.DESTRUCTIVE,
+            confirmation_message="This deletes the tag and un-tags every note/"
+                                 "media linked to it. Delete it?")
+
+    def run(self, tag, workspace=None, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace_strict(workspace)
+        tag_id = self._resolve_tag(ws_id, tag)
+        if tag_id is None:
+            raise self._err(f"no tag named {tag!r} in workspace #{ws_id}.")
+        self._eng.delete_tag(self._uid, tag_id)
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"Deleted tag {tag!r} and its links.",
+                          data={"tag_id": tag_id, "tag": tag,
+                                "workspace_id": ws_id, "deleted": True})
+
+
+class ListTagsTool(_KnowledgeTool):
+    @property
+    def spec(self):
+        return ToolSpec(
+            "list_tags",
+            "List the tags of a workspace (default: active), optionally "
+            "restricted to the tags linked to one entity (name/#id), one "
+            "note_id, or one media_id.",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"]},
+                "entity": {"type": "string"},
+                "note": {"type": ["integer", "string"]},
+                "media": {"type": ["integer", "string"]}},
+             "required": []},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, entity=None, note=None, media=None, workspace=None,
+            **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        tags = self._eng.list_tags(self._uid, ws_id)
+        if entity:
+            etype, eid = self._resolve_entity_ref(ws_id, entity)
+            tags = self._eng.tags_for_entity(self._uid, ws_id, etype, eid)
+        elif note is not None:
+            note_id = self._note_id(note)
+            note = self._get_note_or_err(note_id)
+            tags = self._eng.note_tags(self._uid, note_id)
+        elif media is not None:
+            media_id = self._media_id(media)
+            att = self._get_media_or_err(media_id)
+            tags = self._eng.media_tags(self._uid, media_id)
+        if not tags:
+            return ToolResult(tool=self.spec.name, ok=True,
+                              output="No tags.", data=[])
+        data = [_tag_dict(t, ws_id) for t in tags]
+        lines = [f"#{t['tag_id']} {t['name']}" for t in data]
+        return ToolResult(tool=self.spec.name, ok=True,
+                          output=f"{len(tags)} tag(s):\n" + "\n".join(lines),
+                          data=data)
+
+
+# ── v15.5 M7 Cross-Reference Retrieval ──────────────────────────────────────
+
+class SearchKnowledgeTool(_KnowledgeTool):
+    """Unified cross-reference search over notes AND media in a workspace.
+
+    Supports AND/OR semantics across entities and tags. Results are structured
+    RetrievalResult records with a `_type` discriminator ("note" | "media").
+
+    IMPORTANT: Returned records may contain mixed `_type` values. Results are
+    structured data only — no Telegram HTML formatting. No fabrication: zero
+    results means zero results. Telegram file_ids come ONLY from returned
+    media records. Use get_note/get_media for detailed retrieval.
+    """
+
+    def __init__(self, user_id, storage, engine, groups, projection, ref_ctx,
+                 typed_refs=None):
+        super().__init__(user_id, storage, engine, groups, projection, ref_ctx,
+                         typed_refs=typed_refs)
+        self._svc = CrossReferenceService(engine)
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            "search_knowledge",
+            "Cross-reference search over notes AND media in a workspace. "
+            "Filters: `q` free text; `entities` (names or #ids) with "
+            "`entity_mode` ('and'=all must match, 'or'=any matches); "
+            "`tags` (names) with `tag_mode` ('and'/'or'); "
+            "`media_type` filters media (photo|video|document|audio); "
+            "`kind` filters notes; `created_after`/`created_before` ISO dates; "
+            "`limit` (default 50, max 200). `workspace` defaults to active. "
+            "Results: structured records with `_type` in {'note','media'}. "
+            "No fabrication — zero results means zero results. "
+            "Telegram file_ids come ONLY from returned media records. "
+            "Use get_note/get_media for detailed retrieval.",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"],
+                              "description": "workspace name or #id (default: active)"},
+                "q": {"type": "string",
+                      "description": "free text search (notes: title/content; media: caption/file_name/extracted_text)"},
+                "entities": {"type": "array", "items": {"type": ["string", "integer"]},
+                             "description": "entity names or #ids to filter by"},
+                "entity_mode": {"type": "string", "enum": ["and", "or"],
+                                "description": "'and'=all entities must match, 'or'=any matches (default: and)"},
+                "tags": {"type": "array", "items": {"type": "string"},
+                         "description": "tag names to filter by"},
+                "tag_mode": {"type": "string", "enum": ["and", "or"],
+                             "description": "'and'=all tags must match, 'or'=any matches (default: and)"},
+                "media_type": {"type": "string", "enum": ["photo", "video", "document", "audio"],
+                               "description": "filter media by type"},
+                "kind": {"type": "string", "description": "filter notes by kind"},
+                "created_after": {"type": "string", "description": "ISO date lower bound (inclusive)"},
+                "created_before": {"type": "string", "description": "ISO date upper bound (inclusive)"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200,
+                          "description": "max results (default 50, max 200)"}},
+             "required": []},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, workspace=None, q=None, entities=None, entity_mode="and",
+            tags=None, tag_mode="and", media_type=None, kind=None,
+            created_after=None, created_before=None, limit=50, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        results = self._svc.search(
+            self._uid, ws_id,
+            q=q, entities=entities, entity_mode=entity_mode,
+            tags=tags, tag_mode=tag_mode, media_type=media_type,
+            created_after=created_after, created_before=created_before,
+            limit=limit, kind=kind)
+        if not results:
+            return ToolResult(tool=self.spec.name, ok=True,
+                              output="No results.", data=[])
+        # Serialize RetrievalResult to dict for ToolResult.data
+        data = [r.__dict__ for r in results]
+        # Build human-readable summary
+        lines = []
+        for r in results:
+            if r._type == "note":
+                title = r.title or "(untitled)"
+                lines.append(f"  📝 #{r.note_id} {title}")
+            else:
+                ft = r.file_type or "media"
+                fn = r.file_name or "(unnamed)"
+                lines.append(f"  🎬 #{r.media_id} [{ft}] {fn}")
+        out = f"{len(results)} result(s):\n" + "\n".join(lines)
+        return ToolResult(tool=self.spec.name, ok=True, output=out, data=data)
+
+
+class SearchNotesCrossTool(_KnowledgeTool):
+    """Cross-reference search over NOTES only in a workspace.
+
+    Supports AND/OR semantics across entities and tags. Results are structured
+    RetrievalResult records with `_type` == "note".
+
+    IMPORTANT: Results are structured data only — no Telegram HTML formatting.
+    No fabrication: zero results means zero results. Use get_note for detailed
+    retrieval.
+    """
+
+    def __init__(self, user_id, storage, engine, groups, projection, ref_ctx,
+                 typed_refs=None):
+        super().__init__(user_id, storage, engine, groups, projection, ref_ctx,
+                         typed_refs=typed_refs)
+        self._svc = CrossReferenceService(engine)
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            "search_notes_cross",
+            "Cross-reference search over NOTES only in a workspace. "
+            "Filters: `q` free text (title/content); `entities` (names or #ids) "
+            "with `entity_mode` ('and'=all must match, 'or'=any matches); "
+            "`tags` (names) with `tag_mode` ('and'/'or'); "
+            "`kind` filters notes; `created_after`/`created_before` ISO dates; "
+            "`limit` (default 50, max 200). `workspace` defaults to active. "
+            "Results: structured records with `_type` == 'note'. "
+            "No fabrication — zero results means zero results. "
+            "Use get_note for detailed retrieval.",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"],
+                              "description": "workspace name or #id (default: active)"},
+                "q": {"type": "string", "description": "free text search (title/content)"},
+                "entities": {"type": "array", "items": {"type": ["string", "integer"]},
+                             "description": "entity names or #ids to filter by"},
+                "entity_mode": {"type": "string", "enum": ["and", "or"],
+                                "description": "'and'=all entities must match, 'or'=any matches (default: and)"},
+                "tags": {"type": "array", "items": {"type": "string"},
+                         "description": "tag names to filter by"},
+                "tag_mode": {"type": "string", "enum": ["and", "or"],
+                             "description": "'and'=all tags must match, 'or'=any matches (default: and)"},
+                "kind": {"type": "string", "description": "filter notes by kind"},
+                "created_after": {"type": "string", "description": "ISO date lower bound (inclusive)"},
+                "created_before": {"type": "string", "description": "ISO date upper bound (inclusive)"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200,
+                          "description": "max results (default 50, max 200)"}},
+             "required": []},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, workspace=None, q=None, entities=None, entity_mode="and",
+            tags=None, tag_mode="and", kind=None,
+            created_after=None, created_before=None, limit=50, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        results = self._svc.search_notes_only(
+            self._uid, ws_id,
+            q=q, entities=entities, entity_mode=entity_mode,
+            tags=tags, tag_mode=tag_mode,
+            created_after=created_after, created_before=created_before,
+            limit=limit, kind=kind)
+        if not results:
+            return ToolResult(tool=self.spec.name, ok=True,
+                              output="No notes found.", data=[])
+        data = [r.__dict__ for r in results]
+        lines = [f"  📝 #{r.note_id} {r.title or '(untitled)'}" for r in results]
+        out = f"{len(results)} note(s):\n" + "\n".join(lines)
+        return ToolResult(tool=self.spec.name, ok=True, output=out, data=data)
+
+
+class SearchMediaCrossTool(_KnowledgeTool):
+    """Cross-reference search over MEDIA only in a workspace.
+
+    Supports AND/OR semantics across entities and tags. Results are structured
+    RetrievalResult records with `_type` == "media" and include Telegram
+    `telegram_file_id` for resend/display.
+
+    IMPORTANT: Results are structured data only — no Telegram HTML formatting.
+    No fabrication: zero results means zero results. Telegram file_ids come
+    ONLY from returned media records. Use get_media for detailed retrieval.
+    """
+
+    def __init__(self, user_id, storage, engine, groups, projection, ref_ctx,
+                 typed_refs=None):
+        super().__init__(user_id, storage, engine, groups, projection, ref_ctx,
+                         typed_refs=typed_refs)
+        self._svc = CrossReferenceService(engine)
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            "search_media_cross",
+            "Cross-reference search over MEDIA only in a workspace. "
+            "Filters: `q` free text (caption/file_name/extracted_text); "
+            "`entities` (names or #ids) with `entity_mode` ('and'=all must match, "
+            "'or'=any matches); `tags` (names) with `tag_mode` ('and'/'or'); "
+            "`media_type` (photo|video|document|audio); "
+            "`created_after`/`created_before` ISO dates; "
+            "`limit` (default 50, max 200). `workspace` defaults to active. "
+            "Results: structured records with `_type` == 'media', including "
+            "Telegram `telegram_file_id` for resend/display. "
+            "No fabrication — zero results means zero results. "
+            "Telegram file_ids come ONLY from returned media records. "
+            "Use get_media for detailed retrieval.",
+            {"type": "object", "properties": {
+                "workspace": {"type": ["string", "integer"],
+                              "description": "workspace name or #id (default: active)"},
+                "q": {"type": "string",
+                      "description": "free text search (caption/file_name/extracted_text)"},
+                "entities": {"type": "array", "items": {"type": ["string", "integer"]},
+                             "description": "entity names or #ids to filter by"},
+                "entity_mode": {"type": "string", "enum": ["and", "or"],
+                                "description": "'and'=all entities must match, 'or'=any matches (default: and)"},
+                "tags": {"type": "array", "items": {"type": "string"},
+                         "description": "tag names to filter by"},
+                "tag_mode": {"type": "string", "enum": ["and", "or"],
+                             "description": "'and'=all tags must match, 'or'=any matches (default: and)"},
+                "media_type": {"type": "string", "enum": ["photo", "video", "document", "audio"],
+                               "description": "filter media by type"},
+                "created_after": {"type": "string", "description": "ISO date lower bound (inclusive)"},
+                "created_before": {"type": "string", "description": "ISO date upper bound (inclusive)"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200,
+                          "description": "max results (default 50, max 200)"}},
+             "required": []},
+            risk=RiskLevel.READ_ONLY)
+
+    def run(self, workspace=None, q=None, entities=None, entity_mode="and",
+            tags=None, tag_mode="and", media_type=None,
+            created_after=None, created_before=None, limit=50, **kwargs) -> ToolResult:
+        ws_id = self._require_workspace(workspace)
+        results = self._svc.search_media_only(
+            self._uid, ws_id,
+            q=q, entities=entities, entity_mode=entity_mode,
+            tags=tags, tag_mode=tag_mode, media_type=media_type,
+            created_after=created_after, created_before=created_before,
+            limit=limit)
+        if not results:
+            return ToolResult(tool=self.spec.name, ok=True,
+                              output="No media found.", data=[])
+        data = [r.__dict__ for r in results]
+        lines = []
+        for r in results:
+            ft = r.file_type or "media"
+            fn = r.file_name or "(unnamed)"
+            lines.append(f"  🎬 #{r.media_id} [{ft}] {fn}")
+        out = f"{len(results)} media item(s):\n" + "\n".join(lines)
+        return ToolResult(tool=self.spec.name, ok=True, output=out, data=data)
+
+
 # ── registry builder ──────────────────────────────────────────────────────
 def build_tool_registry(user_id: int,
                         storage: Storage | None = None,
@@ -1944,10 +3016,66 @@ def build_tool_registry(user_id: int,
                          typed_refs=typed_refs),
         EquipItemTool(user_id, storage, engine, groups, projection, ref_ctx,
                       typed_refs=typed_refs),
+        # v15.4 M6: knowledge notes (create/update/delete/get/list/link/tag)
+        CreateNoteTool(user_id, storage, engine, groups, projection, ref_ctx,
+                       typed_refs=typed_refs),
+        UpdateNoteTool(user_id, storage, engine, groups, projection, ref_ctx,
+                       typed_refs=typed_refs),
+        DeleteNoteTool(user_id, storage, engine, groups, projection, ref_ctx,
+                       typed_refs=typed_refs),
+        PostNoteTool(user_id, storage, engine, groups, projection, ref_ctx,
+                     typed_refs=typed_refs),
+        GetNoteTool(user_id, storage, engine, groups, projection, ref_ctx,
+                    typed_refs=typed_refs),
+        ListNotesTool(user_id, storage, engine, groups, projection, ref_ctx,
+                      typed_refs=typed_refs),
+        LinkNoteEntityTool(user_id, storage, engine, groups, projection,
+                           ref_ctx, typed_refs=typed_refs),
+        UnlinkNoteEntityTool(user_id, storage, engine, groups, projection,
+                             ref_ctx, typed_refs=typed_refs),
+        LinkNoteTagTool(user_id, storage, engine, groups, projection, ref_ctx,
+                        typed_refs=typed_refs),
+        UnlinkNoteTagTool(user_id, storage, engine, groups, projection,
+                          ref_ctx, typed_refs=typed_refs),
+        # v15.4 M6: media metadata (Telegram is the blob store)
+        StoreMediaTool(user_id, storage, engine, groups, projection, ref_ctx,
+                       typed_refs=typed_refs),
+        UpdateMediaTool(user_id, storage, engine, groups, projection, ref_ctx,
+                        typed_refs=typed_refs),
+        DeleteMediaTool(user_id, storage, engine, groups, projection, ref_ctx,
+                        typed_refs=typed_refs),
+        GetMediaTool(user_id, storage, engine, groups, projection, ref_ctx,
+                     typed_refs=typed_refs),
+        ListMediaTool(user_id, storage, engine, groups, projection, ref_ctx,
+                      typed_refs=typed_refs),
+        LinkMediaEntityTool(user_id, storage, engine, groups, projection,
+                            ref_ctx, typed_refs=typed_refs),
+        UnlinkMediaEntityTool(user_id, storage, engine, groups, projection,
+                              ref_ctx, typed_refs=typed_refs),
+        LinkMediaTagTool(user_id, storage, engine, groups, projection, ref_ctx,
+                         typed_refs=typed_refs),
+        UnlinkMediaTagTool(user_id, storage, engine, groups, projection,
+                           ref_ctx, typed_refs=typed_refs),
+        # v15.4 M6: tags (workspace-scoped categories)
+        CreateTagTool(user_id, storage, engine, groups, projection, ref_ctx,
+                      typed_refs=typed_refs),
+        RenameTagTool(user_id, storage, engine, groups, projection, ref_ctx,
+                      typed_refs=typed_refs),
+        DeleteTagTool(user_id, storage, engine, groups, projection, ref_ctx,
+                      typed_refs=typed_refs),
+        ListTagsTool(user_id, storage, engine, groups, projection, ref_ctx,
+                     typed_refs=typed_refs),
         # memory / recall (read-only)
         GetMemoriesTool(user_id, storage, engine, typed_refs=typed_refs),
         SearchMemoriesTool(user_id, storage, engine, typed_refs=typed_refs),
         RecallTool(user_id, storage, engine, typed_refs=typed_refs),
+        # v15.5 M7: cross-reference retrieval (UNIFIED ONE retrieval impl)
+        SearchKnowledgeTool(user_id, storage, engine, groups, projection, ref_ctx,
+                            typed_refs=typed_refs),
+        SearchNotesCrossTool(user_id, storage, engine, groups, projection, ref_ctx,
+                             typed_refs=typed_refs),
+        SearchMediaCrossTool(user_id, storage, engine, groups, projection, ref_ctx,
+                             typed_refs=typed_refs),
     ):
         reg.register(tool)
     return reg

@@ -106,6 +106,36 @@ def _route_page(ctx: ControlContext, parts):
             return pages.equip_home(ctx, page=_int_or(p[3], 1))
         if p[1] == "pick":
             return pages.equip_pick(ctx, _int_or(p[2], 0))
+    if p[0] == "note":
+        if len(p) == 1 or p[1] in ("home", "list"):
+            return pages.note_home(ctx)
+        if len(p) >= 4 and p[1] in ("home", "list") and p[2] == "p":
+            return pages.note_home(ctx, page=_int_or(p[3], 1))
+        if p[1] == "view":
+            return pages.note_view(ctx, _int_or(p[2], 0))
+    if p[0] == "media":
+        if len(p) == 1 or (p[1] in ("home", "list") and len(p) == 2):
+            return pages.media_home(ctx)
+        if p[1] in ("home", "list"):
+            if p[2] == "p":
+                return pages.media_home(ctx, page=_int_or(p[3], 1))
+            mtype, eid, tid, page = _media_filter(p)
+            return pages.media_home(ctx, page=page, media_type=mtype,
+                                    entity_id=eid, tag_id=tid)
+        if p[1] == "view":
+            return pages.media_view(ctx, _int_or(p[2], 0))
+    if p[0] == "tag":
+        if len(p) == 1 or p[1] in ("home", "list"):
+            return pages.tag_home(ctx)
+        if len(p) >= 4 and p[1] in ("home", "list") and p[2] == "p":
+            return pages.tag_home(ctx, page=_int_or(p[3], 1))
+        if p[1] == "view":
+            return pages.tag_view(ctx, _int_or(p[2], 0))
+    if p[0] == "search":
+        if len(p) == 1 or p[1] in ("home", "list"):
+            return pages.search_home(ctx)
+        if len(p) >= 4 and p[1] in ("home", "list") and p[2] == "p":
+            return pages.search_home(ctx, page=_int_or(p[3], 1))
     return pages.control_home(ctx)
 
 
@@ -119,6 +149,34 @@ def _int_or(value, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _media_filter(p):
+    """Parse 'ctl:media:list[:type:T|:ent:N|:tag:N][:p:N]' segments (p starts
+    at 'media'). Returns (media_type, entity_id, tag_id, page)."""
+    media_type = entity_id = tag_id = None
+    page = 1
+    i = 2  # skip 'media', 'home'/'list'
+    while i < len(p):
+        seg = p[i]
+        if seg == "p" and i + 1 < len(p):
+            page = _int_or(p[i + 1], 1)
+            i += 2
+            continue
+        if seg == "type" and i + 1 < len(p):
+            media_type = p[i + 1]
+            i += 2
+            continue
+        if seg == "ent" and i + 1 < len(p):
+            entity_id = _int_or(p[i + 1], 0)
+            i += 2
+            continue
+        if seg == "tag" and i + 1 < len(p):
+            tag_id = _int_or(p[i + 1], 0)
+            i += 2
+            continue
+        i += 1
+    return media_type, entity_id, tag_id, page
 
 
 def _error_page(message: str):
@@ -294,6 +352,216 @@ async def _dispatch(ctx: ControlContext, parts):
                 f"ctl:eq:pick:{char_id}")
         return _route_page(ctx, parts)
 
+    # ── M6 knowledge actions
+    if p[0] == "note":
+        if p[1] == "add":
+            return _begin_gather(ctx, p, "create_note",
+                                 {"_ctl": "note_add"}, ["content"],
+                                 "Send the note. A title plus body works: "
+                                 "<code>Title</code> then a blank line then "
+                                 "the content — or just the content alone.")
+        if p[1] == "search":
+            return _begin_gather(ctx, p, "list_notes",
+                                 {"_ctl": "note_search"}, ["q"],
+                                 "Send a search query — notes matching the "
+                                 "text in their title/content are shown.")
+        if p[1] == "edit" and len(p) >= 3:
+            note_id = _int_or(p[2], 0)
+            if _note_for_gather(ctx, note_id) is None:
+                return pages._missing_entity_page("note")
+            return _begin_gather(ctx, p, "update_note",
+                                 {"_ctl": "note_edit", "note_id": note_id},
+                                 ["content"],
+                                 f"Send the new content for note #{note_id} "
+                                 "(title line, blank line, body — or just "
+                                 "content).")
+        if p[1] == "del" and len(p) >= 3:
+            note_id = _int_or(p[2], 0)
+            if _note_for_gather(ctx, note_id) is None:
+                return pages._missing_entity_page("note")
+            return begin_confirm(ctx, "delete_note", {"note_id": note_id},
+                                 return_to="ctl:note:home")
+        if p[1] == "post" and len(p) >= 3:
+            note_id = _int_or(p[2], 0)
+            if _note_for_gather(ctx, note_id) is None:
+                return pages._missing_entity_page("note")
+            return await _run_immediate(ctx, "post_note",
+                                        {"note_id": note_id},
+                                        f"ctl:note:view:{note_id}")
+        if p[1] == "link-ent" and len(p) >= 3:
+            note_id = _int_or(p[2], 0)
+            if _note_for_gather(ctx, note_id) is None:
+                return pages._missing_entity_page("note")
+            return _begin_gather(ctx, p, "link_note_entity",
+                                 {"_ctl": "note_link_ent", "note_id": note_id},
+                                 ["entity"],
+                                 "Send the entity name or #id to link this "
+                                 "note to.")
+        if p[1] == "link-tag" and len(p) >= 3:
+            note_id = _int_or(p[2], 0)
+            if _note_for_gather(ctx, note_id) is None:
+                return pages._missing_entity_page("note")
+            return _begin_gather(ctx, p, "link_note_tag",
+                                 {"_ctl": "note_link_tag", "note_id": note_id},
+                                 ["tag"],
+                                 "Send the tag name — it is created when "
+                                 "missing.")
+        if p[1] == "unlink-ent" and len(p) >= 4:
+            note_id = _int_or(p[2], 0)
+            return await _run_immediate(
+                ctx, "unlink_note_entity",
+                {"note_id": note_id, "entity": f"#{_int_or(p[3], 0)}"},
+                f"ctl:note:view:{note_id}")
+        if p[1] == "unlink-tag" and len(p) >= 4:
+            note_id = _int_or(p[2], 0)
+            tag_name = _tag_name_by_id(ctx, _int_or(p[3], 0))
+            if _note_for_gather(ctx, note_id) is None or tag_name is None:
+                return pages._missing_entity_page("note")
+            return await _run_immediate(
+                ctx, "unlink_note_tag",
+                {"note_id": note_id, "tag": tag_name},
+                f"ctl:note:view:{note_id}")
+        return _route_page(ctx, parts)
+
+    # ── M6 media actions
+    if p[0] == "media":
+        if p[1] == "search":
+            return _begin_gather(ctx, p, "list_media",
+                                 {"_ctl": "media_search"}, ["q"],
+                                 "Send a search query — media matching the "
+                                 "text in caption/file name/extracted text "
+                                 "are shown.")
+        if p[1] == "del" and len(p) >= 3:
+            media_id = _int_or(p[2], 0)
+            if _media_for_gather(ctx, media_id) is None:
+                return pages._missing_entity_page("media")
+            return begin_confirm(ctx, "delete_media", {"media_id": media_id},
+                                 return_to="ctl:media:home")
+        if p[1] == "edit" and len(p) >= 3:
+            media_id = _int_or(p[2], 0)
+            if _media_for_gather(ctx, media_id) is None:
+                return pages._missing_entity_page("media")
+            return _begin_gather(ctx, p, "update_media",
+                                 {"_ctl": "media_edit", "media_id": media_id},
+                                 ["caption"],
+                                 "Send the new caption for this media record "
+                                 "(the Telegram message is untouched).")
+        if p[1] == "link-ent" and len(p) >= 3:
+            media_id = _int_or(p[2], 0)
+            if _media_for_gather(ctx, media_id) is None:
+                return pages._missing_entity_page("media")
+            return _begin_gather(ctx, p, "link_media_entity",
+                                 {"_ctl": "media_link_ent", "media_id": media_id},
+                                 ["entity"],
+                                 "Send the entity name or #id to link this "
+                                 "media to.")
+        if p[1] == "link-tag" and len(p) >= 3:
+            media_id = _int_or(p[2], 0)
+            if _media_for_gather(ctx, media_id) is None:
+                return pages._missing_entity_page("media")
+            return _begin_gather(ctx, p, "link_media_tag",
+                                 {"_ctl": "media_link_tag", "media_id": media_id},
+                                 ["tag"],
+                                 "Send the tag name — it is created when "
+                                 "missing.")
+        if p[1] == "unlink-ent" and len(p) >= 4:
+            media_id = _int_or(p[2], 0)
+            return await _run_immediate(
+                ctx, "unlink_media_entity",
+                {"media_id": media_id, "entity": f"#{_int_or(p[3], 0)}"},
+                f"ctl:media:view:{media_id}")
+        if p[1] == "unlink-tag" and len(p) >= 4:
+            media_id = _int_or(p[2], 0)
+            tag_name = _tag_name_by_id(ctx, _int_or(p[3], 0))
+            if _media_for_gather(ctx, media_id) is None or tag_name is None:
+                return pages._missing_entity_page("media")
+            return await _run_immediate(
+                ctx, "unlink_media_tag",
+                {"media_id": media_id, "tag": tag_name},
+                f"ctl:media:view:{media_id}")
+        return _route_page(ctx, parts)
+
+    # ── M6 tag actions
+    if p[0] == "tag":
+        if p[1] == "add":
+            return _begin_gather(ctx, p, "create_tag",
+                                 {"_ctl": "tag_add"}, ["name"],
+                                 "Send the new tag name.")
+        if p[1] == "rename" and len(p) >= 3:
+            tag_id = _int_or(p[2], 0)
+            t = _tag_by_id(ctx, tag_id)
+            if t is None:
+                return pages._missing_entity_page("tag")
+            return _begin_gather(ctx, p, "rename_tag",
+                                 {"_ctl": "tag_rename", "tag_id": tag_id,
+                                  "old_name": t.name},
+                                 ["new_name"],
+                                 f"Send the new name for tag "
+                                 f"<b>{esc(t.name)}</b>.")
+        if p[1] == "del" and len(p) >= 3:
+            tag_id = _int_or(p[2], 0)
+            t = _tag_by_id(ctx, tag_id)
+            if t is None:
+                return pages._missing_entity_page("tag")
+            return begin_confirm(ctx, "delete_tag",
+                                 {"tag": t.name,
+                                  "workspace": _active_ws_id(ctx) or 0},
+                                 return_to="ctl:tag:home")
+        return _route_page(ctx, parts)
+
+    # ── M7 cross-reference search actions
+    if p[0] == "search":
+        if p[1] == "gather":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_gather"}, ["q"],
+                                 "Send a search query — matching notes (title/content) "
+                                 "and media (caption/file_name/extracted_text) are shown.")
+        if p[1] == "execute":
+            # Execute search with accumulated filters
+            from conversation_state import get_search_state
+            return pages.search_home(ctx, execute=True, **get_search_state(ctx.user_id))
+        if p[1] == "clear":
+            from conversation_state import clear_search_state
+            clear_search_state(ctx.user_id)
+            return pages.search_home(ctx)
+        if p[1] == "entities":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_entities"}, ["entities"],
+                                 "Send comma-separated entity names or #ids to filter by.")
+        if p[1] == "ws":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_ws"}, ["workspace"],
+                                 "Send the workspace name or #id to search in "
+                                 "(or 'all' for cross-workspace).")
+        if p[1] == "mode":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_mode"}, ["entity_mode", "tag_mode"],
+                                 "Send entity_mode and tag_mode as 'and' or 'or' "
+                                 "separated by space (e.g., 'and or').")
+        if p[1] == "dates":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_dates"}, ["created_after", "created_before"],
+                                 "Send date range as 'after before' in ISO format "
+                                 "(e.g., '2026-01-01 2026-12-31', empty = no bound).")
+        if p[1] == "mtype":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_mtype"}, ["media_type"],
+                                 "Send media type filter: photo, video, document, or audio "
+                                 "(empty = all).")
+        if p[1] == "tags":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_tags"}, ["tags"],
+                                 "Send comma-separated tag names to filter by.")
+        if p[1] == "scope":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_scope"}, ["scope"],
+                                 "Send 'active' (default) or 'all' for cross-workspace search.")
+        if p[1] == "kind":
+            return _begin_gather(ctx, p, "search_knowledge",
+                                 {"_ctl": "search_kind"}, ["kind"],
+                                 "Send note kind filter (e.g., 'note', 'log', 'idea') or empty for all.")
+        return _route_page(ctx, parts)
+
     return _route_page(ctx, parts)
 
 
@@ -389,6 +657,51 @@ async def route_control_gathering(update: Update, context, partial, missing,
         return await _gather_add_entity(update, user_id, ctx, partial, text)
     if kind == "edit_entity":
         return await _gather_edit_entity(update, user_id, ctx, partial, text)
+    if kind == "note_add":
+        return await _gather_note_add(update, user_id, ctx, text)
+    if kind == "note_edit":
+        return await _gather_note_edit(update, user_id, ctx, partial, text)
+    if kind == "note_search":
+        return _gather_note_search(update, user_id, ctx, text)
+    if kind == "note_link_ent":
+        return await _gather_note_link(update, user_id, ctx, partial, text,
+                                       tag=False)
+    if kind == "note_link_tag":
+        return await _gather_note_link(update, user_id, ctx, partial, text,
+                                       tag=True)
+    if kind == "media_search":
+        return _gather_media_search(update, user_id, ctx, text)
+    if kind == "media_edit":
+        return await _gather_media_edit(update, user_id, ctx, partial, text)
+    if kind == "media_link_ent":
+        return await _gather_media_link(update, user_id, ctx, partial, text,
+                                        tag=False)
+    if kind == "media_link_tag":
+        return await _gather_media_link(update, user_id, ctx, partial, text,
+                                        tag=True)
+    if kind == "tag_add":
+        return await _gather_tag_add(update, user_id, ctx, text)
+    if kind == "tag_rename":
+        return await _gather_tag_rename(update, user_id, ctx, partial, text)
+    # M7 search gather handlers
+    if kind == "search_gather":
+        return await _gather_search(update, user_id, ctx, text)
+    if kind == "search_entities":
+        return await _gather_search_entities(update, user_id, ctx, text)
+    if kind == "search_ws":
+        return await _gather_search_ws(update, user_id, ctx, text)
+    if kind == "search_mode":
+        return await _gather_search_mode(update, user_id, ctx, text)
+    if kind == "search_dates":
+        return await _gather_search_dates(update, user_id, ctx, text)
+    if kind == "search_mtype":
+        return await _gather_search_mtype(update, user_id, ctx, text)
+    if kind == "search_tags":
+        return await _gather_search_tags(update, user_id, ctx, text)
+    if kind == "search_scope":
+        return await _gather_search_scope(update, user_id, ctx, text)
+    if kind == "search_kind":
+        return await _gather_search_kind(update, user_id, ctx, text)
     clear_state(user_id)
     return _reply(update, "❓ That control flow is no longer active.",
                   nav="ctl:home")
@@ -473,6 +786,283 @@ async def _gather_edit_entity(update, user_id, ctx, partial, text):
                           "fields": fields_norm},
                          return_to=f"ctl:ent:view:{eid}",
                          question=f"Apply these edits to <b>{esc(m.title)}</b>?")
+
+
+def _split_note_input(text: str):
+    """'Title\\n\\nbody' → (title, body); else (None, text). Deterministic —
+    a blank line separates the title from the body."""
+    if "\n\n" in text:
+        title, _, body = text.partition("\n\n")
+        title, body = title.strip(), body.strip()
+        if body:
+            return (title or None), body
+    return None, text.strip()
+
+
+def _note_for_gather(ctx, note_id):
+    try:
+        return ctx.engine.get_note(ctx.user_id, note_id)
+    except Exception:
+        return None
+
+
+def _media_for_gather(ctx, media_id):
+    try:
+        return ctx.engine.get_media(ctx.user_id, media_id)
+    except Exception:
+        return None
+
+
+def _tag_by_id(ctx, tag_id):
+    try:
+        return ctx.engine.get_tag(ctx.user_id, tag_id)
+    except Exception:
+        return None
+
+
+def _tag_name_by_id(ctx, tag_id) -> str | None:
+    t = _tag_by_id(ctx, tag_id)
+    return t.name if t else None
+
+
+async def _gather_note_add(update, user_id, ctx, text):
+    if not text.strip():
+        clear_state(user_id)
+        return _reply(update, "No content — send the note text.")
+    title, content = _split_note_input(text)
+    if not content:
+        clear_state(user_id)
+        return _reply(update, "No content — send the note text.")
+    clear_state(user_id)
+    args = {"content": content}
+    if title:
+        args["title"] = title
+    return begin_confirm(ctx, "create_note", args, return_to="ctl:note:home",
+                         question="Save this note to the active workspace?")
+
+
+async def _gather_note_edit(update, user_id, ctx, partial, text):
+    note_id = int(partial.get("note_id") or 0)
+    if not text.strip():
+        clear_state(user_id)
+        return _reply(update, "No content — send the new note text.")
+    title, content = _split_note_input(text)
+    if not content:
+        clear_state(user_id)
+        return _reply(update, "No content — send the new note text.")
+    clear_state(user_id)
+    args = {"note_id": note_id, "content": content}
+    if title:
+        args["title"] = title
+    return begin_confirm(ctx, "update_note", args,
+                         return_to=f"ctl:note:view:{note_id}",
+                         question=f"Update note #{note_id} with this text?")
+
+
+def _gather_note_search(update, user_id, ctx, text):
+    q = text.strip()
+    clear_state(user_id)
+    if not q:
+        return _reply(update, "No query — send some text to search for.")
+    return pages.note_home(ctx, q=q)
+
+
+def _gather_media_search(update, user_id, ctx, text):
+    q = text.strip()
+    clear_state(user_id)
+    if not q:
+        return _reply(update, "No query — send some text to search for.")
+    return pages.media_home(ctx, q=q)
+
+
+async def _gather_note_link(update, user_id, ctx, partial, text, tag=False):
+    note_id = int(partial.get("note_id") or 0)
+    value = text.strip()
+    clear_state(user_id)
+    if not value:
+        return _reply(update, "No value — send the entity name/#id or tag name.")
+    if tag:
+        return begin_confirm(ctx, "link_note_tag",
+                             {"note_id": note_id, "tag": value},
+                             return_to=f"ctl:note:view:{note_id}",
+                             question=f"Tag note #{note_id} with "
+                                      f"<b>{esc(value)}</b>?")
+    return begin_confirm(ctx, "link_note_entity",
+                         {"note_id": note_id, "entity": value},
+                         return_to=f"ctl:note:view:{note_id}",
+                         question=f"Link note #{note_id} to "
+                                  f"<b>{esc(value)}</b>?")
+
+
+async def _gather_media_edit(update, user_id, ctx, partial, text):
+    media_id = int(partial.get("media_id") or 0)
+    if not text.strip():
+        clear_state(user_id)
+        return _reply(update, "No caption — send the new caption text.")
+    clear_state(user_id)
+    return begin_confirm(ctx, "update_media",
+                         {"media_id": media_id, "caption": text.strip()},
+                         return_to=f"ctl:media:view:{media_id}",
+                         question=f"Update media record #{media_id} caption?")
+
+
+async def _gather_media_link(update, user_id, ctx, partial, text, tag=False):
+    media_id = int(partial.get("media_id") or 0)
+    value = text.strip()
+    clear_state(user_id)
+    if not value:
+        return _reply(update, "No value — send the entity name/#id or tag name.")
+    if tag:
+        return begin_confirm(ctx, "link_media_tag",
+                             {"media_id": media_id, "tag": value},
+                             return_to=f"ctl:media:view:{media_id}",
+                             question=f"Tag media #{media_id} with "
+                                      f"<b>{esc(value)}</b>?")
+    return begin_confirm(ctx, "link_media_entity",
+                         {"media_id": media_id, "entity": value},
+                         return_to=f"ctl:media:view:{media_id}",
+                         question=f"Link media #{media_id} to "
+                                  f"<b>{esc(value)}</b>?")
+
+
+async def _gather_tag_add(update, user_id, ctx, text):
+    name = text.strip()
+    clear_state(user_id)
+    if not name:
+        return _reply(update, "No name — send the new tag name.")
+    ws_id = _active_ws_id(ctx)
+    if ws_id is None:
+        return _reply(update, "No workspace active — open one first.",
+                      nav="ctl:ws:home")
+    return begin_confirm(ctx, "create_tag", {"name": name, "workspace": ws_id},
+                         return_to="ctl:tag:home",
+                         question=f"Create tag <b>{esc(name)}</b> in workspace "
+                                  f"#{ws_id}?")
+
+
+async def _gather_tag_rename(update, user_id, ctx, partial, text):
+    tag_id = int(partial.get("tag_id") or 0)
+    old_name = partial.get("old_name") or f"#{tag_id}"
+    new_name = text.strip()
+    clear_state(user_id)
+    if not new_name:
+        return _reply(update, "No name — send the new tag name.")
+    ws_id = _active_ws_id(ctx)
+    if ws_id is None:
+        return _reply(update, "No workspace active — open one first.",
+                      nav="ctl:ws:home")
+    return begin_confirm(ctx, "rename_tag",
+                         {"tag": old_name, "new_name": new_name,
+                          "workspace": ws_id},
+                         return_to=f"ctl:tag:view:{tag_id}",
+                         question=f"Rename tag <b>{esc(old_name)}</b> to "
+                                  f"<b>{esc(new_name)}</b>?")
+
+
+# ── M7 cross-reference search gather handlers
+
+async def _gather_search(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    q = text.strip()
+    clear_state(user_id)
+    if not q:
+        return _reply(update, "No query — send some text to search for.")
+    set_search_state(user_id, q=q)
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_ws(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    ws_ref = text.strip()
+    clear_state(user_id)
+    if not ws_ref:
+        return _reply(update, "No workspace — send name/#id or 'all'.")
+    if ws_ref.lower() == "all":
+        set_search_state(user_id, scope="all", workspace=None)
+        return pages.search_home(ctx, **get_search_state(user_id))
+    ws = ctx.engine.get_workspace_or_none(ctx.user_id, ws_ref)
+    if not ws:
+        return _reply(update, f"No workspace matches {esc(ws_ref)!r}.", nav="ctl:search:home")
+    set_search_state(user_id, workspace=ws.id, scope="active")
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_mode(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    parts = text.strip().split()
+    clear_state(user_id)
+    if len(parts) != 2 or parts[0] not in ("and", "or") or parts[1] not in ("and", "or"):
+        return _reply(update, "Send two modes: entity_mode and tag_mode as 'and' or 'or' "
+                      "(e.g., 'and or').", nav="ctl:search:home")
+    entity_mode, tag_mode = parts[0], parts[1]
+    set_search_state(user_id, entity_mode=entity_mode, tag_mode=tag_mode)
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_dates(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    parts = text.strip().split()
+    clear_state(user_id)
+    created_after = None
+    created_before = None
+    if len(parts) >= 1 and parts[0]:
+        created_after = parts[0]
+    if len(parts) >= 2 and parts[1]:
+        created_before = parts[1]
+    set_search_state(user_id, created_after=created_after, created_before=created_before)
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_mtype(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    mt = text.strip().lower()
+    clear_state(user_id)
+    if mt and mt not in ("photo", "video", "document", "audio"):
+        return _reply(update, "Unknown media type — use photo, video, document, or audio.",
+                      nav="ctl:search:home")
+    set_search_state(user_id, media_type=mt or None)
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_tags(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    tags = text.strip()
+    clear_state(user_id)
+    if not tags:
+        return _reply(update, "No tags — send comma-separated tag names.",
+                      nav="ctl:search:home")
+    set_search_state(user_id, tags=tags)
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_scope(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    scope = text.strip().lower()
+    clear_state(user_id)
+    if scope not in ("active", "all"):
+        return _reply(update, "Send 'active' (default) or 'all' for cross-workspace search.",
+                      nav="ctl:search:home")
+    set_search_state(user_id, scope=scope)
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_kind(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    kind = text.strip()
+    clear_state(user_id)
+    set_search_state(user_id, kind=kind or None)
+    return pages.search_home(ctx, **get_search_state(user_id))
+
+
+async def _gather_search_entities(update, user_id, ctx, text):
+    from conversation_state import set_search_state, get_search_state
+    entities = text.strip()
+    clear_state(user_id)
+    if not entities:
+        return _reply(update, "No entities — send comma-separated entity names or #ids.",
+                      nav="ctl:search:home")
+    set_search_state(user_id, entities=entities)
+    return pages.search_home(ctx, **get_search_state(user_id))
 
 
 def _reply(update, text_html: str, nav: str | None = None):

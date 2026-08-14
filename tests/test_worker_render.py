@@ -14,8 +14,10 @@ adapters + real DB) and assert on the RENDERED reply -- never on the model's
 prose. Matrix H of the broad test matrix (item 16).
 """
 import json
+from datetime import timedelta
 
 import database as db
+from date_parser import _now
 from core.ai.tool_adapters import build_tool_registry
 from core.ai.worker import Worker
 from core.ai.worker_render import render_run_reply
@@ -26,6 +28,12 @@ from core.ai.worker_contract import (
 from core.workspace.engine import EntityEngine
 
 # Same harness as test_worker.py / test_worker_orchestration.py.
+def _future_due_date(days=1):
+    """Compute a future due_date (IST-aware) so task-create tests don't
+    flake when the run-date passes the hardcoded test date."""
+    return (_now() + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
 def _final(reply):
     return json.dumps({"action": "final", "reply": reply})
 
@@ -211,15 +219,16 @@ def test_render_goal_progress_complete(temp_db, uid):
 
 # ── tasks / habits ───────────────────────────────────────────────────────
 def test_render_create_task_with_date(temp_db, uid):
+    due = _future_due_date()
     run, reply = _run_and_render(
         uid, [_tool("create_task", {"title": "Buy Milk",
-                                    "due_date": "2026-08-11",
+                                    "due_date": due,
                                     "due_time": "18:00"}),
               _final("ok")],
-        "Add task Buy Milk due 2026-08-11 18:00", EntityEngine())
+        f"Add task Buy Milk due {due} 18:00", EntityEngine())
     assert "✅" in reply
     assert "<b>Buy Milk</b>" in reply
-    assert "📅 2026-08-11 18:00" in reply
+    assert f"📅 {due} 18:00" in reply
 
 
 def test_render_complete_and_delete_task(temp_db, uid):

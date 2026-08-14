@@ -321,22 +321,158 @@ class MilestoneStorage:
 
 
 class NoteStorage:
-    """Delegates to database.py's note functions (v15.0-alpha.1)."""
+    """Delegates to database.py's note (knowledge) functions. v15.0-alpha.1
+    shipped add/list/attachment; v15.4 M6 adds full CRUD, search, and the
+    many-to-many entity/tag junctions (spec §3, §4, §5)."""
 
     def add(self, workspace_id, content, kind="note", milestone_id=None,
-            source="user"):
-        return database.add_note(workspace_id, content, kind, milestone_id, source)
+            source="user", title=None):
+        return database.add_note(workspace_id, content, kind, milestone_id,
+                                 source, title)
 
     def list_for(self, workspace_id, kind=None):
         return database.get_notes(workspace_id, kind)
 
+    def get(self, note_id):
+        return database.get_note(note_id)
+
+    def update(self, note_id, content=None, title=None, kind=None):
+        return database.update_note(note_id, content, title, kind)
+
+    def soft_delete(self, note_id):
+        return database.soft_delete_note(note_id)
+
+    def search(self, workspace_id, q=None, kind=None, entity_type=None,
+               entity_id=None, tag_id=None, created_after=None,
+               created_before=None, limit=50):
+        return database.search_notes(
+            workspace_id, q, kind, entity_type, entity_id, tag_id,
+            created_after, created_before, limit)
+
+    def link_entity(self, note_id, entity_type, entity_id):
+        return database.link_note_entity(note_id, entity_type, entity_id)
+
+    def unlink_entity(self, note_id, entity_type, entity_id):
+        return database.unlink_note_entity(note_id, entity_type, entity_id)
+
+    def entities(self, note_id):
+        return database.get_note_entities(note_id)
+
+    def ids_for_entity(self, entity_type, entity_id):
+        return database.get_notes_for_entity(entity_type, entity_id)
+
+    def link_tag(self, note_id, tag_id):
+        return database.link_note_tag(note_id, tag_id)
+
+    def unlink_tag(self, note_id, tag_id):
+        return database.unlink_note_tag(note_id, tag_id)
+
+    def tags(self, note_id):
+        return database.get_note_tags(note_id)
+
     def add_attachment(self, workspace_id, note_id, telegram_file_id,
-                       file_type="photo", file_name=None, caption=None):
-        return database.add_attachment(workspace_id, note_id, telegram_file_id,
-                                       file_type, file_name, caption)
+                       file_type="photo", file_name=None, caption=None,
+                       message_id=None, chat_id=None, topic_id=None,
+                       entity_type=None, entity_id=None, extracted_text=None):
+        return database.add_attachment(
+            workspace_id, note_id, telegram_file_id, file_type, file_name,
+            caption, message_id, chat_id, topic_id, entity_type, entity_id,
+            extracted_text)
 
     def attachments(self, workspace_id, note_id=None):
         return database.get_attachments(workspace_id, note_id)
+
+
+class AttachmentStorage:
+    """Delegates to database.py's media-metadata functions (v15.4 M6).
+    SQLite stores metadata + Telegram identifiers ONLY; the binary blob
+    stays in Telegram (spec §3)."""
+
+    def add(self, workspace_id, note_id=None, telegram_file_id=None,
+            file_type="photo", file_name=None, caption=None, message_id=None,
+            chat_id=None, topic_id=None, entity_type=None, entity_id=None,
+            extracted_text=None):
+        return database.add_attachment(
+            workspace_id, note_id, telegram_file_id, file_type, file_name,
+            caption, message_id, chat_id, topic_id, entity_type, entity_id,
+            extracted_text)
+
+    def get(self, attachment_id):
+        return database.get_attachment(attachment_id)
+
+    def update(self, attachment_id, caption=None, file_name=None,
+               extracted_text=None):
+        return database.update_attachment(attachment_id, caption, file_name,
+                                          extracted_text)
+
+    def soft_delete(self, attachment_id):
+        return database.soft_delete_attachment(attachment_id)
+
+    def search(self, workspace_id, q=None, media_type=None, entity_type=None,
+               entity_id=None, tag_id=None, created_after=None,
+               created_before=None, limit=50):
+        return database.search_attachments(
+            workspace_id, q, media_type, entity_type, entity_id, tag_id,
+            created_after, created_before, limit)
+
+    def list_for(self, workspace_id, note_id=None):
+        return database.get_attachments(workspace_id, note_id)
+
+    def link_entity(self, attachment_id, entity_type, entity_id):
+        return database.link_attachment_entity(attachment_id, entity_type,
+                                               entity_id)
+
+    def unlink_entity(self, attachment_id, entity_type, entity_id):
+        return database.unlink_attachment_entity(attachment_id, entity_type,
+                                                 entity_id)
+
+    def entities(self, attachment_id):
+        return database.get_attachment_entities(attachment_id)
+
+    def ids_for_entity(self, entity_type, entity_id):
+        return database.get_attachments_for_entity(entity_type, entity_id)
+
+    def link_tag(self, attachment_id, tag_id):
+        return database.link_attachment_tag(attachment_id, tag_id)
+
+    def unlink_tag(self, attachment_id, tag_id):
+        return database.unlink_attachment_tag(attachment_id, tag_id)
+
+    def tags(self, attachment_id):
+        return database.get_attachment_tags(attachment_id)
+
+
+class TagStorage:
+    """Delegates to database.py's tag functions (v15.4 M6 — activates the
+    dormant v15.0 `tags`/`entity_tags` schema). Tags are user-scoped AND
+    workspace-scoped; the same name in two workspaces stays distinct."""
+
+    def resolve(self, user_id, workspace_id, name):
+        return database.resolve_tag(user_id, workspace_id, name)
+
+    def create(self, user_id, workspace_id, name):
+        return database.create_tag(user_id, workspace_id, name)
+
+    def get(self, tag_id):
+        return database.get_tag(tag_id)
+
+    def list_for(self, user_id, workspace_id):
+        return database.get_tags(user_id, workspace_id)
+
+    def rename(self, tag_id, name):
+        return database.rename_tag(tag_id, name)
+
+    def delete(self, tag_id):
+        return database.delete_tag(tag_id)
+
+    def links(self, tag_id):
+        return database.get_tag_links(tag_id)
+
+    def for_target(self, entity_type, entity_id):
+        return database.get_tags_for_target(entity_type, entity_id)
+
+    def for_entity(self, entity_type, entity_id):
+        return database.get_tags_for_entity(entity_type, entity_id)
 
 
 class TimelineStorage:
@@ -478,6 +614,9 @@ class Storage:
         self.workspaces = WorkspaceStorage()
         self.milestones = MilestoneStorage()
         self.notes = NoteStorage()
+        # v15.4 M6 Knowledge + Media + Tags domains.
+        self.media = AttachmentStorage()
+        self.tags = TagStorage()
         # v15.0-alpha.5 Knowledge Timeline.
         self.timeline = TimelineStorage()
         # v15.0-alpha.6 outbound sync outbox.

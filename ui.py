@@ -808,6 +808,14 @@ def help_cards(version, user_is_admin):
         f"{code('video <prompt>')} — generate a video (1–3 min)",
         "📷 send any photo — description or todo extraction",
     ])
+    knowledge = "\n".join([
+        f"{code('control')} → Search — unified cross-reference search across notes + media",
+        f"Notes: title + content, link to entities & tags",
+        f"Media: video/document/audio/voice metadata stored (Telegram is the blob store)",
+        f"Tags: workspace-scoped, created on-the-fly when linking",
+        f"Search filters: text, entity (AND/OR), tag (AND/OR), date range, media type",
+        f"3 READ_ONLY AI tools: {code('search_knowledge')}, {code('search_notes_cross')}, {code('search_media_cross')}",
+    ])
     memory_search = "\n".join([
         f"{i('Remember my exam is June 20')} — then ask about it later",
         f"{code('memory')} — stored memories   {code('forget <key>')} — delete one",
@@ -838,6 +846,7 @@ def help_cards(version, user_is_admin):
         _sec("📔", "PROJECT GROUPS (photo journal)", groups),
         _sec("🧠", "AI & PLANNING", ai_planning),
         _sec("🖼", "MEDIA", media),
+        _sec("📝", "KNOWLEDGE, MEDIA & TAGS (M6)", knowledge),
         _sec("🗂", "MEMORY, SEARCH & TEMPLATES", memory_search),
         _sec("⚙️", "SETTINGS & UTILITIES", settings_utils),
     ]

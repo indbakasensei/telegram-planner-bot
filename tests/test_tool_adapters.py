@@ -24,8 +24,10 @@ Highlights:
     second Telegram-topic mechanism.
 """
 import pytest
+from datetime import timedelta
 
 import database as db
+from date_parser import _now
 from core.ai.tool_adapters import build_tool_registry
 from core.ai.tools import (
     RiskLevel,
@@ -39,6 +41,13 @@ from core.workspace.engine import EntityEngine
 # Genshin acceptance fixtures (test data only).
 XIAO, KINICH, XILONEN, NEFER, LAUMA, COLUMBINA = (
     "Xiao", "Kinich", "Xilonen", "Nefer", "Lauma", "Columbina")
+
+
+def _future_due_date(days=1):
+    """Compute a future due_date (IST-aware) so task-create tests don't
+    flake when the run-date passes the hardcoded test date — the bot
+    correctly refuses past-dated reminders."""
+    return (_now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 class RecorderProj:
@@ -236,7 +245,7 @@ def test_list_entities_cross_domain_kinds(temp_db, uid):
     workspace required) and never leak into each other."""
     reg = build_tool_registry(uid)         # no workspace exists at all
     reg.execute("create_goal", {"title": "Read Book"})
-    reg.execute("create_task", {"title": "Buy milk", "due_date": "2026-08-12"})
+    reg.execute("create_task", {"title": "Buy milk", "due_date": _future_due_date()})
     reg.execute("create_habit", {"title": "Morning run"})
     goals = reg.execute("list_entities", {"kind": "goal"})
     assert [d["title"] for d in goals.data] == ["Read Book"]
@@ -445,21 +454,23 @@ def test_task_reminder_surface_carries_due_fields(temp_db, uid):
     created with due_date+due_time exposes them in list_tasks structured
     data."""
     reg = _wire(uid)
+    due = _future_due_date()
     r = reg.execute("create_task", {"title": "Kinich weekly boss",
-                                    "due_date": "2026-08-11", "due_time": "18:30"})
+                                    "due_date": due, "due_time": "18:30"})
     assert r.ok
     lst = reg.execute("list_tasks", {})
     task = lst.data[0]
-    assert task["due_date"] == "2026-08-11" and task["due_time"] == "18:30"
+    assert task["due_date"] == due and task["due_time"] == "18:30"
     assert task["recurrence_type"] is None
 
 
 def test_task_create_duplicate_rejected(temp_db, uid):
     reg = _wire(uid)
+    due = _future_due_date()
     reg.execute("create_task", {"title": "Farm artifacts",
-                                "due_date": "2026-08-11"})
+                                "due_date": due})
     dup = reg.execute("create_task", {"title": "Farm artifacts",
-                                      "due_date": "2026-08-11"})
+                                      "due_date": due})
     assert not dup.ok and dup.error_code == "invalid_args"
     assert "already exists" in dup.output
 
@@ -607,7 +618,7 @@ def test_mixed_capability_chain(temp_db, uid):
     u = reg.execute("update_entity", {"entity": XIAO,
                                       "fields": {"level": 90, "element": "Anemo"}})
     t = reg.execute("create_task", {"title": "Farm Xiao ascension",
-                                    "due_date": "2026-08-11"})
+                                    "due_date": _future_due_date()})
     c = reg.execute("complete_task", {"task_id": t.data["task_id"]})
     lst = reg.execute("list_entities", {"kind": "all"})
     tasks = reg.execute("list_tasks", {})
@@ -828,6 +839,28 @@ def test_risk_classification(temp_db, uid):
         "equip_item": RiskLevel.MUTATING,   # v15.3 M5-E: writes the weapon field
         "get_memories": RiskLevel.READ_ONLY, "search_memories": RiskLevel.READ_ONLY,
         "recall": RiskLevel.READ_ONLY,
+        # v15.4 M6: knowledge notes (10)
+        "create_note": RiskLevel.MUTATING, "update_note": RiskLevel.MUTATING,
+        "delete_note": RiskLevel.DESTRUCTIVE,
+        "get_note": RiskLevel.READ_ONLY, "list_notes": RiskLevel.READ_ONLY,
+        "link_note_entity": RiskLevel.MUTATING,
+        "unlink_note_entity": RiskLevel.MUTATING,
+        "link_note_tag": RiskLevel.MUTATING, "unlink_note_tag": RiskLevel.MUTATING,
+        "post_note": RiskLevel.MUTATING,
+        # v15.4 M6: media metadata (9)
+        "store_media": RiskLevel.MUTATING, "update_media": RiskLevel.MUTATING,
+        "delete_media": RiskLevel.DESTRUCTIVE,
+        "get_media": RiskLevel.READ_ONLY, "list_media": RiskLevel.READ_ONLY,
+        "link_media_entity": RiskLevel.MUTATING,
+        "unlink_media_entity": RiskLevel.MUTATING,
+        "link_media_tag": RiskLevel.MUTATING, "unlink_media_tag": RiskLevel.MUTATING,
+        # v15.4 M6: tags (4)
+        "create_tag": RiskLevel.MUTATING, "rename_tag": RiskLevel.MUTATING,
+        "delete_tag": RiskLevel.DESTRUCTIVE, "list_tags": RiskLevel.READ_ONLY,
+        # v15.5 M7: cross-reference retrieval (3)
+        "search_knowledge": RiskLevel.READ_ONLY,
+        "search_notes_cross": RiskLevel.READ_ONLY,
+        "search_media_cross": RiskLevel.READ_ONLY,
     }
     reg = _wire(uid)
     assert set(reg.names()) == set(expected)

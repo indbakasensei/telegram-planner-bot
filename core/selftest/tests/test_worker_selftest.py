@@ -5,9 +5,10 @@ and the owner-only canary (main.py). These probes verify from the live app
 that the dormant surface stays healthy and verifiable from /selftest:
 
   1. "AI Worker (dormant)" — the flag defaults OFF, the gate is owner-only,
-     the tool surface the Worker builds on is the complete 37-tool registry
+     the tool surface the Worker builds on is the complete 63-tool registry
      (M3's 24 + update_goal_deadline + the 5-tool topic-lifecycle family +
-     the 7 M5 lifecycle tools), MAX_TOOL_CALLS is the hard cap, and there is
+     the 7 M5 lifecycle tools + the 22 M6 Knowledge/Media/Tag tools + post_note +
+     the 3 M7 Cross-Reference Retrieval tools), MAX_TOOL_CALLS is the hard cap, and there is
      NO separate "reminders" tool (reminders ARE task due-times).
   2. "AI Worker deterministic round-trip" — ONE run through a deterministic
      fake model (no network, no real GLM) proving the bounded loop compiles
@@ -18,8 +19,10 @@ that the dormant surface stays healthy and verifiable from /selftest:
 Both are fully offline and leave no residue.
 """
 import json
+from datetime import timedelta
 
 import database as db
+from date_parser import _now
 from core.feature_flags import WORKER
 from core.selftest.models import SELFTEST_USER_ID, SelfTestFail
 from core.selftest.registry import selftest
@@ -54,8 +57,8 @@ def check_ai_worker_dormant():
 
     reg = _registry()
     names = {t.spec.name for t in reg.all()}
-    if len(names) != 37:
-        raise SelfTestFail(f"expected 37 tools, got {len(names)}")
+    if len(names) != 63:
+        raise SelfTestFail(f"expected 63 tools, got {len(names)}")
     if "reminders" in names or "list_reminders" in names:
         raise SelfTestFail("a separate 'reminders' tool exists (M4 forbids it; "
                            "reminders ARE task due-times)")
@@ -98,7 +101,18 @@ def check_ai_worker_dormant():
         if not spec.confirmation_message:
             raise SelfTestFail(f"{tname} DESTRUCTIVE without confirmation "
                                "message (M5-F gate)")
-    return (f"dormant/owner-only ok · WORKER={WORKER} · 37 tools · "
+    # v15.4 M6 — the Knowledge/Media/Tag tools ride the SAME registry. The
+    # destructive ones stay confirmation-gated.
+    for tname in ("delete_note", "delete_media", "delete_tag"):
+        if tname not in names:
+            raise SelfTestFail(f"{tname} tool missing (M6 Knowledge/Media/Tags, v15.4)")
+        spec = reg.get(tname).spec
+        if spec.risk is not RiskLevel.DESTRUCTIVE:
+            raise SelfTestFail(f"{tname} not classified DESTRUCTIVE (M6)")
+        if not spec.confirmation_message:
+            raise SelfTestFail(f"{tname} DESTRUCTIVE without confirmation "
+                              "message (M6 confirm gate)")
+    return (f"dormant/owner-only ok · WORKER={WORKER} · 63 tools · "
             f"MAX_TOOL_CALLS={MAX_TOOL_CALLS}")
 
 
@@ -111,10 +125,11 @@ def check_ai_worker_roundtrip():
     from core.ai.worker import Worker
 
     reg = build_tool_registry(SELFTEST_USER_ID)
+    due = (_now() + timedelta(days=1)).strftime("%Y-%m-%d")
     model = _FakeModel([
         json.dumps({"action": "tool", "tool": "create_task",
                     "arguments": {"title": "[selftest] worker task",
-                                  "due_date": "2026-08-11"}}),
+                                  "due_date": due}}),
         json.dumps({"action": "final", "reply": "Created the selftest task."}),
     ])
     task_id = None

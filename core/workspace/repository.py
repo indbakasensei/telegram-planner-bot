@@ -14,7 +14,7 @@ call each".
 from __future__ import annotations
 
 from core.storage import Storage
-from core.workspace.models import Milestone, Note, Workspace
+from core.workspace.models import Attachment, Milestone, Note, Tag, Workspace
 
 
 class WorkspaceRepository:
@@ -92,15 +92,126 @@ class WorkspaceRepository:
 
     # ── Notes ──────────────────────────────────────────
     def add_note(self, workspace_id, content, kind="note",
-                milestone_id=None, source="user") -> Note:
+                milestone_id=None, source="user", title=None) -> Note:
         note_id = self._s.notes.add(
-            workspace_id, content, kind, milestone_id, source)
+            workspace_id, content, kind, milestone_id, source, title)
         return next((n for n in self.list_notes(workspace_id)
                      if n.id == note_id), None)
 
     def list_notes(self, workspace_id, kind=None) -> list[Note]:
         return [Note.from_row(r)
                 for r in self._s.notes.list_for(workspace_id, kind)]
+
+    # ── Knowledge + Media + Tags (v15.4 M6) ──────────────
+    def get_note(self, note_id) -> Note | None:
+        return Note.from_row(self._s.notes.get(note_id))
+
+    def update_note(self, note_id, content=None, title=None,
+                    kind=None) -> Note | None:
+        self._s.notes.update(note_id, content, title, kind)
+        return self.get_note(note_id)
+
+    def delete_note(self, note_id) -> Note | None:
+        self._s.notes.soft_delete(note_id)
+        return None
+
+    def search_notes(self, workspace_id, **filters) -> list[Note]:
+        return [Note.from_row(r)
+                for r in self._s.notes.search(workspace_id, **filters)]
+
+    def link_note_entity(self, note_id, entity_type, entity_id) -> None:
+        self._s.notes.link_entity(note_id, entity_type, entity_id)
+
+    def unlink_note_entity(self, note_id, entity_type, entity_id) -> None:
+        self._s.notes.unlink_entity(note_id, entity_type, entity_id)
+
+    def note_entities(self, note_id) -> list[tuple[str, int]]:
+        return self._s.notes.entities(note_id)
+
+    def note_ids_for_entity(self, entity_type, entity_id) -> list[int]:
+        return self._s.notes.ids_for_entity(entity_type, entity_id)
+
+    def link_note_tag(self, note_id, tag_id) -> None:
+        self._s.notes.link_tag(note_id, tag_id)
+
+    def unlink_note_tag(self, note_id, tag_id) -> None:
+        self._s.notes.unlink_tag(note_id, tag_id)
+
+    def note_tags(self, note_id) -> list[Tag]:
+        return [Tag.from_row(r) for r in self._s.notes.tags(note_id)]
+
+    def add_media(self, workspace_id, **media) -> Attachment:
+        att_id = self._s.media.add(workspace_id, **media)
+        return self.get_media(att_id)
+
+    def get_media(self, attachment_id) -> Attachment | None:
+        return Attachment.from_row(self._s.media.get(attachment_id))
+
+    def update_media(self, attachment_id, **fields) -> Attachment | None:
+        self._s.media.update(attachment_id, **fields)
+        return self.get_media(attachment_id)
+
+    def delete_media(self, attachment_id) -> None:
+        self._s.media.soft_delete(attachment_id)
+
+    def search_media(self, workspace_id, **filters) -> list[Attachment]:
+        return [Attachment.from_row(r)
+                for r in self._s.media.search(workspace_id, **filters)]
+
+    def list_media(self, workspace_id, note_id=None) -> list[Attachment]:
+        return [Attachment.from_row(r)
+                for r in self._s.media.list_for(workspace_id, note_id)]
+
+    def link_media_entity(self, attachment_id, entity_type, entity_id) -> None:
+        self._s.media.link_entity(attachment_id, entity_type, entity_id)
+
+    def unlink_media_entity(self, attachment_id, entity_type, entity_id) -> None:
+        self._s.media.unlink_entity(attachment_id, entity_type, entity_id)
+
+    def media_entities(self, attachment_id) -> list[tuple[str, int]]:
+        return self._s.media.entities(attachment_id)
+
+    def media_ids_for_entity(self, entity_type, entity_id) -> list[int]:
+        return self._s.media.ids_for_entity(entity_type, entity_id)
+
+    def link_media_tag(self, attachment_id, tag_id) -> None:
+        self._s.media.link_tag(attachment_id, tag_id)
+
+    def unlink_media_tag(self, attachment_id, tag_id) -> None:
+        self._s.media.unlink_tag(attachment_id, tag_id)
+
+    def media_tags(self, attachment_id) -> list[Tag]:
+        return [Tag.from_row(r) for r in self._s.media.tags(attachment_id)]
+
+    def resolve_tag(self, user_id, workspace_id, name) -> int | None:
+        return self._s.tags.resolve(user_id, workspace_id, name)
+
+    def create_tag(self, user_id, workspace_id, name) -> tuple[int | None, bool]:
+        return self._s.tags.create(user_id, workspace_id, name)
+
+    def get_tag(self, tag_id) -> Tag | None:
+        return Tag.from_row(self._s.tags.get(tag_id))
+
+    def list_tags(self, user_id, workspace_id) -> list[Tag]:
+        return [Tag.from_row(r)
+                for r in self._s.tags.list_for(user_id, workspace_id)]
+
+    def rename_tag(self, tag_id, name) -> None:
+        self._s.tags.rename(tag_id, name)
+
+    def delete_tag(self, tag_id) -> None:
+        self._s.tags.delete(tag_id)
+
+    def tag_links(self, tag_id) -> list[tuple[str, int]]:
+        return self._s.tags.links(tag_id)
+
+    def tags_for_target(self, entity_type, entity_id) -> list[Tag]:
+        return [Tag.from_row(r)
+                for r in self._s.tags.for_target(entity_type, entity_id)]
+
+    def tags_for_entity(self, entity_type, entity_id) -> list[Tag]:
+        return [Tag.from_row(r)
+                for r in self._s.tags.for_entity(entity_type, entity_id)]
 
     # ── Migration passthroughs (logic lives in the Service) ────
     def ensure_default_workspace(self, user_id, title="Inbox",

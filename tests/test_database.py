@@ -9,9 +9,11 @@ runs against an isolated temporary SQLite file, never planner.db.
 """
 import os
 import sqlite3
+from datetime import timedelta
 
 import pytest
 
+from date_parser import _now
 import database as db
 
 
@@ -270,7 +272,8 @@ def test_memory_separator_variants_overwrite(temp_db, uid):
 def test_reset_all_tasks_excludes_habits(temp_db, uid):
     task_id = db.add_task(uid, "Regular task")
     habit_id = db.add_habit(uid, "Daily habit")
-    db.log_habit_completion(habit_id, uid, log_date="2026-07-13")
+    recent = (_now() - timedelta(days=2)).strftime("%Y-%m-%d")
+    db.log_habit_completion(habit_id, uid, log_date=recent)
 
     deleted = db.reset_all_tasks(uid)
 
@@ -284,7 +287,8 @@ def test_reset_all_tasks_excludes_habits(temp_db, uid):
 def test_reset_everything_covers_all_twelve_tables_no_orphans(temp_db, uid):
     task_id = db.add_task(uid, "Task")
     habit_id = db.add_habit(uid, "Habit")
-    db.log_habit_completion(habit_id, uid, log_date="2026-07-13")
+    recent = (_now() - timedelta(days=2)).strftime("%Y-%m-%d")
+    db.log_habit_completion(habit_id, uid, log_date=recent)
     goal_id = db.add_goal(uid, "Goal")
     db.add_materials(uid, goal_id, "motor, battery")
     db.add_worklog(uid, goal_id, "started")

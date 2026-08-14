@@ -133,12 +133,80 @@ class Note:
     content: str
     source: str
     created_at: str | None = None
+    title: str | None = None
+    updated_at: str | None = None
+    deleted_at: str | None = None
 
     @classmethod
     def from_row(cls, row) -> "Note | None":
+        # title/updated_at/deleted_at appended to NOTE_COLS in v15.4 M6;
+        # tolerate older rows that lack them.
         if row is None:
             return None
         return cls(
             id=row[0], workspace_id=row[1], milestone_id=row[2],
             kind=row[3], content=row[4], source=row[5], created_at=row[6],
+            title=row[7] if len(row) > 7 else None,
+            updated_at=row[8] if len(row) > 8 else None,
+            deleted_at=row[9] if len(row) > 9 else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Attachment:
+    """Media-metadata record. Telegram is the blob store; this row is the
+    structured index (spec §3): Telegram file/message identifiers, an optional
+    direct entity binding, and the extracted_text slot (OCR/transcription is a
+    documented future — spec §11)."""
+    id: int
+    workspace_id: int
+    note_id: int | None
+    telegram_file_id: str | None
+    file_type: str
+    file_name: str | None = None
+    caption: str | None = None
+    created_at: str | None = None
+    message_id: int | None = None
+    chat_id: int | None = None
+    topic_id: int | None = None
+    entity_type: str | None = None
+    entity_id: int | None = None
+    extracted_text: str | None = None
+    updated_at: str | None = None
+    deleted_at: str | None = None
+
+    @classmethod
+    def from_row(cls, row) -> "Attachment | None":
+        if row is None:
+            return None
+        return cls(
+            id=row[0], workspace_id=row[1], note_id=row[2],
+            telegram_file_id=row[3], file_type=row[4], file_name=row[5],
+            caption=row[6], created_at=row[7],
+            message_id=row[8] if len(row) > 8 else None,
+            chat_id=row[9] if len(row) > 9 else None,
+            topic_id=row[10] if len(row) > 10 else None,
+            entity_type=row[11] if len(row) > 11 else None,
+            entity_id=row[12] if len(row) > 12 else None,
+            extracted_text=row[13] if len(row) > 13 else None,
+            updated_at=row[14] if len(row) > 14 else None,
+            deleted_at=row[15] if len(row) > 15 else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Tag:
+    """Workspace-scoped label. `workspace_id` is nullable only for legacy
+    pre-M6 global tags; M6 tags are always created with a workspace."""
+    id: int
+    user_id: int
+    workspace_id: int | None
+    name: str
+
+    @classmethod
+    def from_row(cls, row) -> "Tag | None":
+        if row is None:
+            return None
+        return cls(
+            id=row[0], user_id=row[1], workspace_id=row[2], name=row[3],
         )

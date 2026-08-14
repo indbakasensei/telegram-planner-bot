@@ -33,6 +33,8 @@ REQUIRED_TABLES = [
     # existing behaviour reads or writes them yet.
     "workspaces", "milestones", "notes", "attachments", "tags",
     "entity_tags",
+    # v15.4 M6: knowledge/media many-to-many entity junctions.
+    "note_entities", "attachment_entities",
     # v15.0-alpha.5: append-only Knowledge Timeline (docs/v15/KTD.md).
     "timeline_events",
     # v15.0-alpha.6: durable outbound sync outbox (docs/v15/TWID.md).
@@ -2403,7 +2405,17 @@ WORKSPACE_COLS = ("id, user_id, template, title, status, icon, metadata, "
 MILESTONE_COLS = ("id, workspace_id, goal_id, title, status, progress, "
                   "sort_order, created_at, completed_at, archived_at, "
                   "deleted_at, fields, entity_type")
-NOTE_COLS = "id, workspace_id, milestone_id, kind, content, source, created_at"
+NOTE_COLS = ("id, workspace_id, milestone_id, kind, content, source, "
+             "created_at, title, updated_at, deleted_at")
+# v15.4 M6: the full media-metadata row (Telegram stays the blob store).
+ATTACHMENT_COLS = ("id, workspace_id, note_id, telegram_file_id, file_type, "
+                   "file_name, caption, created_at, message_id, chat_id, "
+                   "topic_id, entity_type, entity_id, extracted_text, "
+                   "updated_at, deleted_at")
+TAG_COLS = "id, user_id, workspace_id, name"
+# Every tag SELECT that joins another table qualifies each column against
+# `tags t` (a bare `t.{TAG_COLS}` would only prefix the first column).
+TAG_T_COLS = ", ".join(f"t.{c}" for c in TAG_COLS.split(", "))
 TIMELINE_COLS = ("id, user_id, workspace_id, entity_type, entity_id, "
                  "event_type, summary, payload, source, created_at, synced_at")
 SYNC_COLS = ("id, user_id, workspace_id, timeline_event_id, adapter, "
@@ -2548,8 +2560,63 @@ def _init_workspace_tables(conn):
         entity_type TEXT NOT NULL,
         entity_id INTEGER NOT NULL
     )""")
+    # Note: no 'id' column — SQLite's implicit ROWID provides insertion order.
+    # get_tag_links orders by ROWID instead.
     c.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags "
               "ON entity_tags(entity_type, entity_id)")
+
+    # ── v15.4 M6: Memory + Knowledge + Media ───────────────
+    # Notes become titleable/editable/soft-deletable; attachments (media)
+    # gain Telegram message identity + an optional direct entity binding +
+    # extracted_text (the storage/indexing contract -- Telegram stays the
+    # blob store, SQLite keeps metadata only); tags gain workspace scoping
+    # (same name in different workspaces stays distinct); and notes + media
+    # get a many-to-many entity junction (spec §3/§4/§12).
+    _safe_add_column(c, "notes", "title", "TEXT")
+    _safe_add_column(c, "notes", "updated_at", "TEXT")
+    _safe_add_column(c, "notes", "deleted_at", "TEXT")
+    _safe_add_column(c, "attachments", "message_id", "INTEGER")
+    _safe_add_column(c, "attachments", "chat_id", "INTEGER")
+    _safe_add_column(c, "attachments", "topic_id", "INTEGER")
+    _safe_add_column(c, "attachments", "entity_type", "TEXT")
+    _safe_add_column(c, "attachments", "entity_id", "INTEGER")
+    _safe_add_column(c, "attachments", "extracted_text", "TEXT")
+    _safe_add_column(c, "attachments", "updated_at", "TEXT")
+    _safe_add_column(c, "attachments", "deleted_at", "TEXT")
+    _safe_add_column(c, "tags", "workspace_id", "INTEGER")
+    try:
+        # Workspace tags are unique by name within their workspace (the
+        # partial predicate keeps legacy global tags, workspace_id NULL,
+        # unconstrained). A legacy DB that already holds duplicates cannot
+        # get the unique index -- keep the non-unique user index below and
+        # never crash the bot on startup.
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_ws_name "
+                  "ON tags(workspace_id, name) WHERE workspace_id IS NOT NULL")
+    except sqlite3.OperationalError:
+        logger.warning("tags workspace unique index skipped (duplicate rows)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tags_user ON tags(user_id)")
+    c.execute("""CREATE TABLE IF NOT EXISTS note_entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id INTEGER NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_note_entities_note "
+              "ON note_entities(note_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_note_entities_target "
+              "ON note_entities(entity_type, entity_id)")
+    c.execute("""CREATE TABLE IF NOT EXISTS attachment_entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attachment_id INTEGER NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attachment_entities_att "
+              "ON attachment_entities(attachment_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attachment_entities_target "
+              "ON attachment_entities(entity_type, entity_id)")
 
     # v15.0-alpha.5: append-only Knowledge Timeline (docs/v15/KTD.md). One
     # immutable row per meaningful mutation. Only synced_at is ever updated
@@ -3116,51 +3183,131 @@ def count_milestones(workspace_id):
     return total, done
 
 
-# ── Notes ──────────────────────────────────────────────
+# ── Notes (Knowledge) ───────────────────────────────────
 def add_note(workspace_id, content, kind="note", milestone_id=None,
-             source="user"):
+             source="user", title=None):
+    """Insert a note with created_at in IST (matches search boundary logic)."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
+    now = _now_ist_str()
     c.execute("""INSERT INTO notes
-        (workspace_id, milestone_id, kind, content, source)
-        VALUES (?,?,?,?,?)""",
-        (workspace_id, milestone_id, kind, content, source))
+        (workspace_id, milestone_id, kind, content, source, title, created_at)
+        VALUES (?,?,?,?,?,?,?)""",
+        (workspace_id, milestone_id, kind, content, source, title, now))
     note_id = c.lastrowid
     conn.commit()
     conn.close()
     return note_id
 
 
-def add_attachment(workspace_id, note_id, telegram_file_id, file_type="photo",
-                   file_name=None, caption=None):
-    """Persist a file attachment (e.g. a Telegram photo file_id) against a
-    note. Keeps the raw file_id so the image can be re-posted or re-fetched
-    later without re-uploading (v15.1)."""
+def get_note(note_id):
+    """One note row (NOTE_COLS) or None (missing or soft-deleted)."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
-    c.execute("""INSERT INTO attachments
-        (workspace_id, note_id, telegram_file_id, file_type, file_name, caption)
-        VALUES (?,?,?,?,?,?)""",
-        (workspace_id, note_id, telegram_file_id, file_type, file_name, caption))
-    att_id = c.lastrowid
+    c.execute(f"SELECT {NOTE_COLS} FROM notes WHERE id=? AND deleted_at IS NULL",
+              (note_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def update_note(note_id, content=None, title=None, kind=None):
+    """Update a note's editable fields; a None field is left unchanged.
+    Returns the note id, or None when missing/soft-deleted. v15.4 M6:
+    notes become editable (knowledge dumps are refined, not re-typed)."""
+    sets, args = [], []
+    if content is not None:
+        sets.append("content=?")
+        args.append(content)
+    if title is not None:
+        sets.append("title=?")
+        args.append(title)
+    if kind is not None:
+        sets.append("kind=?")
+        args.append(kind)
+    if not sets:
+        return get_note(note_id)[0] if get_note(note_id) else None
+    sets.append("updated_at=?")
+    args.append(_now_ist_str())
+    args.append(note_id)
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"UPDATE notes SET {', '.join(sets)} "
+              "WHERE id=? AND deleted_at IS NULL", args)
     conn.commit()
     conn.close()
-    return att_id
+    return note_id
 
 
-def get_attachments(workspace_id, note_id=None):
+def soft_delete_note(note_id):
+    """Soft-delete a note (row kept, excluded from every read). Returns the
+    note id, or None when already deleted/missing. Note↔entity and tag links
+    are left in place -- the row is simply hidden."""
     conn = sqlite3.connect(DB_NAME)
     _init_workspace_tables(conn)
     c = conn.cursor()
-    if note_id is None:
-        c.execute("SELECT id, note_id, telegram_file_id, file_type, caption "
-                  "FROM attachments WHERE workspace_id=? ORDER BY id ASC",
-                  (workspace_id,))
-    else:
-        c.execute("SELECT id, note_id, telegram_file_id, file_type, caption "
-                  "FROM attachments WHERE note_id=? ORDER BY id ASC", (note_id,))
+    c.execute("UPDATE notes SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
+              (_now_ist_str(), note_id))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return note_id if deleted else None
+
+
+def _date_range_bound(value, end_of_day: bool) -> str:
+    """Normalize a bare 'YYYY-MM-DD' filter to a full timestamp so a
+    same-day note/media is included by both `created_after` and
+    `created_before` (string comparison is otherwise off-by-one-day)."""
+    value = (value or "").strip()
+    if len(value) == 10 and value[4:5] == "-":
+        return value + (" 23:59:59" if end_of_day else " 00:00:00")
+    return value
+
+
+def search_notes(workspace_id, q=None, kind=None, entity_type=None,
+                 entity_id=None, tag_id=None, created_after=None,
+                 created_before=None, limit=50):
+    """Deterministic substring search over notes (title/content) plus
+    optional filters: kind, a linked entity, a tag, and a created range.
+    Excludes soft-deleted. Newest-first, capped at `limit`. This is the
+    search FOUNDATION (spec §5); FTS5 + embeddings are the documented future
+    extension, never built here."""
+    clauses, args = ["n.workspace_id=?", "n.deleted_at IS NULL"], [workspace_id]
+    # JOIN placeholders sit BEFORE the WHERE ones in the SQL text, so their
+    # bind values must be passed first (a single args list in WHERE-order
+    # would bind the workspace id into the entity/tag predicates).
+    joins, join_args = [], []
+    if q:
+        clauses.append("(n.title LIKE ? OR n.content LIKE ?)")
+        args.extend([f"%{q}%", f"%{q}%"])
+    if kind:
+        clauses.append("n.kind=?")
+        args.append(kind)
+    if created_after:
+        clauses.append("n.created_at>=?")
+        args.append(_date_range_bound(created_after, end_of_day=False))
+    if created_before:
+        clauses.append("n.created_at<=?")
+        args.append(_date_range_bound(created_before, end_of_day=True))
+    if entity_type and entity_id is not None:
+        joins.append("JOIN note_entities ne ON ne.note_id=n.id "
+                     "AND ne.entity_type=? AND ne.entity_id=?")
+        join_args.extend([entity_type, entity_id])
+    if tag_id:
+        joins.append("JOIN entity_tags et ON et.entity_id=n.id "
+                     "AND et.entity_type='note' AND et.tag_id=?")
+        join_args.append(tag_id)
+    n_cols = ", ".join(f"n.{c}" for c in NOTE_COLS.split(", "))
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT DISTINCT {n_cols} FROM notes n "
+              f"{' '.join(joins)} WHERE {' AND '.join(clauses)} "
+              f"ORDER BY n.id DESC LIMIT ?",
+              (*join_args, *args, limit))
     rows = c.fetchall()
     conn.close()
     return rows
@@ -3172,10 +3319,444 @@ def get_notes(workspace_id, kind=None):
     c = conn.cursor()
     if kind is None:
         c.execute(f"SELECT {NOTE_COLS} FROM notes WHERE workspace_id=? "
-                  "ORDER BY id ASC", (workspace_id,))
+                  "AND deleted_at IS NULL ORDER BY id ASC", (workspace_id,))
     else:
         c.execute(f"SELECT {NOTE_COLS} FROM notes WHERE workspace_id=? AND kind=? "
-                  "ORDER BY id ASC", (workspace_id, kind))
+                  "AND deleted_at IS NULL ORDER BY id ASC", (workspace_id, kind))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def link_note_entity(note_id, entity_type, entity_id):
+    """Many-to-many note ↔ entity junction (spec §4). Idempotent."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO note_entities (note_id, entity_type, entity_id) "
+              "VALUES (?,?,?)", (note_id, entity_type, entity_id))
+    conn.commit()
+    conn.close()
+    return note_id
+
+
+def unlink_note_entity(note_id, entity_type, entity_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM note_entities WHERE note_id=? AND entity_type=? "
+              "AND entity_id=?", (note_id, entity_type, entity_id))
+    conn.commit()
+    conn.close()
+
+
+def get_note_entities(note_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT entity_type, entity_id FROM note_entities WHERE note_id=? "
+              "ORDER BY id ASC", (note_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_notes_for_entity(entity_type, entity_id):
+    """Note ids linked to one entity (the reverse lookup for entity views)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT note_id FROM note_entities WHERE entity_type=? "
+              "AND entity_id=? ORDER BY id ASC", (entity_type, entity_id))
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+# ── Tags (v15.4 M6: dormant v15.0 schema activated) ────
+def resolve_tag(user_id, workspace_id, name):
+    """A tag id for `name` in a workspace (case-insensitive), or None.
+    workspace_id None matches only legacy global tags."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT id FROM tags WHERE user_id=? AND workspace_id IS ? AND "
+              "lower(name)=lower(?) LIMIT 1", (user_id, workspace_id, name))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def create_tag(user_id, workspace_id, name):
+    """Resolve-or-create a workspace tag by name. Returns (tag_id, created).
+    A name that already exists in the workspace returns the existing row
+    (idempotent -- "dump this under 1v4" never makes a second '1v4' tag)."""
+    name = (name or "").strip()
+    if not name:
+        return None, False
+    existing = resolve_tag(user_id, workspace_id, name)
+    if existing is not None:
+        return existing, False
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("INSERT INTO tags (user_id, workspace_id, name) VALUES (?,?,?)",
+              (user_id, workspace_id, name))
+    tag_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return tag_id, True
+
+
+def get_tag(tag_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {TAG_COLS} FROM tags WHERE id=?", (tag_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def get_tags(user_id, workspace_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {TAG_COLS} FROM tags WHERE user_id=? AND workspace_id IS ? "
+              "ORDER BY name ASC", (user_id, workspace_id))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def rename_tag(tag_id, name):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("UPDATE tags SET name=? WHERE id=?", (name, tag_id))
+    conn.commit()
+    conn.close()
+    return tag_id
+
+
+def delete_tag(tag_id):
+    """Delete a tag and every entity_tags link to it (cascade). Never
+    touches the tagged notes/media/entities themselves."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM entity_tags WHERE tag_id=?", (tag_id,))
+    c.execute("DELETE FROM tags WHERE id=?", (tag_id,))
+    conn.commit()
+    conn.close()
+
+
+def link_note_tag(note_id, tag_id):
+    """Tag a note via the generic entity_tags table (entity_type='note')."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO entity_tags (tag_id, entity_type, entity_id) "
+              "VALUES (?, 'note', ?)", (tag_id, note_id))
+    conn.commit()
+    conn.close()
+
+
+def unlink_note_tag(note_id, tag_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM entity_tags WHERE tag_id=? AND entity_type='note' "
+              "AND entity_id=?", (tag_id, note_id))
+    conn.commit()
+    conn.close()
+
+
+def get_note_tags(note_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {TAG_T_COLS} FROM tags t "
+              "JOIN entity_tags et ON et.tag_id=t.id "
+              "WHERE et.entity_type='note' AND et.entity_id=? "
+              "ORDER BY t.name ASC", (note_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_tag_links(tag_id):
+    """Every (entity_type, entity_id) a tag links to, in link order."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    # entity_tags has no explicit 'id' (SQLite PK add is unsupported); use
+    # the implicit ROWID for insertion-order stability.
+    c.execute("SELECT entity_type, entity_id FROM entity_tags WHERE tag_id=? "
+              "ORDER BY ROWID ASC", (tag_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_tags_for_target(entity_type, entity_id):
+    """Tags linked DIRECTLY to one target (entity_type ∈ note/attachment) --
+    the reverse of get_tag_links. Used by the list_tags note/media filters."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {TAG_T_COLS} FROM tags t "
+              "JOIN entity_tags et ON et.tag_id=t.id "
+              "WHERE et.entity_type=? AND et.entity_id=? "
+              "ORDER BY t.name ASC", (entity_type, entity_id))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_tags_for_entity(entity_type, entity_id):
+    """Tags applied to the notes/media linked to a workspace ENTITY (v15.4
+    M6). Tags never attach to milestones directly -- they attach to the
+    knowledge/media about them -- so this walks the two junction chains
+    (tag → note/media → entity). Used by list_tags(entity=...)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT DISTINCT {TAG_T_COLS} FROM tags t "
+              "JOIN entity_tags et ON et.tag_id=t.id "
+              "LEFT JOIN note_entities ne ON ne.note_id=et.entity_id "
+              "AND ne.entity_type=? AND ne.entity_id=? "
+              "AND et.entity_type='note' "
+              "LEFT JOIN attachment_entities ae ON ae.attachment_id=et.entity_id "
+              "AND ae.entity_type=? AND ae.entity_id=? "
+              "AND et.entity_type='attachment' "
+              "WHERE (ne.id IS NOT NULL OR ae.id IS NOT NULL) "
+              "ORDER BY t.name ASC",
+              (entity_type, entity_id, entity_type, entity_id))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+# ── Media (attachments metadata — Telegram is the blob store) ──
+def add_attachment(workspace_id, note_id=None, telegram_file_id=None,
+                   file_type="photo", file_name=None, caption=None,
+                   message_id=None, chat_id=None, topic_id=None,
+                   entity_type=None, entity_id=None, extracted_text=None):
+    """Persist a media metadata record. v15.1 stored a photo's file_id against
+    a note; v15.4 M6 extends it to a full media record -- optional Telegram
+    message identity (message_id/chat_id/topic_id), an optional direct entity
+    binding (entity_type/entity_id), and extracted_text (the OCR/transcription
+    slot; extraction itself is a documented future, spec §11). SQLite holds
+    metadata ONLY -- the binary stays in Telegram."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    now = _now_ist_str()
+    c.execute("""INSERT INTO attachments
+        (workspace_id, note_id, telegram_file_id, file_type, file_name, caption,
+         message_id, chat_id, topic_id, entity_type, entity_id, extracted_text, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (workspace_id, note_id, telegram_file_id, file_type, file_name, caption,
+         message_id, chat_id, topic_id, entity_type, entity_id, extracted_text, now))
+    att_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return att_id
+
+
+def get_attachment(attachment_id):
+    """One full media row (ATTACHMENT_COLS) or None (missing/soft-deleted)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {ATTACHMENT_COLS} FROM attachments "
+              "WHERE id=? AND deleted_at IS NULL", (attachment_id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
+def update_attachment(attachment_id, caption=None, file_name=None,
+                      extracted_text=None):
+    """Update a media record's editable metadata. Returns the id, or None
+    when missing/soft-deleted. Never rewrites the Telegram message."""
+    sets, args = [], []
+    if caption is not None:
+        sets.append("caption=?")
+        args.append(caption)
+    if file_name is not None:
+        sets.append("file_name=?")
+        args.append(file_name)
+    if extracted_text is not None:
+        sets.append("extracted_text=?")
+        args.append(extracted_text)
+    if not sets:
+        return get_attachment(attachment_id)[0] if get_attachment(attachment_id) else None
+    sets.append("updated_at=?")
+    args.append(_now_ist_str())
+    args.append(attachment_id)
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"UPDATE attachments SET {', '.join(sets)} "
+              "WHERE id=? AND deleted_at IS NULL", args)
+    conn.commit()
+    conn.close()
+    return attachment_id
+
+
+def soft_delete_attachment(attachment_id):
+    """Soft-delete a media record (metadata + links only -- the Telegram
+    message is NEVER touched). Returns the id, or None when already gone."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("UPDATE attachments SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
+              (_now_ist_str(), attachment_id))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return attachment_id if deleted else None
+
+
+def search_attachments(workspace_id, q=None, media_type=None, entity_type=None,
+                       entity_id=None, tag_id=None, created_after=None,
+                       created_before=None, limit=50):
+    """Deterministic search over media metadata (caption / file_name /
+    extracted_text) plus filters: media_type, a linked entity, a tag, and a
+    created range. Excludes soft-deleted. Newest-first, capped at `limit`."""
+    clauses, args = ["a.workspace_id=?", "a.deleted_at IS NULL"], [workspace_id]
+    joins, join_args = [], []
+    if q:
+        clauses.append("(a.caption LIKE ? OR a.file_name LIKE ? "
+                       "OR a.extracted_text LIKE ?)")
+        args.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if media_type:
+        clauses.append("a.file_type=?")
+        args.append(media_type)
+    if created_after:
+        clauses.append("a.created_at>=?")
+        args.append(_date_range_bound(created_after, end_of_day=False))
+    if created_before:
+        clauses.append("a.created_at<=?")
+        args.append(_date_range_bound(created_before, end_of_day=True))
+    if entity_type and entity_id is not None:
+        joins.append("JOIN attachment_entities ae ON ae.attachment_id=a.id "
+                     "AND ae.entity_type=? AND ae.entity_id=?")
+        join_args.extend([entity_type, entity_id])
+    if tag_id:
+        joins.append("JOIN entity_tags et ON et.entity_id=a.id "
+                     "AND et.entity_type='attachment' AND et.tag_id=?")
+        join_args.append(tag_id)
+    a_cols = ", ".join(f"a.{c}" for c in ATTACHMENT_COLS.split(", "))
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT DISTINCT {a_cols} FROM attachments a "
+              f"{' '.join(joins)} WHERE {' AND '.join(clauses)} "
+              f"ORDER BY a.id DESC LIMIT ?",
+              (*join_args, *args, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_attachments(workspace_id, note_id=None):
+    """Full media-metadata rows (ATTACHMENT_COLS) for a workspace (or note),
+    newest excluded soft-deleted. v15.4 M6: returns the FULL column set so
+    Attachment.from_row (16 fields) can build models -- the narrow 5-column
+    legacy shape indexed wrong for the metadata contract (list_media bug)."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    if note_id is None:
+        c.execute(f"SELECT {ATTACHMENT_COLS} FROM attachments "
+                  "WHERE workspace_id=? AND deleted_at IS NULL "
+                  "ORDER BY id ASC", (workspace_id,))
+    else:
+        c.execute(f"SELECT {ATTACHMENT_COLS} FROM attachments "
+                  "WHERE note_id=? AND deleted_at IS NULL "
+                  "ORDER BY id ASC", (note_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def link_attachment_entity(attachment_id, entity_type, entity_id):
+    """Many-to-many media ↔ entity junction (spec §4). Idempotent."""
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO attachment_entities "
+              "(attachment_id, entity_type, entity_id) VALUES (?,?,?)",
+              (attachment_id, entity_type, entity_id))
+    conn.commit()
+    conn.close()
+    return attachment_id
+
+
+def unlink_attachment_entity(attachment_id, entity_type, entity_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM attachment_entities WHERE attachment_id=? "
+              "AND entity_type=? AND entity_id=?",
+              (attachment_id, entity_type, entity_id))
+    conn.commit()
+    conn.close()
+
+
+def get_attachment_entities(attachment_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT entity_type, entity_id FROM attachment_entities "
+              "WHERE attachment_id=? ORDER BY id ASC", (attachment_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_attachments_for_entity(entity_type, entity_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("SELECT attachment_id FROM attachment_entities WHERE entity_type=? "
+              "AND entity_id=? ORDER BY id ASC", (entity_type, entity_id))
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def link_attachment_tag(attachment_id, tag_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO entity_tags (tag_id, entity_type, entity_id) "
+              "VALUES (?, 'attachment', ?)", (tag_id, attachment_id))
+    conn.commit()
+    conn.close()
+
+
+def unlink_attachment_tag(attachment_id, tag_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute("DELETE FROM entity_tags WHERE tag_id=? AND entity_type='attachment' "
+              "AND entity_id=?", (tag_id, attachment_id))
+    conn.commit()
+    conn.close()
+
+
+def get_attachment_tags(attachment_id):
+    conn = sqlite3.connect(DB_NAME)
+    _init_workspace_tables(conn)
+    c = conn.cursor()
+    c.execute(f"SELECT {TAG_T_COLS} FROM tags t "
+              "JOIN entity_tags et ON et.tag_id=t.id "
+              "WHERE et.entity_type='attachment' AND et.entity_id=? "
+              "ORDER BY t.name ASC", (attachment_id,))
     rows = c.fetchall()
     conn.close()
     return rows

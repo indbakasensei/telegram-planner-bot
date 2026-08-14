@@ -85,7 +85,8 @@ def test_log_progress_photo_routes_to_entity_topic(temp_db, uid):
     # persisted: a progress note scoped to the entity + an attachment
     notes = db.get_notes(m.workspace_id, kind="progress")
     assert len(notes) == 1
-    assert db.get_attachments(m.workspace_id)[0][2] == "FILEID1"
+    # full ATTACHMENT_COLS shape since v15.4 M6 (telegram_file_id = idx 3)
+    assert db.get_attachments(m.workspace_id)[0][3] == "FILEID1"
 
 
 def test_workspace_level_note_goes_to_general(temp_db, uid):

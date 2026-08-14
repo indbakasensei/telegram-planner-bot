@@ -34,6 +34,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from openai import APITimeoutError
 
+from date_parser import _now
+
 import database as db
 from core.ai.reference_context import ReferenceContext
 from core.ai.tool_adapters import build_tool_registry
@@ -73,6 +75,12 @@ class FakeModel:
 
     def traces(self):
         return [" ".join(str(c) for c in msgs) for msgs, _ in self.calls]
+
+
+def _future_due_date(days=1):
+    """Compute a future due_date (IST-aware) so task-create tests don't
+    flake when the run-date passes the hardcoded test date."""
+    return (_now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 def _final(reply):
@@ -415,8 +423,9 @@ def test_scenario16_reminders_are_task_due_times(temp_db, uid):
     tool result the final reply is composed from."""
     reg = build_tool_registry(uid)
     assert "reminders" not in {s.name for s in reg.specs()}
-    db.add_task(uid, "standup", due_date="2026-08-11", due_time="10:00")
-    db.add_task(uid, "meds", due_date="2026-08-11", due_time="21:00")
+    due = _future_due_date()
+    db.add_task(uid, "standup", due_date=due, due_time="10:00")
+    db.add_task(uid, "meds", due_date=due, due_time="21:00")
     m = FakeModel(
         _tool("list_tasks", {}),
         _final("Your reminders today: standup at 10:00, meds at 21:00."))
@@ -434,11 +443,14 @@ def test_parsed_date_injected_authoritatively(temp_db, uid):
     sys_msg = m.calls[0][0][0]["content"]
     assert "PARSED" in sys_msg
     assert "18:00" in sys_msg                   # parser output, not the model's
-    assert "2026-08-11" in sys_msg              # tomorrow = NOW + 1 day
+    # tomorrow = request.now (NOW fixture) + 1 day, deterministic
+    expected_tomorrow = (NOW + timedelta(days=1)).strftime("%Y-%m-%d")
+    assert expected_tomorrow in sys_msg        # parser output is authoritative
 
 
 def test_context_snapshots_bounded_in_prompt(temp_db, uid):
-    db.add_task(uid, "context-task", due_date="2026-08-11", due_time="09:00")
+    due = _future_due_date()
+    db.add_task(uid, "context-task", due_date=due, due_time="09:00")
     m = FakeModel(_final("ok"))
     _worker(m).run(_req(uid, "anything", tasks=tuple(db.get_tasks(uid))))
     sys_msg = m.calls[0][0][0]["content"]

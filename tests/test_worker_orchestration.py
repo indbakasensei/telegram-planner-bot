@@ -41,12 +41,13 @@ new typed-reference machinery and therefore ERROR/FAIL before the fix exists
 (recorded as pre-fix failures) and pass after it lands.
 """
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
 import database as db
+from date_parser import _now
 from core.ai.reference_context import ReferenceContext
 from core.ai.tool_adapters import build_tool_registry
 from core.ai.worker import Worker
@@ -84,6 +85,12 @@ class FakeModel:
 
     def traces(self):
         return [" ".join(str(c) for c in msgs) for msgs, _ in self.calls]
+
+
+def _future_due_date(days=1):
+    """Compute a future due_date (IST-aware) so task-create tests don't
+    flake when the run-date passes the hardcoded test date."""
+    return (_now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 def _final(reply):
@@ -392,7 +399,7 @@ def test_ambiguous_deadline_never_mutates(temp_db, uid):
     db.tg_set_active(uid, ws.id, "milestone", xiao.id)
     m = FakeModel(
         _tool("update_goal_deadline",
-              {"goal": "its", "deadline": "2026-08-11"}),
+              {"goal": "its", "deadline": (NOW + timedelta(days=1)).strftime("%Y-%m-%d")}),
         _final("I need to know which goal you mean."))
     r = _worker(m).run(_req(uid, "Set its deadline to tomorrow"))
     assert r.termination is TerminationReason.FINAL
@@ -493,7 +500,7 @@ def test_task_completion_does_not_touch_entities(temp_db, uid):
     """E: completing a task must never hit an entity operation."""
     eng, ws = _game(uid)
     eng.add_milestone(uid, ws.id, "Xiao")
-    tid = db.add_task(uid, "Buy Milk", due_date="2026-08-11", due_time="08:30")
+    tid = db.add_task(uid, "Buy Milk", due_date=_future_due_date(), due_time="08:30")
     m = FakeModel(_tool("complete_task", {"task_id": tid}),
                   _final("Completed Buy Milk."))
     r = _worker(m).run(_req(uid, "Complete Buy Milk"))
@@ -1008,7 +1015,7 @@ def test_invariant_task_domain_does_not_touch_entities(temp_db, uid,
     eng, ws = _game(uid)
     xiao = eng.add_milestone(uid, ws.id, "Xiao")
     eng.update_field(uid, xiao.id, "level", 22)
-    tid = db.add_task(uid, task_title, due_date="2026-08-11")
+    tid = db.add_task(uid, task_title, due_date=_future_due_date())
     m = FakeModel(_tool("complete_task", {"task_id": tid}),
                   _final(f"Completed {task_title}."))
     r = _worker(m).run(_req(uid, f"Complete {task_title}"))
@@ -1043,17 +1050,18 @@ def test_invariant_task_create_retrieve(temp_db, uid):
     """S20: create a task then list tasks — the created task is retrievable
     with its fields; the task domain never creates entities."""
     eng, ws = _game(uid)
+    due = _future_due_date()
     m = FakeModel(
-        _tool("create_task", {"title": "Buy Milk", "due_date": "2026-08-11"}),
+        _tool("create_task", {"title": "Buy Milk", "due_date": due}),
         _tool("list_tasks", {}),
         _final("Task created."))
     r = _worker(m).run(_req(uid,
-        "Add task Buy Milk due 2026-08-11 and show tasks"))
+        f"Add task Buy Milk due {due} and show tasks"))
     assert r.termination is TerminationReason.FINAL
     assert all(s.result.ok for s in r.steps)
     tid = r.steps[0].result.data["task_id"]
     tasks = db.get_tasks(uid)
-    assert any(t[0] == tid and t[1] == "Buy Milk" and t[2] == "2026-08-11"
+    assert any(t[0] == tid and t[1] == "Buy Milk" and t[2] == due
                for t in tasks)
     listed = [t["title"] for t in r.steps[1].result.data]
     assert "Buy Milk" in listed

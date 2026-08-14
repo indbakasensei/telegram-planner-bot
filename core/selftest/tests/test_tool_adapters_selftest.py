@@ -8,11 +8,14 @@ proves the real card/update text is posted — the adapters never bypass the
 projection). Both checks create data under SELFTEST_USER_ID and clean it up
 in finally blocks, so they leave no residue and are safe to re-run.
 """
+from datetime import timedelta
+
 from core.selftest.models import SELFTEST_USER_ID, SelfTestFail
 from core.selftest.registry import selftest
+from date_parser import _now
 
-# The full M3 + M4 + M5 tool surface (37 names; the 7 M5 lifecycle tools are
-# pinned here as the deliberate 30→37 registry growth — see V15_3_MANUAL_CONTROL_PLANE.md).
+# The full M3 + M4 + M5 + M6 tool surface (60 names; the 22 M6 tools + post_note
+# are pinned here as the deliberate 37→60 registry growth — see V15_4_KNOWLEDGE_MEDIA.md).
 _EXPECTED_TOOLS = frozenset({
     # tasks
     "list_tasks", "find_task", "create_task", "update_task",
@@ -38,6 +41,18 @@ _EXPECTED_TOOLS = frozenset({
     # carry confirmation messages, asserted below)
     "create_workspace", "rename_workspace", "close_workspace",
     "archive_workspace", "delete_entity", "repair_topics", "equip_item",
+    # v15.4 M6 — Knowledge + Media + Tags (23 tools including post_note)
+    # Notes (9)
+    "create_note", "update_note", "delete_note", "get_note", "list_notes",
+    "link_note_entity", "unlink_note_entity", "link_note_tag", "unlink_note_tag",
+    "post_note",
+    # Media (9)
+    "store_media", "update_media", "delete_media", "get_media", "list_media",
+    "link_media_entity", "unlink_media_entity", "link_media_tag", "unlink_media_tag",
+    # Tags (4)
+    "create_tag", "rename_tag", "delete_tag", "list_tags",
+    # v15.5 M7 — Cross-Reference Retrieval (3 READ_ONLY tools)
+    "search_knowledge", "search_notes_cross", "search_media_cross",
 })
 
 # Names that MUST be classified as writing state (never READ_ONLY).
@@ -53,6 +68,13 @@ _WRITING_TOOLS = frozenset({
     # asserted separately below)
     "create_workspace", "rename_workspace", "close_workspace",
     "repair_topics", "equip_item",
+    # v15.4 M6 — Knowledge + Media + Tags writing tools
+    "create_note", "update_note", "link_note_entity", "unlink_note_entity",
+    "link_note_tag", "unlink_note_tag",
+    "post_note",
+    "store_media", "update_media", "link_media_entity", "unlink_media_entity",
+    "link_media_tag", "unlink_media_tag",
+    "create_tag", "rename_tag",
 })
 
 
@@ -80,12 +102,12 @@ def check_ai_tool_adapter_registry():
         if spec.risk is RiskLevel.READ_ONLY:
             raise SelfTestFail(f"{name} misclassified as READ_ONLY")
     for name in ("delete_task", "delete_entity_topic", "archive_workspace",
-                 "delete_entity"):
+                 "delete_entity", "delete_note", "delete_media", "delete_tag"):
         if reg.get(name).spec.risk is not RiskLevel.DESTRUCTIVE:
             raise SelfTestFail(f"{name} not classified DESTRUCTIVE")
     # every DESTRUCTIVE tool must carry a confirmation message (the M5-F gate)
     for name in ("delete_task", "delete_entity_topic", "archive_workspace",
-                 "delete_entity"):
+                 "delete_entity", "delete_note", "delete_media", "delete_tag"):
         if not reg.get(name).spec.confirmation_message:
             raise SelfTestFail(f"{name} DESTRUCTIVE without confirmation message")
     if any(t.spec.risk is RiskLevel.SYSTEM for t in reg.all()):
@@ -148,7 +170,7 @@ def check_ai_tool_adapter_roundtrip():
             raise SelfTestFail("projection did not post the real card/update text")
 
         t = reg.execute("create_task", {"title": "[selftest] task",
-                                        "due_date": "2026-08-11"})
+                                        "due_date": (_now() + timedelta(days=1)).strftime("%Y-%m-%d")})
         if not t.ok:
             raise SelfTestFail(f"create_task failed: {t}")
         task_id = t.data["task_id"]

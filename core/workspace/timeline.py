@@ -102,6 +102,12 @@ _SUMMARY_TEMPLATES = {
     "milestone.archived": "Archived milestone: {title}",
     "milestone.deleted": "Deleted milestone: {title}",
     "note.added": "Note added",
+    "note.updated": "Note updated",
+    "note.deleted": "Note deleted",
+    "file.uploaded": "File uploaded",
+    "media.deleted": "Media record deleted",
+    "tag.created": "Created tag: {title}",
+    "tag.deleted": "Deleted tag: {title}",
 }
 
 
@@ -134,7 +140,9 @@ class TimelineEngine:
 
     # ── internal ───────────────────────────────────────
     def _summarize(self, event: EntityEvent) -> str:
-        title = getattr(event.entity, "title", None) or ""
+        # Tags carry `name` rather than `title`; both map to {title}.
+        title = (getattr(event.entity, "title", None)
+                 or getattr(event.entity, "name", None) or "")
         status = getattr(event.entity, "status", None) or ""
         template = _SUMMARY_TEMPLATES.get(event.event_type)
         if template:

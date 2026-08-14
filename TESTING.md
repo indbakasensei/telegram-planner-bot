@@ -8,7 +8,7 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**1631 tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**1700+ tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
 `planner.db`). Run with:
 
@@ -60,6 +60,12 @@ pytest                             # ~25 seconds, all 1631 tests
 | `tests/test_worker_topics.py` | 20 | v15.2 M4 topic lifecycle matrix (items7/8/10 — matrix E): ONE canonical topic per `(workspace_id, entity_id)` via the `_TopicTool` base (`get/ensure/set_locked/delete/list entity topic`), ensure idempotent (initial card only into a NEW topic), lock is durable across a fresh registry, a locked topic REFUSES ordinary deletes (ok=False) unless `force=true`, `delete_entity_topic` is DESTRUCTIVE + carries confirmation_message (the mechanical gate → CONFIRMATION_NEEDED, nothing deleted) and NEVER deletes the DB entity, honest no-projection / no-topic refusals, `repair_topics` collapses logical duplicates (one normalized title → one entity → one topic, kind adopted onto the canonical row, duplicate rows kept-but-skipped — never deleted, locked state preserved), and renderer coverage for every topic op incl. refused deletes |
 | `tests/test_control_panel.py` | 38 | v15.3 M5 **Manual Control Plane** (`core/control/`): pages render offline (home/workspace/entity/topic/identity/equip — `(text, keyboard)` from `ui_components`, no Telegram needed), the shared M5-F confirm flow (`begin_confirm` sets a pending action reading `spec.confirmation_message`; `confirm_no`/`cancel_all` clear it and never execute), `execute_tool_async` runs the SAME `ToolRegistry` the Worker executes (no-second-logic proof), new-tool resolution (the 7 M5 tools all present in the control registry; DESTRUCTIVE ones carry confirmation messages), and router dispatch (`ctl:home`/`ctl:ws:*`/`ctl:ent:*`/`ctl:topic:*`/`ctl:ident:*`/`ctl:eq:*`) |
 | `tests/test_m5_adversarial.py` | 41 | v15.3 M5 **M5-H adversarial matrix** — 14 scenarios × every feature, fresh names only (`M5_Test_Character_A/B`, `M5_Test_Weapon_A`, `M5_Test_Artifact_A`, `M5_Test_Adopt_A`, `M5_Test_WS_A/B`): workspace lifecycle (create→rename→open→close clears active context, row survives; duplicate titles NOT a false refusal; missing target strict; wrong-kind template rejected; repeated ops noop; cancel confirmation never executes; cross-workspace isolation), entity CRUD per kind (create/get/list kind-filtered; same-kind duplicate rejected; cross-kind on an UNTYPED row adopts; missing targets error; invalid field value → invalid_args, field never written; repeated delete errors cleanly; cancel delete keeps the entity; wrong kind never leaks), topic lifecycle (ensure→lock→unlock→delete; already-locked/unlocked noop; locked refuses ordinary delete, force ok; missing topic/entity contained errors; cancel force-delete keeps topic locked; cross-ws isolation), identity inspector (all 8 rows; missing entity page; stale after delete; cross-ws isolation), equip (equip/unequip via the game `weapon` field; wrong-kind item refused, nothing written; missing targets error; repeated op idempotent; cross-ws isolation), task/goal/habit foundation CRUD (create by id, complete by id; duplicate task same date rejected; missing targets error; invalid input rejected), and cross-user isolation (a second user's active workspace never leaks into the owner's surface) |
+| `tests/test_m6_knowledge.py` | 35 | v15.4 M6 **Knowledge matrix A-E** — matrix A: note CRUD (create/retrieve/update/delete/duplicate/empty/long), B: note→1..N entities, note→1..N tags, unlink, deleted entity no ghost link, C: media metadata (photo/video/document, Telegram ids, same media from multiple topics/entities, retrieval by entity/tag/type), D: search (exact/partial + workspace/entity/tag/media/date + combined), E: isolation (ws A≠B, entity A≠B, same name across workspaces distinct) |
+| `tests/test_m6_adversarial.py` | 21 | v15.4 M6 **Adversarial matrix F-I** — F: confirmation gates (delete without confirm→gate, cancel, confirm, repeated delete, stale refs), G: Worker integration (registry.execute, tool result authoritative, failed tool never fabricated, zero/multi results, multi-refs), H: manual=Worker path (same domain effects — no-second-logic proof for notes/media/tags), I: abuse/hostile input (prompt injection in stored note, malicious caption, fake tool-result text, unknown entity/tag, wrong workspace, deleted entity, duplicate media ref) |
+| `tests/test_m7_retrieval.py` | 73 | v15.5 M7 **Cross-Reference Retrieval matrix A–R** — A: unified mixed-type search (notes+media in one result set, `_type` discriminator), B: entity AND/OR semantics (single+match-all vs match-any, Python-side set ops over multiple searches), C: tag AND/OR semantics, D: combined entity+tag, E: media-type filter, F: free-text query (title/content/caption/filename/extracted_text), G: date-range filters (created_after/created_before, IST), H: workspace isolation (CRITICAL — never cross-workspace), I: kind filter (notes only), J: limit + sorting (newest-first, default 50, max 200, honest truncation), K: empty results (returns `[]`, never fabricates/errors), L: original use cases (Ace/TenZ/1v4 clips, Arlecchino build notes), M: factory `build_retrieval_service`, N: `RetrievalFilters` dataclass, O: `RetrievalResult` dataclass, P: edge cases (duplicate ids, None fields, malformed inputs), Q: UI State Machine (14 tests — filter accumulation, clear, workspace switch, user isolation), R: Control Plane Integration (3 tests — page render, kwargs acceptance, cross-workspace isolation) |
+| `tests/test_m7_adversarial.py` | *pending* | v15.5 M7 adversarial matrix — confirmation gates, Worker integration, manual=Worker path (no-second-logic proof), hostile input (prompt injection in stored note, malicious caption, fake tool-result text, unknown entity/tag, wrong workspace, deleted entity, duplicate media ref) |
+| `core/selftest/tests/test_retrieval_selftest.py` | 4 | v15.5 M7 **Self-Test probes** (category: **Retrieval**): factory builds a service from a live `EntityEngine`; deterministic round-trip (create note+media+tags, search_knowledge returns mixed `_type`, no second logic); tool registry has all 3 M7 tools (`search_knowledge`, `search_notes_cross`, `search_media_cross`) at `RiskLevel.READ_ONLY`; control plane `search_home`/`search_results` pages render offline |
+| `core/regression/suites/retrieval_m7.py` | 38 | v15.5 M7 **Regression suite RET-001…RET-038** (category: **Admin** + **AI**, Quick suite): unified search returns mixed types, entity AND/OR + tag AND/OR semantics, combined filters, media-type filter, free-text, date-range, workspace isolation (CRITICAL), kind filter, limit+sort, empty results, original use cases (Ace/TenZ/1v4 clips), Worker integration (3 M7 tools, READ_ONLY), control plane UI, pagination (50/page, no dups). **Owner-facing live checklist:** `docs/RET_LIVE_CHECKLIST.md` |
 
 ## Release Verification Guide (v14.21 — the canonical checklist)
 
@@ -296,6 +302,26 @@ also assert the DESTRUCTIVE confirmation messages on all 4 destructive
 tools (deliberate, documented pin update). The M5-H adversarial matrix
 (14 scenarios × every feature, fresh names) lives in pytest as
 `tests/test_m5_adversarial.py`.
+
+### M6 selftest probes (v15.4)
+
+The Knowledge + Media + Tags system adds three offline probes under the
+**AI** category (`core/selftest/tests/test_knowledge_selftest.py`):
+- **"M6 Knowledge Tool Registry"** — builds the full tool registry and
+  asserts all 22 M6 tools (notes 9, media 9, tags 4) register with honest
+  risk classifications: every write tool is MUTATING, the three delete
+  tools are DESTRUCTIVE with confirmation messages, no M6 tool is SYSTEM,
+  and `post_note` (the 23rd M6-related projection helper) is present.
+  Total registry size is pinned at 60 tools.
+- **"M6 Knowledge Round-trip"** — a deterministic note+media+tag round-trip
+  through ONE registry against the live database with a fake Telegram
+  client: create note/media linked to entity + tag, get/list by entity/tag,
+  rename tag, soft-delete note — all domain services verified end-to-end
+  with cleanup.
+- **"M6 Control Pages Render"** — renders the Knowledge/Media/Tags home
+  pages via `core/control/pages.py` (note_home, media_home, tag_home)
+  against a temp DB with a recording FakeClient; asserts non-empty string
+  output for each.
 
 ## `TEST_CHECKLIST.md` section map
 

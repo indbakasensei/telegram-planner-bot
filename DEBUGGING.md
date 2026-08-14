@@ -218,7 +218,7 @@ Mitigation today: phrase entity questions with a keyword ("What level is she?",
 `core/ai/tools.py` ships the full Tool Contract (RiskLevel, validated
 `ToolSpec`, unified `ToolResult`/`ToolError`, fail-closed `validate_args`,
 strict `ToolRegistry` with duplicate detection + `execute`),
-`core/ai/tool_adapters.py` (M3/M4/M5) adds **37 thin adapters** built on it via
+`core/ai/tool_adapters.py` (M3/M4/M5/M7) adds **62 thin adapters** built on it via
 `build_tool_registry(user_id, …)` — tasks, habits, goals, entities,
 workspace, memory/recall (M4 adds `update_goal_deadline`, the goal domain's
 OWN deadline tool, plus the **topic lifecycle family** — get/ensure/
@@ -228,8 +228,9 @@ confirmation-gated and ordinary deletes of locked topics refused; M5 adds
 the **Manual Control Plane lifecycle tools** — `create_workspace`/
 `rename_workspace`/`close_workspace`/`archive_workspace` (DESTRUCTIVE +
 confirmation)/`delete_entity` (DESTRUCTIVE + confirmation, soft-delete —
-never the topic)/`repair_topics`/`equip_item`), and
-`core/ai/worker*.py` (M4) adds the **GLM-5.2
+never the topic)/`repair_topics`/`equip_item`; M6 adds **22 knowledge/media/tags tools**;
+M7 adds **3 retrieval tools** — `search_knowledge`/`search_notes_cross`/`search_media_cross`),
+and `core/ai/worker*.py` (M4) adds the **GLM-5.2
 Worker** — a bounded, tool-calling executor (max 6 tool calls, a hard Python
 constant) with a fail-closed structured-output parser, a mechanical
 confirmation gate, a never-fabricate-success guard, and a per-user **typed
@@ -247,6 +248,28 @@ Registry', 'AI Tool Adapter Round-trip', 'AI Worker (dormant)', and 'AI
 Worker Deterministic Round-trip', plus the offline `tests/test_tool_contract.py`,
 `tests/test_tool_adapters.py`, `tests/test_worker.py`,
 `tests/test_worker_parser.py`, and `tests/test_worker_orchestration.py`.
+
+### M7 Search UI State Machine (v15.5.0-alpha.1+fix1)
+
+The Control Plane search builder is **stateful**: users build compound searches
+incrementally (select entities → select tags → set AND/OR mode → add query → search).
+The bug was that each gather handler cleared state and passed only its own filter,
+making compound searches impossible. Fix: all 8 handlers now use
+`set_search_state()`/`get_search_state()` from `conversation_state.py` to
+accumulate filters across selections.
+
+**Symptoms of the bug (pre-fix):**
+- Setting a query, then selecting entities → only entities filtered, query lost
+- Setting tags, then changing mode → only mode changed, tags/entity lost
+- Clear button did nothing useful
+
+**What to check if search behavior seems wrong:**
+1. `conversation_state.py` — `get_search_state`/`set_search_state`/`clear_search_state` exist
+2. `core/control/router.py` — all `_gather_search*` handlers use the state functions
+3. UI shows current filter state after each selection (not reset to empty)
+
+**Tests:** `tests/test_m7_retrieval.py::TestSearchUIStateMachine` (14 tests) and
+`docs/RET_LIVE_CHECKLIST.md` for live verification.
 Documented limitations to know before building on it:
 - **`open_workspace` is now honestly `MUTATING`** (M3 fixed the M2-era
   READ_ONLY misclassification) in BOTH the `/ws` tool and the adapter —
@@ -297,6 +320,72 @@ worth recording:
 - **Cross-kind adoption only fires on an UNTYPED row** (`M5_Test_Adopt_A`).
   A typed row never adopts from an `entity_type` arg — `EntityKindResolver`
   priority 1 is DB-kind-wins (M4). See `test_ent_duplicate_cross_kind_adopts`.
+
+### Knowledge + Media + Tags (v15.4 M6) — observations
+
+`core/ai/tool_adapters.py` adds **23 M6-related tools** (catalog 37→60):
+notes 9, media 9, tags 4, `post_note` 1 (projection helper).
+`core/control/pages.py` + `router.py` add the Knowledge/Media/Tags
+control sections. Observations worth recording:
+
+- **Schema is additive + idempotent** — every column/table addition in
+  `database.py::init_db()` runs inside `try/except: pass` (the v15 convention).
+  No separate migration system; a fresh DB and an old DB converge to the same
+  state on next startup. Columns: `notes.title/updated_at/deleted_at`,
+  `attachments.message_id/chat_id/topic_id/entity_type/entity_id/extracted_text/updated_at/deleted_at`,
+  `tags.workspace_id` + partial unique index `(workspace_id, name) WHERE workspace_id IS NOT NULL`.
+  New tables: `note_entities`, `attachment_entities` (each with two indexes).
+- **Tag link table is REUSED** — `entity_tags` (legacy global tag table) now
+  serves as the generic tag-link table for `milestone` + `note` + `attachment`.
+  No per-resource tag junction tables. This is why `TagStorage.for_entity()`
+  and `.for_target()` exist.
+- **Note entity links are independent of `notes.milestone_id`** — the legacy
+  single `milestone_id` column on `notes` is still written (the note's "primary
+  entity") so existing entity-note features keep working. The many-to-many
+  `note_entities` is ADDITIONAL (0..N links).
+- **Media capture is ADDITIVE** — new `MessageHandler(video|document|audio|voice)`
+  in `main.py` records metadata via the domain service (linked to active
+  workspace + active entity). `handle_photo` is UNCHANGED (progress-log/vision
+  priority); photo→media recording is a documented follow-up (needs a priority
+  decision for the consolidated live pass).
+- **Topic integration is DB-first, projection optional** — notes/media linked
+  to an entity can be posted to that entity's topic via
+  `TelegramProjection.post_entity_update` (the "Arlecchino build notes" flow).
+  A "knowledge category" never auto-creates a Telegram topic — it is an
+  ordinary workspace entity. By default a note/media is a DB record only.
+  `delete_note`/`delete_media` remove the DB record + links; they NEVER delete
+  the Telegram topic or message (matching M5's delete≠topic rule).
+- **Search is deterministic LIKE** — `NoteStorage.search` and
+  `AttachmentStorage.search` use `LIKE` on `title/content` (notes) and
+  `caption/file_name/extracted_text` (media) + filter JOINs. FTS5 (KTD §7) and
+  embeddings/vector are documented FUTURE extensions — not built in M6 (spec §11).
+- **`delete_milestone` cascades link cleanup** — when an entity is soft-deleted,
+  `EntityEngine.delete_milestone` now removes all `note_entities` and
+  `attachment_entities` rows for that entity (no ghost refs). This is the
+  single place the cascade lives; the storage layer's `soft_delete_milestone`
+  is untouched.
+- **The 37→60 tool-count pin is deliberate and documented** — the selftest
+  probe `AI Tool Adapter Registry` was updated to 60 when the 23 M6-related
+  tools were added — additive, never weakening. It ALSO pins the 7 DESTRUCTIVE
+  tools (`delete_task`, `delete_entity_topic`, `archive_workspace`,
+  `delete_entity`, `delete_note`, `delete_media`, `delete_tag`) to carry a
+  `confirmation_message`.
+
+### M7 Cross-Reference Retrieval (v15.5) — Key observations
+
+- **Date boundary fix**: `database.py`'s `add_note` and `add_attachment` now explicitly set `created_at = _now_ist_str()` (IST) instead of relying on `DEFAULT CURRENT_TIMESTAMP` (UTC). This was a critical bug where date-range filters (`created_after`/`created_before`) in M7's `CrossReferenceService` would fail off-by-one-day when the UTC/IST boundary was crossed (e.g., 18:30 UTC = 00:00 IST next day). The fix mirrors the milestone pattern. Column definitions keep `DEFAULT CURRENT_TIMESTAMP` as a safety net for legacy paths, but all production code paths use IST. Verified by M7 test matrix G (date range filters) and the selftest round-trip probe.
+
+- **No second logic path**: The Search page in `/control` executes the SAME `CrossReferenceService` the AI Worker's M7 tools (`search_knowledge`, `search_notes_cross`, `search_media_cross`) use. Every action delegates to the SAME `ToolRegistry` the Worker uses. The dashboard never writes the DB directly. This is verified by selftest probe "Control Plane (offline registry)" and the regression suite (RET-031…033).
+
+- **AND/OR semantics are Python-side composition**: The underlying M6 storage searches support only a single `entity_type`+`entity_id` or `tag_id`. For multiple entities/tags, `CrossReferenceService` executes multiple searches and combines in Python: `entity_mode="and"` + `tag_mode="and"` = ALL must match (start with first, then filter); `entity_mode="or"` OR `tag_mode="or"` = ANY matches (UNION + dedup). Mixed mode treats as AND (conservative default). Why not SQL JOINs? The M6 schema uses junction tables; a single SQL query with multiple JOINs for AND and UNION for OR would be complex, fragile, and harder to verify. Python-side is explicit, testable, and uses existing indexes.
+
+- **Workspace isolation is mandatory**: Every query is scoped to `workspace_id`; never cross-workspace. The `RetrievalFilters` dataclass requires `workspace_id`. This is the single most critical invariant (tested in matrix H, regression RET-018, RET-030, selftest round-trip).
+
+- **Mixed-type results with discriminator**: `RetrievalResult` uses `_type: Literal["note", "media"]` discriminator for unified results. Notes and media are merged and sorted newest-first by `created_at` (single sort across both types). Default limit 50, max 200, honest truncation (results capped, not paginated beyond 200).
+
+- **3 new READ_ONLY tools**: `search_knowledge` (unified), `search_notes_cross` (notes only), `search_media_cross` (media only). All at `RiskLevel.READ_ONLY`. The selftest probe `AI Tool Adapter Registry` was updated from 60 to 63 expected tools.
+
+- **Search is deterministic LIKE** (same as M6): `CrossReferenceService` delegates to `NoteStorage.search` and `AttachmentStorage.search` which use `LIKE` on `title/content` (notes) and `caption/file_name/extracted_text` (media) + filter JOINs. FTS5 and embeddings/vector remain documented FUTURE extensions.
 
 ### The `analytics` package doesn't exist — AI analytics commands are silently broken
 

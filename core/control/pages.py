@@ -10,8 +10,10 @@ drive them against a temp DB with zero Telegram involvement.
 The M5-A "Current workspace" UI lives in `workspace_page`/`workspace_detail`;
 M5-B entity pages in `entity_hub`/`entity_list`/`entity_detail`; M5-C Topic
 Control Center in `topic_center`/`topic_detail`; M5-D in `identity_inspector`;
-M5-E in `equip_home`/`equip_pick`. All page chrome comes from ui_components
-(UI_SPEC_v1.md) -- never hand-formatted HTML.
+M5-E in `equip_home`/`equip_pick`. M6 knowledge/media/tag pages live in
+`note_home`/`note_view`, `media_home`/`media_view`, and `tag_home`/`tag_view`.
+All page chrome comes from ui_components (UI_SPEC_v1.md) -- never
+hand-formatted HTML.
 """
 from __future__ import annotations
 
@@ -26,7 +28,10 @@ from core.ai.entity_kinds import (
     KIND_ENTITY,
     KIND_WEAPON,
 )
+from core.retrieval.service import CrossReferenceService, RetrievalResult
+from core.workspace.errors import EntityNotFound
 from core.workspace.groups_app import ENTITY_TYPE, _normalize_title
+from core.workspace.models import Note
 from core.workspace.templates.registry import entity_field_specs
 from core.control.registry import ControlContext
 
@@ -57,6 +62,10 @@ _PAGE_LEN = {   # list rows per page (keeps every keyboard ≤ 12 buttons)
     "workspace": 6,
     "topic": 4,
     "equip": 6,
+    "note": 5,
+    "media": 5,
+    "tag": 6,
+    "search": 5,
 }
 
 
@@ -146,11 +155,15 @@ def control_home(ctx: ControlContext):
         *sections,
         footer=uic.render_footer("Admin only — denied silently to others"))
     rows = [
-        uic.primary_row("🗂 Workspaces", "ctl:ws:home"),
-        uic.action_row(("🗃 Entities", "ctl:ent:list"),
+        uic.primary_row("📂 Workspaces", "ctl:ws:home"),
+        uic.action_row(("📦 Entities", "ctl:ent:list"),
                        ("💬 Topic Center", "ctl:topic:home")),
         uic.action_row(("🆔 Identity", "ctl:ident:active"),
-                       ("⚔️ Equipment", "ctl:eq:home")),
+                       ("⚙️ Equipment", "ctl:eq:home")),
+        uic.primary_row("🔍 Cross-Reference Search", "ctl:search:home"),
+        uic.action_row(("📝 Knowledge (notes)", "ctl:note:home"),
+                       ("📎 Media", "ctl:media:home")),
+        uic.primary_row("🏷️ Tags", "ctl:tag:home"),
         uic.nav_row(None, "ctl:home"),
     ]
     return text, uic.keyboard(*rows)
@@ -673,3 +686,581 @@ def _characters(ctx: ControlContext):
     ms = [m for m in ctx.engine.list_milestones(ctx.user_id, ws.id)
           if _kind_of(m) == KIND_CHARACTER]
     return ms, ws
+
+
+# ── M6: Knowledge (notes) ─────────────────────────────────────────────────
+#
+# Notes are DB-first records (spec §8 decision D): the list/view pages read
+# them straight from the engine, and Telegram projection is an explicit
+# per-note "Post to topic" action through the shared tool surface.
+
+_ICON_KN = "search"
+_ICON_MEDIA = "vision"
+_ICON_TAG = "list"
+
+_PAGE_LEN["note"] = 6
+_PAGE_LEN["media"] = 5
+_PAGE_LEN["tag"] = 8
+
+_MEDIA_GLYPH = {
+    "photo": "📷", "video": "🎬", "document": "📄",
+    "audio": "🎵", "voice": "🎙",
+}
+
+
+def _truncate(text, limit: int) -> str:
+    text = (text or "").replace("\n", " ")
+    if len(text) > limit:
+        return text[:limit] + "…"
+    return text
+
+
+def _note_line(n) -> str:
+    title = _truncate(n.title or n.content, 48)
+    return f"📝 {b(esc(title))} (#{n.id}) — {esc(n.kind or 'note')}"
+
+
+def _media_line(att) -> str:
+    label = _truncate(att.caption or att.file_name or att.telegram_file_id, 40)
+    glyph = _MEDIA_GLYPH.get(att.file_type, "📎")
+    return f"{glyph} {b(esc(label))} (#{att.id}) — {esc(att.file_type)}"
+
+
+def _entity_info_map(ctx, ws) -> dict:
+    """entity id → (title, semantic kind) for the active workspace (display
+    read only — never resolves references)."""
+    return {m.id: (m.title, _kind_of(m))
+            for m in ctx.engine.list_milestones(ctx.user_id, ws.id)}
+
+
+def _note_display(ctx, note_id) -> Note | None:
+    """Ownership-checked note fetch for display; None when missing/deleted."""
+    try:
+        return ctx.engine.get_note(ctx.user_id, note_id)
+    except EntityNotFound:
+        return None
+
+
+def _media_display(ctx, media_id):
+    try:
+        return ctx.engine.get_media(ctx.user_id, media_id)
+    except EntityNotFound:
+        return None
+
+
+def _tag_display(ctx, tag_id):
+    try:
+        return ctx.engine.get_tag(ctx.user_id, tag_id)
+    except EntityNotFound:
+        return None
+
+
+def note_home(ctx: ControlContext, page: int = 1, q: str | None = None):
+    """M6 Knowledge: the active workspace's notes (newest first), with a
+    search box (one-shot gather) and Add. `q` renders a filtered list."""
+    ws, _a = _active_ws(ctx)
+    if ws is None:
+        body, kb = _no_active_section("ctl:ws:home")
+        return uic.render_page(
+            uic.render_header(_ICON_KN, "Knowledge", ["Control", "Knowledge"]),
+            body), kb
+    if q:
+        notes = ctx.engine.search_notes(ctx.user_id, ws.id, q=q, limit=50)
+        caption = f"{len(notes)} match(es) for {esc(q)}"
+    else:
+        notes = ctx.engine.list_notes(ctx.user_id, ws.id)
+        caption = f"{len(notes)} note(s)"
+    items, page, pages = _paginate(notes, page, _PAGE_LEN["note"])
+    sections = [uic.render_section(
+        "Notes",
+        "\n".join(_note_line(n) for n in items) or uic.render_empty_state(
+            "search", "No notes match",
+            "Dump knowledge with the Worker, or Add below."))]
+    text = uic.render_page(
+        uic.render_header(_ICON_KN, "Knowledge",
+                          ["Control", "Knowledge", ws.title],
+                          f"{caption} · page {page}/{pages}"),
+        *sections,
+        footer=uic.render_footer("Notes are DB records — projecting to a "
+                                 "Telegram topic is optional and explicit"))
+    rows = []
+    if q:
+        rows.append(uic.action_row(("➕ Add note", "ctl:note:add"),
+                                   ("✕ Clear search", "ctl:note:home")))
+    else:
+        rows.append(uic.action_row(("➕ Add note", "ctl:note:add"),
+                                   ("🔍 Search", "ctl:note:search")))
+    for n in items:
+        rows.append(uic.action_row((_note_line(n), f"ctl:note:view:{n.id}")))
+    rows.append(uic.nav_row("ctl:home", "ctl:note:home"))
+    if pages > 1 and not q:
+        rows.append(uic.pagination_row("ctl:note:home:p", page, pages))
+    return text, uic.keyboard(*rows)
+
+
+def note_view(ctx: ControlContext, note_id: int):
+    """M6 Knowledge: one note's content + linked entities + tags + actions
+    (edit / delete / post-to-topic / link)."""
+    ws, _a = _active_ws(ctx)
+    if ws is None:
+        body, kb = _no_active_section("ctl:ws:home")
+        return uic.render_page(
+            uic.render_header(_ICON_KN, "Knowledge", ["Control", "Knowledge"]),
+            body), kb
+    note = _note_display(ctx, note_id)
+    if note is None:
+        return _missing_entity_page("note")
+    info_map = _entity_info_map(ctx, ws)
+    entities = ctx.engine.note_entities(ctx.user_id, note_id)
+    tags = ctx.engine.note_tags(ctx.user_id, note_id)
+    info_rows = [("Kind", note.kind or "note"),
+                 ("Created", note.created_at or "—")]
+    if note.title:
+        info_rows.insert(0, ("Title", note.title))
+    if note.updated_at:
+        info_rows.append(("Updated", note.updated_at))
+    ent_lines = []
+    for etype, eid in entities:
+        title, kind = info_map.get(eid, (f"#{eid}", ""))
+        glyph = _KIND_GLYPH.get(kind, "📄")
+        ent_lines.append(f"{glyph} {b(esc(title))} ({etype} #{eid})")
+    tag_lines = [f"🏷 {b(esc(t.name))}" for t in tags]
+    text = uic.render_page(
+        uic.render_header(_ICON_KN, "Note",
+                          ["Control", "Knowledge", ws.title], f"#{note_id}"),
+        uic.render_section("Note",
+                           uic.render_information_card("Note", info_rows)),
+        uic.render_section("Content",
+                           uic.blockquote(_truncate(note.content, 400))),
+        uic.render_section("Entities", "\n".join(ent_lines) or "—"),
+        uic.render_section("Tags", "\n".join(tag_lines) or "—"),
+        footer=uic.render_footer("Delete hides the DB row only — the Telegram "
+                                 "topic and messages are never touched"))
+    rows = [uic.action_row(("✏️ Edit", f"ctl:note:edit:{note_id}"),
+                           ("🗑 Delete", f"ctl:note:del:{note_id}"))]
+    if ctx.projection_factory is not None and entities:
+        rows.append(uic.action_row(
+            ("📝 Post to topic", f"ctl:note:post:{note_id}")))
+    rows.append(uic.action_row(
+        ("🔗 Link entity", f"ctl:note:link-ent:{note_id}"),
+        ("🏷 Link tag", f"ctl:note:link-tag:{note_id}")))
+    for etype, eid in entities:
+        title, _kind = info_map.get(eid, (f"#{eid}", ""))
+        rows.append(uic.action_row(
+            (f"✕ {_truncate(title, 20)}", f"ctl:note:unlink-ent:{note_id}:{eid}")))
+    for t in tags:
+        rows.append(uic.action_row(
+            (f"✕ {t.name}", f"ctl:note:unlink-tag:{note_id}:{t.id}")))
+    rows.append(uic.nav_row("ctl:note:home", f"ctl:note:view:{note_id}"))
+    return text, uic.keyboard(*rows)
+
+
+# ── M6: Media (Telegram metadata index) ───────────────────────────────────
+
+def media_home(ctx: ControlContext, page: int = 1, media_type=None,
+               entity_id=None, tag_id=None, q: str | None = None):
+    """M6 Media: the workspace's media-metadata index, filterable by type /
+    entity / tag / search. Pure reads — the blob stays in Telegram."""
+    ws, _a = _active_ws(ctx)
+    if ws is None:
+        body, kb = _no_active_section("ctl:ws:home")
+        return uic.render_page(
+            uic.render_header(_ICON_MEDIA, "Media", ["Control", "Media"]),
+            body), kb
+    info_map = _entity_info_map(ctx, ws)
+    if media_type is not None:
+        media = ctx.engine.search_media(ctx.user_id, ws.id,
+                                        media_type=media_type, limit=50)
+        label = f"{_MEDIA_GLYPH.get(media_type, '📎')} {media_type}"
+        clear = "ctl:media:home"
+    elif entity_id is not None:
+        media = ctx.engine.search_media(
+            ctx.user_id, ws.id, entity_type=ENTITY_TYPE,
+            entity_id=entity_id, limit=50)
+        ent_title = info_map.get(entity_id, (f"#{entity_id}", ""))[0]
+        label = f"linked to {ent_title}"
+        clear = "ctl:media:home"
+    elif tag_id is not None:
+        media = ctx.engine.search_media(ctx.user_id, ws.id, tag_id=tag_id,
+                                        limit=50)
+        tag_name = _tag_display(ctx, tag_id).name if _tag_display(ctx, tag_id) else f"#{tag_id}"
+        label = f"tagged {tag_name}"
+        clear = "ctl:media:home"
+    elif q:
+        media = ctx.engine.search_media(ctx.user_id, ws.id, q=q, limit=50)
+        label = f"{len(media)} match(es) for {q}"
+        clear = "ctl:media:home"
+    else:
+        media = ctx.engine.list_media(ctx.user_id, ws.id)
+        label = f"{len(media)} record(s)"
+        clear = None
+    filtered = media_type is not None or entity_id is not None \
+        or tag_id is not None or bool(q)
+    items, page, pages = _paginate(media, page, _PAGE_LEN["media"])
+    sections = [uic.render_section(
+        "Media",
+        "\n".join(_media_line(m) for m in items) or uic.render_empty_state(
+            "vision", "No media records",
+            "Send a photo/video/document/audio to the bot, or the Worker "
+            "stores metadata with store_media."))]
+    text = uic.render_page(
+        uic.render_header(_ICON_MEDIA, "Media", ["Control", "Media", ws.title],
+                          f"{label} · page {page}/{pages}"),
+        *sections,
+        footer=uic.render_footer("SQLite stores metadata + Telegram ids only "
+                                 "— the file stays in Telegram"))
+    rows = []
+    if filtered:
+        rows.append(uic.action_row(("🔍 Search", "ctl:media:search"),
+                                   ("✕ Clear filter", clear)))
+    else:
+        rows.append(uic.action_row(("📷 Photo", "ctl:media:list:type:photo"),
+                                   ("🎬 Video", "ctl:media:list:type:video"),
+                                   ("📄 Doc", "ctl:media:list:type:document")))
+        rows.append(uic.action_row(("🎵 Audio", "ctl:media:list:type:audio"),
+                                   ("🔍 Search", "ctl:media:search")))
+    for m in items:
+        rows.append(uic.action_row((_media_line(m), f"ctl:media:view:{m.id}")))
+    rows.append(uic.nav_row("ctl:home", "ctl:media:home"))
+    if pages > 1 and not filtered:
+        rows.append(uic.pagination_row("ctl:media:home:p", page, pages))
+    return text, uic.keyboard(*rows)
+
+
+def media_view(ctx: ControlContext, media_id: int):
+    """M6 Media: one media record's metadata + links + actions. Resend is a
+    documented follow-up (the file_id is shown; automatic re-post needs the
+    consolidated live pass)."""
+    ws, _a = _active_ws(ctx)
+    if ws is None:
+        body, kb = _no_active_section("ctl:ws:home")
+        return uic.render_page(
+            uic.render_header(_ICON_MEDIA, "Media", ["Control", "Media"]),
+            body), kb
+    att = _media_display(ctx, media_id)
+    if att is None:
+        return _missing_entity_page("media")
+    info_map = _entity_info_map(ctx, ws)
+    entities = ctx.engine.media_entities(ctx.user_id, media_id)
+    tags = ctx.engine.media_tags(ctx.user_id, media_id)
+    rows = [("Type", att.file_type),
+            ("Telegram file", _truncate(att.telegram_file_id, 32)),
+            ("Created", att.created_at or "—")]
+    if att.caption:
+        rows.insert(1, ("Caption", _truncate(att.caption, 60)))
+    if att.file_name:
+        rows.append(("File name", _truncate(att.file_name, 40)))
+    if att.message_id:
+        rows.append(("Message", f"#{att.message_id} (chat {att.chat_id or '—'})"))
+    if att.extracted_text:
+        rows.append(("Extracted text", _truncate(att.extracted_text, 60)))
+    ent_lines = []
+    for etype, eid in entities:
+        title, kind = info_map.get(eid, (f"#{eid}", ""))
+        glyph = _KIND_GLYPH.get(kind, "📄")
+        ent_lines.append(f"{glyph} {b(esc(title))} ({etype} #{eid})")
+    tag_lines = [f"🏷 {b(esc(t.name))}" for t in tags]
+    text = uic.render_page(
+        uic.render_header(_ICON_MEDIA, "Media",
+                          ["Control", "Media", ws.title], f"#{media_id}"),
+        uic.render_section("Record",
+                           uic.render_information_card("Media", rows)),
+        uic.render_section("Entities", "\n".join(ent_lines) or "—"),
+        uic.render_section("Tags", "\n".join(tag_lines) or "—"),
+        footer=uic.render_footer("Delete removes metadata + links only — the "
+                                 "Telegram message and file stay"))
+    kb_rows = [uic.action_row(("✏️ Edit", f"ctl:media:edit:{media_id}"),
+                              ("🗑 Delete", f"ctl:media:del:{media_id}")),
+               uic.action_row(("🔗 Link entity", f"ctl:media:link-ent:{media_id}"),
+                              ("🏷 Link tag", f"ctl:media:link-tag:{media_id}"))]
+    for etype, eid in entities:
+        title, _kind = info_map.get(eid, (f"#{eid}", ""))
+        kb_rows.append(uic.action_row(
+            (f"✕ {_truncate(title, 20)}",
+             f"ctl:media:unlink-ent:{media_id}:{eid}")))
+    for t in tags:
+        kb_rows.append(uic.action_row(
+            (f"✕ {t.name}", f"ctl:media:unlink-tag:{media_id}:{t.id}")))
+    kb_rows.append(uic.nav_row("ctl:media:home", f"ctl:media:view:{media_id}"))
+    return text, uic.keyboard(*kb_rows)
+
+
+# ── M6: Tags ──────────────────────────────────────────────────────────────
+
+def tag_home(ctx: ControlContext, page: int = 1):
+    """M6 Tags: the workspace's tags, one row each. Same name in another
+    workspace is a different tag."""
+    ws, _a = _active_ws(ctx)
+    if ws is None:
+        body, kb = _no_active_section("ctl:ws:home")
+        return uic.render_page(
+            uic.render_header(_ICON_TAG, "Tags", ["Control", "Tags"]),
+            body), kb
+    tags = ctx.engine.list_tags(ctx.user_id, ws.id)
+    items, page, pages = _paginate(tags, page, _PAGE_LEN["tag"])
+    sections = [uic.render_section(
+        "Tags",
+        "\n".join(f"🏷 {b(esc(t.name))} (#{t.id})" for t in items)
+        or uic.render_empty_state(
+            "list", "No tags yet",
+            "Tag notes/media — or create one here."))]
+    text = uic.render_page(
+        uic.render_header(_ICON_TAG, "Tags", ["Control", "Tags", ws.title],
+                          f"{len(tags)} tag(s) · page {page}/{pages}"),
+        *sections,
+        footer=uic.render_footer("Tags are workspace-scoped — the same name "
+                                 "in another workspace is a distinct tag"))
+    rows = [uic.primary_row("➕ Add tag", "ctl:tag:add")]
+    for t in items:
+        rows.append(uic.action_row((f"🏷 {t.name}", f"ctl:tag:view:{t.id}")))
+    rows.append(uic.nav_row("ctl:home", "ctl:tag:home"))
+    if pages > 1:
+        rows.append(uic.pagination_row("ctl:tag:home:p", page, pages))
+    return text, uic.keyboard(*rows)
+
+
+def tag_view(ctx: ControlContext, tag_id: int):
+    """M6 Tags: one tag's linked notes/media (tags never link to milestones
+    directly — the 'entities of a tag' view is the indirect note/media one)."""
+    ws, _a = _active_ws(ctx)
+    if ws is None:
+        body, kb = _no_active_section("ctl:ws:home")
+        return uic.render_page(
+            uic.render_header(_ICON_TAG, "Tags", ["Control", "Tags"]),
+            body), kb
+    tag = _tag_display(ctx, tag_id)
+    if tag is None:
+        return _missing_entity_page("tag")
+    links = ctx.engine.tag_links(ctx.user_id, tag_id)
+    note_ids = [eid for etype, eid in links if etype == "note"]
+    media_ids = [eid for etype, eid in links if etype == "attachment"]
+    note_lines = []
+    for nid in note_ids[:10]:
+        n = _note_display(ctx, nid)
+        if n:
+            note_lines.append(_note_line(n))
+    media_lines = []
+    for mid in media_ids[:10]:
+        m = _media_display(ctx, mid)
+        if m:
+            media_lines.append(_media_line(m))
+    text = uic.render_page(
+        uic.render_header(_ICON_TAG, "Tag", ["Control", "Tags", ws.title],
+                          f"#{tag_id}"),
+        uic.render_section("Tag",
+                           uic.render_information_card(
+                               "Tag", [("Name", tag.name), ("ID", str(tag.id))])),
+        uic.render_section("Linked notes", "\n".join(note_lines) or "—"),
+        uic.render_section("Linked media", "\n".join(media_lines) or "—"),
+        footer=uic.render_footer("Delete un-tags every linked note/media — "
+                                 "the items themselves are kept"))
+    kb_rows = [uic.action_row(("✏️ Rename", f"ctl:tag:rename:{tag_id}"),
+                              ("🗑 Delete", f"ctl:tag:del:{tag_id}"))]
+    for nid in note_ids[:10]:
+        kb_rows.append(uic.action_row((f"📝 #{nid}", f"ctl:note:view:{nid}")))
+    for mid in media_ids[:10]:
+        kb_rows.append(uic.action_row((f"📎 #{mid}", f"ctl:media:view:{mid}")))
+    kb_rows.append(uic.nav_row("ctl:tag:home", f"ctl:tag:view:{tag_id}"))
+    return text, uic.keyboard(*kb_rows)
+
+
+# ── M7: Cross-Reference Search ──────────────────────────────────────────────
+
+def _search_result_line(r: RetrievalResult) -> str:
+    """Format a RetrievalResult for list display."""
+    if r._type == "note":
+        title = r.title or "(untitled)"
+        return f"  📝 #{r.note_id} {esc(title)}"
+    else:
+        ft = r.file_type or "media"
+        fn = r.file_name or "(unnamed)"
+        return f"  🎬 #{r.media_id} [{ft}] {esc(fn)}"
+
+
+def _search_result_kb_line(r: RetrievalResult) -> tuple[str, str]:
+    """Return (label, callback_data) for a search result row."""
+    if r._type == "note":
+        title = r.title or "(untitled)"
+        return (f"📝 #{r.note_id} {_truncate(title, 30)}", f"ctl:note:view:{r.note_id}")
+    else:
+        ft = r.file_type or "media"
+        fn = r.file_name or "(unnamed)"
+        return (f"🎬 #{r.media_id} [{ft}] {_truncate(fn, 25)}", f"ctl:media:view:{r.media_id}")
+
+
+
+
+def _search_config_page(ctx: ControlContext, ws, ws_id, page: int,
+                        q: str | None, entities: str | None, entity_mode: str,
+                        tags: str | None, tag_mode: str, media_type: str | None,
+                        kind: str | None, created_after: str | None,
+                        created_before: str | None, limit: int, scope: str):
+    """Render the search configuration page showing current filters WITHOUT executing."""
+    ws_title = ws.title if ws else ("All workspaces" if scope == "all" else "Active workspace")
+
+    # Build caption showing current filters
+    caption_parts = []
+    if q:
+        caption_parts.append(f"text={esc(q)}")
+    if entities:
+        caption_parts.append(f"entities={esc(entities)} ({entity_mode})")
+    if tags:
+        caption_parts.append(f"tags={esc(tags)} ({tag_mode})")
+    if media_type:
+        caption_parts.append(f"type={media_type}")
+    if kind:
+        caption_parts.append(f"kind={kind}")
+    if created_after or created_before:
+        date_range = f"{created_after or '..'}..{created_before or '..'}"
+        caption_parts.append(f"date={date_range}")
+    caption = f"Filters: {' | '.join(caption_parts)}" if caption_parts else "No filters set — configure below, then press  Search to execute"
+
+    text = uic.render_page(
+        uic.render_header("search", "Cross-Reference Search",
+                          ["Control", "Search", ws_title],
+                          caption),
+        uic.render_section("Current Filters",
+            "\n".join(f"  • {p}" for p in caption_parts) if caption_parts else "  (none)"),
+        footer=uic.render_footer("Configure filters below, then press  Search to execute"))
+
+    rows = []
+    # Main action buttons
+    rows.append(uic.primary_row("🔍 Execute Search", "ctl:search:execute"))
+    rows.append(uic.action_row(("🗑️ Clear All", "ctl:search:clear")))
+    # Filter configuration buttons
+    rows.append(uic.action_row(("📂 Workspace", "ctl:search:ws"),
+                               ("📦 Entities", "ctl:search:entities"),
+                               ("🏷️ Tags", "ctl:search:tags")))
+    rows.append(uic.action_row(("🔀 AND/OR", "ctl:search:mode"),
+                               ("📅 Dates", "ctl:search:dates"),
+                               ("📎 Media type", "ctl:search:mtype")))
+    rows.append(uic.action_row(("📦 Scope", "ctl:search:scope")))
+    # Kind filter (notes only)
+    rows.append(uic.action_row(("📝 Kind (notes)", "ctl:search:kind")))
+
+    rows.append(uic.nav_row("ctl:home", "ctl:search:home"))
+    return text, uic.keyboard(*rows)
+
+def search_home(ctx: ControlContext, page: int = 1,
+                workspace: str | int | None = None,
+                q: str | None = None,
+                entities: str | None = None,
+                entity_mode: str = "and",
+                tags: str | None = None,
+                tag_mode: str = "and",
+                media_type: str | None = None,
+                kind: str | None = None,
+                created_after: str | None = None,
+                created_before: str | None = None,
+                limit: int = 50,
+                scope: str = "active",
+                execute: bool = False):
+    """M7 Cross-Reference Search: unified search over notes AND media.
+
+    Uses the SAME CrossReferenceService the Worker uses — no direct SQL.
+    `workspace` defaults to active (per spec: active workspace is mandatory
+    unless an explicit cross-workspace query). `scope` can be 'active' or
+    'all' (explicit cross-workspace). All filters support AND/OR modes.
+
+    When `execute=False` (default), renders the configuration page showing
+    current filter values WITHOUT executing the search.
+    When `execute=True`, runs the search and renders results.
+    """
+    # Determine workspace
+    ws_id = None
+    ws = None
+    if scope == "all":
+        # Cross-workspace search (explicit opt-in) — we'll search all workspaces
+        pass  # handled by service
+    elif workspace:
+        ws = ctx.engine.get_workspace_or_none(ctx.user_id, workspace)
+        if ws:
+            ws_id = ws.id
+    else:
+        ws, _a = _active_ws(ctx)
+        if ws:
+            ws_id = ws.id
+
+    if ws_id is None and scope != "all":
+        body, kb = _no_active_section("ctl:ws:home")
+        return uic.render_page(
+            uic.render_header("search", "Search", ["Control", "Search"]),
+            body), kb
+
+    # If not executing, render configuration page only
+    if not execute:
+        return _search_config_page(ctx, ws, ws_id, page, q, entities, entity_mode,
+                                   tags, tag_mode, media_type, kind,
+                                   created_after, created_before, limit, scope)
+
+    # Use the CrossReferenceService
+    svc = CrossReferenceService(ctx.engine)
+    results = svc.search(
+        user_id=ctx.user_id,
+        workspace_id=ws_id or 0,  # 0 for 'all' scope — service handles it
+        q=q,
+        entities=entities.split(",") if entities else None,
+        entity_mode=entity_mode,
+        tags=tags.split(",") if tags else None,
+        tag_mode=tag_mode,
+        media_type=media_type,
+        created_after=created_after,
+        created_before=created_before,
+        limit=limit,
+        kind=kind,
+    )
+
+    caption_parts = []
+    if q:
+        caption_parts.append(f"text={esc(q)}")
+    if entities:
+        caption_parts.append(f"entities={esc(entities)} ({entity_mode})")
+    if tags:
+        caption_parts.append(f"tags={esc(tags)} ({tag_mode})")
+    if media_type:
+        caption_parts.append(f"type={media_type}")
+    if kind:
+        caption_parts.append(f"kind={kind}")
+    if created_after or created_before:
+        date_range = f"{created_after or '..'}..{created_before or '..'}"
+        caption_parts.append(f"date={date_range}")
+    caption = f"{len(results)} result(s)" + (f" — {' | '.join(caption_parts)}" if caption_parts else "")
+
+    items, page, pages = _paginate(results, page, _PAGE_LEN["search"])
+
+    sections = [uic.render_section(
+        "Results",
+        "\n".join(_search_result_line(r) for r in items)
+        or uic.render_empty_state(
+            "search", "No results",
+            "Try broadening your filters or search all workspaces."))]
+
+    ws_title = ws.title if ws else ("All workspaces" if scope == "all" else "Active workspace")
+    text = uic.render_page(
+        uic.render_header("search", "Cross-Reference Search",
+                          ["Control", "Search", ws_title],
+                          f"{caption} · page {page}/{pages}"),
+        *sections,
+        footer=uic.render_footer("Results use the SAME retrieval service as the "
+                                 "AI Worker — active workspace is the default"))
+
+    rows = []
+    # Filter actions
+    rows.append(uic.action_row(("🔍 Search", "ctl:search:gather"),
+                               ("✕ Clear", "ctl:search:clear")))
+    rows.append(uic.action_row(("📂 Workspace", "ctl:search:ws"),
+                               ("📦 Entities", "ctl:search:entities"),
+                               ("🏷 Tags", "ctl:search:tags")))
+    rows.append(uic.action_row(("🔀 AND/OR", "ctl:search:mode"),
+                               ("📅 Dates", "ctl:search:dates"),
+                               ("📎 Media type", "ctl:search:mtype")))
+    rows.append(uic.action_row(("📦 Scope", "ctl:search:scope")))
+
+    for r in items:
+        label, cb = _search_result_kb_line(r)
+        rows.append(uic.action_row((label, cb)))
+
+    rows.append(uic.nav_row("ctl:home", "ctl:search:home"))
+    if pages > 1:
+        rows.append(uic.pagination_row("ctl:search:home:p", page, pages))
+    return text, uic.keyboard(*rows)

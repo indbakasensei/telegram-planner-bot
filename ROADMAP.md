@@ -308,6 +308,50 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 > of M5 scope):** richer equipment model (stats/refinement/equipped-to linkage),
 > the M6 media vault, M7 cross-topic retrieval, M8 advanced goal logs.
 >
+> **`v15.4 M6 — Knowledge + Media + Tags (current):** BAKA becomes a
+> persistent personal knowledge/data-dump system: notes + media metadata + tags,
+> retrievable by entity/topic/tag/workspace/text/media-type/date, with Telegram
+> as canonical media storage. Binding layering (unchanged from M5): Worker →
+> Tool Registry → Domain Service → DB/Telegram projection; Manual Control Plane
+> → Tool Registry → same Domain Service. **No second business-logic path.**
+> Shipped: schema extension (notes: title/updated_at/deleted_at; attachments:
+> 8 new columns + 2 new junction tables `note_entities`/`attachment_entities`;
+> tags: workspace_id + partial unique index); 22 new tools (notes 9, media 9,
+> tags 4 — catalog 37→59); `core/control/` Knowledge/Media/Tags pages; media
+> capture handler for video/document/audio/voice; full test matrix A-E
+> (`tests/test_m6_knowledge.py` 35 tests) + adversarial F-I
+> (`tests/test_m6_adversarial.py` 21 tests); selftest probes
+> (`test_knowledge_selftest.py` 3 probes); regression suite KNOW-001…012;
+> docs/engineering/V15_4_KNOWLEDGE_MEDIA.md. **Version stamped
+> v15.4.0-alpha.1.** **Remaining before M6 is accepted:** live-Telegram
+> acceptance matrix (owner-run, KNOW-001…012 — documented, not claimed
+> offline).
+>
+> **`v15.5 M7 — Cross-Reference Retrieval (completed 2026-08-14):** single
+> retrieval implementation (`core/retrieval/service.py::CrossReferenceService`)
+> that composes M6 NoteStorage/AttachmentStorage via EntityEngine with AND/OR
+> filter semantics (entity AND/OR, tag AND/OR, combined). Three READ_ONLY
+> tools added to the shared registry: `search_knowledge` (unified notes+media),
+> `search_notes_cross` (notes only), `search_media_cross` (media only).
+> Filters: free-text q (title/content/caption/filename/extracted_text),
+> entity list + mode, tag list + mode, media_type, date range
+> (created_after/created_before, IST-aware), kind (notes), limit (default 50,
+> max 200). Results carry `_type` discriminator ("note"|"media"). Active
+> workspace isolation mandatory — never silently searches across workspaces.
+> Control plane (`ctl:search` page + 8 gather handlers) uses the SAME service
+> as Worker (no second logic). **fix1:** Stateful Search UI Builder — fixed
+> the bug where each gather handler cleared state, making compound searches
+> impossible. Added `conversation_state.py` search state functions, all 8
+> handlers now accumulate filters via `set_search_state`/`get_search_state`.
+> Added ��� Entities button, �� Clear callback, entity filter handler.
+> Full test matrix A–R (73 tests in `tests/test_m7_retrieval.py`),
+> regression suite RET-001…038, selftest probes (`test_retrieval_selftest.py`
+> 4 probes), docs/engineering/V15_5_CROSS_REFERENCE_RETRIEVAL.md §12,
+> `docs/RET_LIVE_CHECKLIST.md` for owner-facing live tests. **Version stamped
+> v15.5.0-alpha.1+fix1.** **Remaining before M7 is accepted:** live-Telegram
+> acceptance matrix (owner-run, RET-001…038 — documented, not claimed
+> offline).
+>
 > **`v15.1.0-alpha.13` — Telegram Entity Topic Projection & Backfill (M10,
 > current):** closes the topic gap. Every entity-creation path — `/add`,
 > natural language ("Create character Arlecchino"), and the new admin-only

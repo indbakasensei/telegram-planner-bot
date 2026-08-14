@@ -18,10 +18,12 @@ implementation (or the expectation re-derived from the SPEC) -- never
 weakened or deleted.
 """
 import asyncio
+from datetime import timedelta
 
 import pytest
 
 import database as db
+from date_parser import _now
 from core.ai.tool_adapters import build_tool_registry
 from core.control import pages
 from core.control.actions import begin_confirm, confirm_no, pending_for
@@ -84,6 +86,12 @@ def _ctx(uid, projection_factory=None):
 
 def _reg(uid, projection=None):
     return build_tool_registry(uid, projection=projection)
+
+
+def _future_due_date(days=1):
+    """Compute a future due_date (IST-aware) so task-create tests don't
+    flake when the run-date passes the hardcoded test date."""
+    return (_now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 def _run(coro):
@@ -551,10 +559,11 @@ def test_foundation_happy_task_goal_habit(temp_db, uid):
 
 def test_foundation_duplicate_task_same_date_rejected(temp_db, uid):
     reg = _reg(uid)
+    due = _future_due_date()
     assert reg.execute("create_task", {"title": "M5_Test_Task_A",
-                                       "due_date": "2026-08-12"}).ok
+                                       "due_date": due}).ok
     dup = reg.execute("create_task", {"title": "M5_Test_Task_A",
-                                      "due_date": "2026-08-12"})
+                                      "due_date": due})
     assert not dup.ok and "already exists" in dup.output
 
 

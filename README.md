@@ -7,9 +7,10 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.3.0-alpha.1** (Manual Control Plane + lifecycle —
-> `/control` admin dashboard, workspace/entity/topic repair, equip; the AI
-> Worker stays dormant behind `WORKER`) — see [CHANGELOG.md](CHANGELOG.md).
+> Current version: **v15.5.0-alpha.1** (Cross-Reference Retrieval — unified
+> search across notes/media by entity/tag/workspace/date/text; 3 new
+> READ_ONLY tools; `/control` Search page; date boundary fix) — see
+> [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -415,6 +416,8 @@ verified-against-code list is in [API.md](API.md#command-reference).
 | 🗂 Workspaces & Entities | `newproject / newgame / newgoal` · `workspaces` · `use <name>` · `add <name>` · `open <name>` · `current` · `note <text>` · `linkhere` · `ws <q>` — also **natural language**: _"Create character Furina"_ · _"Hu Tao is level 80"_ · _"Show all level 70 characters"_ |
 | 🖼 Media | `image <prompt>` · `video <prompt>` · send a photo |
 | 🗂 Memory & Tools | `memory` · `forget <key>` · `search <kw>` · `template` · `export` |
+| 📝 Knowledge | `note <text>` · `notes` · `media` · `tags` (via `/control`) |
+| 🔍 Retrieval | `/control → Search` — unified cross-workspace search across notes/media by entity, tag, text, date; 3 READ_ONLY AI tools (`search_knowledge`, `search_notes_cross`, `search_media_cross`) |
 | ⚙️ Settings | `settings` · `quiethours` · `interval` · `wellness on/off` · `dashboard` · `commands` |
 | 🛠 Diagnostics | `status` · `selftest` · `report <issue>` · `bugs` · `trace` |
 | 🔑 Setup | `claimadmin` (become owner, first run) · `myid` (your Telegram ID) |
@@ -581,6 +584,8 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v15.1.0-alpha.13 | Telegram entity topic projection & backfill (M10): NL create auto-projects topic + card, append-only updates, idempotent /topicbackfill |
 | v15.2 (in dev) | BAKA Brain · M2+M3+M4 (dormant): M2 unified tool abstraction (RiskLevel, validated ToolSpec, ToolResult/ToolError, fail-closed args, strict registry); M3 real tool adapters — 25 thin M2-contract tools over tasks/habits/goals/entities/workspace/memory/recall (incl. `update_goal_deadline`), alpha.13 projection preserved, per-kind typed referent store; M4 GLM-5.2 Worker — bounded (max 4 tool calls, hard constant), fail-closed structured-output parser, mechanical confirmation gate reusing the existing state machine, never-fabricate-success guard, owner-only canary behind WORKER=1 (seam sits before EntityManager + VIEW quick-match so typed entity/goal/task requests aren't hijacked; WORKER=0 unchanged). Forensic pass on the second live run (1563 offline tests, 28 generic-invariant S1–S30 cases) proved the 7 reported failures were ALL legacy-path (Worker never ran — `WORKER=0`), and fixed one real bug found by the new suite: clearing a goal deadline to `None` is now a success, not a false "goal not found". No live acceptance yet — requires `WORKER=1` + restart + the WKR matrix |
 | v15.3 (in dev) | Manual Control Plane + Lifecycle (M5): admin `/control` dashboard that drives the **same** ToolRegistry the Worker uses (never a second logic layer). 7 thin lifecycle tools (catalog 30→37): create/rename/close/archive workspace, delete_entity, repair_topics, equip_item. `core/control/` pages+registry+actions+router; ONE shared M5-F confirm flow; generic entity pages per kind; Topic Control Center (locked topics refuse ordinary delete, force-delete keeps the entity); Identity Inspector (8 rows, no secrets); minimal M5-E equipment (character `weapon` field). Offline: `test_control_panel.py` (38), `test_m5_adversarial.py` (41 — the 14-scenario M5-H matrix), 2 new selftest probes, CTRL-001…010 regression spec. `BAKA_VERSION=15.3.0-alpha.1`. Remaining gate: owner-run live-Telegram acceptance matrix CTRL-001…010 |
+| v15.4 (in dev) | Knowledge + Media + Tags (M6): BAKA becomes a persistent personal knowledge/data-dump system. Notes (title/content/kind + entity/tag links), Media metadata (file_id/media_type/caption/extracted_text + entity/tag links), Tags (workspace-scoped, created on-the-fly via link tools). 23 new tools (catalog 37→60): notes 9, media 9, tags 4, post_note 1 (projection helper). `/control` gains Knowledge/Media/Tags sections. Media capture handler for video/document/audio/voice. DB-first topic integration (optional projection via existing TelegramProjection). Schema: notes +3 cols, attachments +8 cols, tags +1 col + partial unique index, 2 junction tables. Test matrix A-E (35 tests), adversarial F-I (21 tests), selftest 3 probes, KNOW-001…012 regression spec. `BAKA_VERSION=15.4.0-alpha.1`. Remaining gate: owner-run live-Telegram acceptance matrix KNOW-001…012 |
+| v15.5 (in dev) | Cross-Reference Retrieval (M7): unified search across notes/media by entity/tag/workspace/date/text. `CrossReferenceService` via M6 NoteStorage/AttachmentStorage + EntityEngine (no new tables). 3 READ_ONLY tools: `search_knowledge` (unified), `search_notes_cross`, `search_media_cross`. AND/OR filter semantics via multiple searches + Python-side set ops. Active workspace isolation (mandatory). `/control` gains Search page (gather query/filters, results with type badges). Limits: default 50, max 200, honest truncation. No-second-logic: control plane uses SAME service as Worker. Date boundary fix: `add_note`/`add_attachment` now set `created_at` in IST (was UTC DEFAULT). Test matrix A-P (57 tests), RET-001…038 regression spec, 4 selftest probes. `BAKA_VERSION=15.5.0-alpha.1`. |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)

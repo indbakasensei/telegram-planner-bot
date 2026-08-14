@@ -11,6 +11,160 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v15.5.0-alpha.1+fix1 — Cross-Reference Retrieval (M7)
+
+> **Single retrieval implementation for cross-reference search:** notes + media
+> unified via `CrossReferenceService` (M6 NoteStorage/AttachmentStorage through
+> EntityEngine). AND/OR filter semantics (entity AND/OR, tag AND/OR, combined),
+> free-text, media_type, date range (IST-aware), kind, limit (50/200). Results
+> carry `_type` discriminator ("note"|"media"). Active workspace isolation
+> mandatory. Three READ_ONLY tools: `search_knowledge` (unified),
+> `search_notes_cross`, `search_media_cross`. Control plane (`ctl:search` page
+> + 8 gather handlers) uses the SAME service as Worker — **no second logic**.
+> Full test matrix A–R (73 tests), regression suite RET-001…038, 4 selftest
+> probes, engineering doc. **Version stamped v15.5.0-alpha.1+fix1.**
+
+**fix1 (2026-08-14):** Stateful Search UI Builder — fixed the critical bug where
+each gather handler cleared state and passed only its own filter, making compound
+searches impossible. Root cause: `_gather_search_*` handlers called `clear_state()`
+and passed only their own value to `search_home()`. Fix: all 8 handlers now use
+`set_search_state()`/`get_search_state()` to accumulate filters across selections.
+Added `_gather_search_entities()` handler, 📦 Entities button, `ctl:search:clear`
+callback. Added Matrix Q (UI State Machine, 14 tests) and Matrix R (Control Plane
+Integration, 3 tests) to `tests/test_m7_retrieval.py`. Updated engineering doc
+(V15_5 §12). Created `docs/RET_LIVE_CHECKLIST.md` for owner-facing live tests.
+
+**What shipped** (user-visible surface):
+- **Unified Cross-Reference Search** — `search_knowledge` finds notes and media
+  together; `search_notes_cross` / `search_media_cross` for scoped search.
+- **Filter semantics** — entity AND/OR (multiple entities, all must match vs any
+  matches), tag AND/OR, combined entity+tag filters, free-text across
+  title/content/caption/filename/extracted_text, media_type filter, date range
+  (created_after/created_before in IST), kind filter (notes only), limit
+  (default 50, max 200, honest truncation).
+- **Result discriminator** — every result has `_type` field ("note"|"media") so
+  callers can branch without type guessing.
+- **Workspace isolation** — every query scoped to active workspace; no
+  cross-workspace leakage (critical invariant).
+- **Control plane** — `/control` → Search page (`ctl:search`) with text query,
+  workspace, AND/OR mode, date range, media type, tags, scope gatherers.
+- **Worker integration** — 3 M7 tools register in the same `build_tool_registry`,
+  classified READ_ONLY; the Worker inherits them automatically.
+- **Date boundary fix** — `add_note`/`add_attachment` now write `created_at` in
+  IST (matching search boundary logic), fixing the UTC-vs-IST off-by-one-day
+  bug in date range filters.
+
+**Implementation** (files touched):
+- `core/retrieval/service.py` — NEW: `CrossReferenceService` (single
+  implementation), `RetrievalFilters`, `RetrievalResult`; `_search_notes_with_logic`,
+  `_search_media_with_logic`, AND/OR set operations, sort by created_at desc.
+- `core/ai/tool_adapters.py` — 3 M7 tool adapters (thin wrappers over the
+  service); `build_retrieval_service()` factory; all READ_ONLY.
+- `core/control/pages.py` — `search_home` page; `core/control/router.py` — 7
+  `_gather_search*` handlers (text, workspace, mode, dates, media_type, tags,
+  scope); wired into `registry.py` control pages.
+- `database.py` — `add_note` and `add_attachment` now explicitly set
+  `created_at` via `_now_ist_str()` (IST) instead of relying on UTC
+  `DEFAULT CURRENT_TIMESTAMP`; fixes date filter boundary bug.
+- Tests: `tests/test_m7_retrieval.py` (57 tests, matrices A–P),
+  `core/regression/suites/retrieval_m7.py` (38 tests RET-001…038),
+  `core/selftest/tests/test_retrieval_selftest.py` (4 probes).
+- Docs: `docs/engineering/V15_5_CROSS_REFERENCE_RETRIEVAL.md`.
+
+---
+
+## v15.4.0-alpha.1 — Knowledge + Media + Tags (M6)
+
+> **BAKA is now a persistent personal knowledge/data-dump system:** notes +
+> media metadata + tags, retrievable by entity/topic/tag/workspace/text/
+> media-type/date, with Telegram as canonical media storage. Binding layering
+> (unchanged from M5): `Worker → Tool Registry → Domain Service → DB /
+> Telegram projection`; `Manual Control Plane → Tool Registry → same Domain
+> Service`. **No second business-logic path.** Full design:
+> [docs/engineering/V15_4_KNOWLEDGE_MEDIA.md](docs/engineering/V15_4_KNOWLEDGE_MEDIA.md).
+
+**What shipped** (user-visible surface):
+- **Knowledge (Notes)** — create / update / soft-delete / get / list / search
+  (q, entity, tag, date range). Notes have title, content, kind, timestamps,
+  entity links (many-to-many via `note_entities`), tag links.
+- **Media** — store / update / soft-delete / get / list / search metadata
+  records (file_id, media_type, caption, message_id, chat_id, topic_id,
+  extracted_text, entity links, tag links). The Telegram file itself is NEVER
+  touched; `delete_media` is metadata/links only.
+- **Tags** — create / rename / delete (DESTRUCTIVE + confirm, cascades links),
+  list per workspace. Tags are workspace-scoped (same name in different
+  workspaces = distinct tags; partial unique index on (workspace_id, name)).
+  Link tools create unknown tags on-the-fly ("dump under 1v4" contract).
+- **Topic integration (DB-first, projection optional)** — notes/media linked
+  to an entity can be posted to that entity's topic via
+  `TelegramProjection.post_entity_update` (the "Arlecchino build notes" flow).
+  A knowledge category never auto-creates a Telegram topic.
+- **Media capture** — video/document/audio/voice messages record metadata via
+  the domain service (linked to active workspace + active entity). Photos
+  stay with `handle_photo` (progress-log/vision priority); photo→media is a
+  documented follow-up.
+- **Control plane** — `/control` gains Knowledge / Media / Tags sections with
+  list/view/add/edit/delete/link pages (same M5-F confirm flow, no second
+  logic).
+- **Worker** — all 22 M6 tools register in the same `build_tool_registry` →
+  the Worker inherits them (catalog renders from `registry.specs()`). Confirm
+  gate, never-fabricate-success guard, tool-result-authoritative rules apply
+  automatically.
+
+**Implementation** (files touched):
+- `database.py` — schema ALTERs (idempotent try/except): `notes` +3 columns,
+  `attachments` +8 columns, `tags` +1 column + partial unique index; new
+  tables `note_entities` + `attachment_entities` with indexes; corresponding
+  storage functions for notes/media/tags/entities/links.
+- `core/storage/storage.py` — `NoteStorage` (get/update/soft_delete/search/
+  link_entity/unlink_entity/link_tag/unlink_tag), `AttachmentStorage` (new:
+  add/get/update/soft_delete/list/search/link_entity/unlink_entity/
+  link_tag/unlink_tag), `TagStorage` (new: create/rename/delete/list/for_entity).
+- `core/workspace/repository.py` — model-shaped CRUD for all M6 resources
+  (notes, media, tags, entity/tag links).
+- `core/workspace/engine.py` — `EntityEngine` ownership-checked methods for
+  all M6 tools (note CRUD + links, media CRUD + links, tag CRUD). `delete_milestone`
+  now cascades to remove note/media entity links (no ghost refs).
+- `core/ai/tool_adapters.py` — 22 thin M6 tools (notes 9, media 9, tags 4 —
+  catalog 37→59): `create_note`, `update_note`, `delete_note` (DESTRUCTIVE),
+  `get_note`, `list_notes`, `link_note_entity`, `unlink_note_entity`,
+  `link_note_tag`, `unlink_note_tag`; `store_media`, `update_media`,
+  `delete_media` (DESTRUCTIVE), `get_media`, `list_media`,
+  `link_media_entity`, `unlink_media_entity`, `link_media_tag`,
+  `unlink_media_tag`; `create_tag`, `rename_tag`, `delete_tag` (DESTRUCTIVE),
+  `list_tags`. All DESTRUCTIVE tools carry `confirmation_message`.
+- `core/control/pages.py` — Knowledge/Media/Tags section renderers (13 new
+  pages: list/view/add/edit/del/link-entity/link-tag for each).
+- `core/control/router.py` — `ctl:note:*`, `ctl:media:*`, `ctl:tag:*` routes
+  + gathering branches.
+- `main.py` — `MessageHandler` for video/document/audio/voice capture
+  (additive; `handle_photo` unchanged), help entry updates in `ui.help_cards`.
+- `tests/test_m6_knowledge.py` — 35 tests: matrix A (note CRUD), B (entity/tag
+  links), C (media metadata), D (search + combined filters), E (workspace/entity
+  isolation).
+- `tests/test_m6_adversarial.py` — 21 tests: matrix F (confirmation gates),
+  G (Worker integration), H (manual=Worker path), I (abuse/hostile input).
+- `tests/test_tool_adapters.py` — M6 tool surface + risk classification tests
+  added.
+- `core/selftest/tests/test_knowledge_selftest.py` — 3 probes: M6 registry
+  risk/surface, round-trip note+media+tag, control pages render.
+- `core/regression/suites/knowledge_m6.py` — KNOW-001…012 (Admin + AI).
+- `docs/engineering/V15_4_KNOWLEDGE_MEDIA.md` — schema, layering, topic
+  integration A/B/C/D decision, search foundation vs FTS5 future, media
+  capture boundary, no-second-logic proof.
+
+**Tests**: `tests/test_m6_knowledge.py` (35), `tests/test_m6_adversarial.py`
+(21), M6 tool tests in `tests/test_tool_adapters.py` (updated surface). Full
+pytest ≥ 1769 pass with only the 5 known date-flakes. Offline selftest ≥ 30
+pass with only the 2 known date-flakes. **`BAKA_VERSION = 15.4.0-alpha.1`.**
+
+**Remaining gate (not claimed offline)**: the owner-run live-Telegram
+acceptance matrix `KNOW-001…012` (documented in
+`core/regression/suites/knowledge_m6.py` and
+`V15_4_KNOWLEDGE_MEDIA.md §Acceptance`).
+
+---
+
 ## v15.3.0-alpha.1 — Manual Control Plane + Lifecycle (M5)
 
 > **BAKA can be reliably controlled and repaired manually, using the same
