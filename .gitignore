@@ -36,3 +36,9 @@ backups/
 
 # Regression test execution history (runtime state; specs are in core/regression/)
 regression_history.json
+
+# BAKA Telegram Test Environment
+env/.env.testing
+test_baka.db
+testing/reports/
+playwright/.auth/
