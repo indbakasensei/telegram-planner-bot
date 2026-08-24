@@ -575,6 +575,43 @@ Flagged here rather than silently diverging without explanation.
 
 ---
 
+## ✅ v15.6 Phase 4 — Characterization Testing Pipeline (completed 2026-08-24)
+
+**Full characterization + regression lock + live acceptance testing pipeline.**
+
+| Phase | Description | Tests | Status |
+|-------|-------------|-------|--------|
+| **4A** | Habit Behavior Characterization — freeze current habit behavior as baseline | 37 | ✅ Done |
+| **4B** | Snapshot Regression Lock — golden-file snapshots of habit flows | 37 | ✅ Done |
+| **4C** | Callback Regression Lock — all 20+ callback actions verified | 58 | ✅ Done |
+| **4D** | Live Telegram Acceptance — Playwright tests against QA bot (`Baka_qa_bot`) | 3 | ✅ Done |
+
+**Total: 135 tests passing**
+
+### Key Deliverables
+
+- **Offline characterization tests** (`tests/behavior/`): 132 tests freeze behavior as regression baseline
+  - `test_habit_behavior.py` (37) — habit CRUD, completion, streaks, reminders, list views
+  - `test_habit_snapshot.py` (37) — golden snapshots of habit flows
+  - `test_callback_behavior.py` (58) — all dashboard/task/project/vision/dev/control-plane/card/integration callbacks
+- **Playwright Live Acceptance** (`testing/playwright/`): 3 tests against real Telegram Web
+  - `00_bootstrap_login.spec.ts` — QA account login, session persistence
+  - `01_start.spec.ts` — `/start` command execution with screenshot
+  - `02_commands.spec.ts` — `/help` + `/tasks` commands with screenshots
+- **Infrastructure fixes**:
+  - `instance_lock.py` — Cross-platform singleton (fcntl on Linux, CreateMutexW on Windows)
+  - PTB 20.7 → 22.8 upgrade (Python 3.14.4 compatibility)
+  - Playwright config: `workers: 1, fullyParallel: false` + `--no-sandbox --disable-setuid-sandbox`
+  - Multiple selector fallbacks, `waitFor({state: 'visible'})`, crash handlers
+- **Self-Test Suite**: 38 passed, 0 failed, 1 warning (AI API key not set)
+- **Workspace Selftest**: 7 passed (template, engine, groups, cognitive, retrieval)
+
+### Documentation
+- Live testing workflow: [docs/testing/index.md](../testing/index.md)
+- Playwright QA infrastructure in `testing/playwright/`
+
+---
+
 ## Fix-it list (found during the 2026-07 documentation pass)
 
 These aren't feature requests — they're real gaps between what the code

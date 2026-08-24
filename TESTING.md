@@ -402,6 +402,55 @@ Minimum bar before considering a change done:
    is the most bug-prone area in this codebase historically (see how many
    `CHANGELOG.md` entries are parser bugfixes)
 
+## Phase 4 — Live Telegram Acceptance Testing (Playwright) [L]
+
+**Added in v15.6 (2026-08-24)** — Real browser automation against QA bot.
+
+### Prerequisites
+- QA Telegram account (NOT personal account — `Baka_qa_bot`)
+- Bot running: `python start_bot.py` (or `python main.py`)
+- Playwright installed: `cd testing/playwright && npm install`
+
+### Test Suite
+```
+testing/playwright/
+├── playwright.config.ts      # workers: 1, fullyParallel: false
+├── tests/
+│   ├── 00_bootstrap_login.spec.ts  # Login Telegram Web, save session
+│   ├── 01_start.spec.ts          # /start command execution
+│   └── 02_commands.spec.ts       # /help, /tasks commands
+├── profile/                    # Persistent Chromium profile
+├── screenshots/                # Test screenshots
+├── traces/                     # Traces on failure
+└── reports/html/               # HTML reports
+```
+
+### Running Tests
+```bash
+cd testing/playwright
+npx playwright test              # All 3 tests (sequential)
+npx playwright test 01_start.spec.ts  # Single test
+npx playwright show-report ../reports/html  # View report
+```
+
+### Key Configuration
+- **Single worker** (`workers: 1, fullyParallel: false`) — prevents profile reuse conflicts
+- **Headed mode required** (`headless: false`) — Telegram Web login needs real browser
+- **Sandbox disabled** (`--no-sandbox --disable-setuid-sandbox`) — WSL compatibility
+- **Multiple selector fallbacks** — Telegram Web UI changes frequently
+- **Wait for visibility** — `waitFor({state: 'visible', timeout: 30000})` before interactions
+- **Crash/close handlers** — `page.on('crash')`, `page.on('close')` for debugging
+
+### Screenshots Captured
+- `screenshots/start-command.png` — `/start` response
+- `screenshots/help-command.png` — `/help` response
+- `screenshots/tasks-command.png` — `/tasks` response
+
+### Full Documentation
+See [docs/testing/index.md](../testing/index.md) for complete testing guide.
+
+---
+
 ## Known gaps in test coverage
 
 - No automated tests — every pass above is manual, via live Telegram

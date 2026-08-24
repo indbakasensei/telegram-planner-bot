@@ -11,6 +11,44 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v15.6.0 — Phase 4 Characterization Testing Pipeline (2026-08-24)
+
+> **Complete characterization + regression lock + live acceptance testing pipeline.** 135 tests passing across 4 phases.
+
+**What shipped:**
+
+- **Phase 4A — Habit Behavior Characterization** (`tests/behavior/test_habit_behavior.py`, 37 tests)
+  Habit CRUD, completion, streaks, reminders, list views — frozen as regression baseline
+- **Phase 4B — Snapshot Regression Lock** (`tests/behavior/test_habit_snapshot.py`, 37 tests)
+  Golden-file snapshots of habit flows for regression detection
+- **Phase 4C — Callback Regression Lock** (`tests/behavior/test_callback_behavior.py`, 58 tests)
+  All 20+ callback actions verified: dashboard, task, project, vision, developer, control plane, route dashboard, UI card callbacks, integration snapshots
+- **Phase 4D — Live Telegram Acceptance Testing** (`testing/playwright/`, 3 tests)
+  Playwright automation against QA bot (`Baka_qa_bot`): `00_bootstrap_login`, `01_start`, `02_commands` with screenshots
+
+**Infrastructure fixes:**
+- `instance_lock.py` — Cross-platform singleton lock (fcntl on Linux, CreateMutexW `Global\BAKA_Bot_Lock` on Windows)
+- python-telegram-bot 20.7 → 22.8 (fixes `_Updater__polling_cleanup_cb` on Python 3.14.4)
+- Playwright config: `workers: 1, fullyParallel: false` + `--no-sandbox --disable-setuid-sandbox` for stable session reuse
+- Robust selectors: multiple fallbacks, `waitFor({state: 'visible'})`, crash/close handlers, `domcontentloaded` strategy
+
+**Self-Test Suite**: 38 passed, 0 failed, 1 warning (AI API key not set)  
+**Workspace Selftest**: 7 passed (template, engine, groups, cognitive, retrieval)
+
+**Files touched:**
+- `tests/behavior/test_habit_behavior.py` (new, 37 tests)
+- `tests/behavior/test_habit_snapshot.py` (new, 37 tests)
+- `tests/behavior/test_callback_behavior.py` (58 tests, 5 assertions fixed)
+- `instance_lock.py` (rewritten cross-platform)
+- `testing/playwright/playwright.config.ts` (workers: 1, fullyParallel: false)
+- `testing/playwright/tests/00_bootstrap_login.spec.ts` (new)
+- `testing/playwright/tests/01_start.spec.ts` (rewritten)
+- `testing/playwright/tests/02_commands.spec.ts` (rewritten)
+- `start_bot.py`, `run_selftest_all.py` (new)
+- `docs/testing/index.md` (new — consolidated testing guide)
+
+---
+
 ## v15.5.0-alpha.1+fix1 — Cross-Reference Retrieval (M7)
 
 > **Single retrieval implementation for cross-reference search:** notes + media
