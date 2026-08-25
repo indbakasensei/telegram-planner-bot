@@ -42,3 +42,8 @@ env/.env.testing
 test_baka.db
 testing/reports/
 playwright/.auth/
+
+# Playwright Telegram session
+testing/playwright/profile/
+testing/playwright/screenshots/
+testing/playwright/traces/
