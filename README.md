@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.6.0** (Phase 4 Characterization Testing Pipeline + Phase 5A SQLite Infrastructure Stabilization — complete offline regression lock + live acceptance testing + self-tests fully operational on WSL) — see
+> Current version: **v15.7.0** (Phase 5B.1C Analytics Implementation — restored analytics package for NVIDIA NIM architecture, 12 pytest tests + 2 self-tests passing) — see
 > [CHANGELOG.md](CHANGELOG.md).
 
 ---

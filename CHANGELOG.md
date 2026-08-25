@@ -11,6 +11,49 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v15.7.0 — Phase 5B.1C Analytics Implementation (2026-08-25)
+
+> **Restored and modernized the analytics package for NVIDIA NIM architecture.** The analytics package was deleted in v14.12 during repository cleanup (the stranded source files were never importable). This rebuilds it cleanly for current production models with zero-latency async logging, self-test integration, and comprehensive pytest coverage.
+
+**What shipped:**
+
+- **analytics/__init__.py** — Public API surface re-exporting 20 symbols (19 functions + `MODEL_COSTS` constant)
+- **analytics/usage_logger.py** — Async fire-and-forget logging with background writer thread, WAL mode initialization, `log_ai_request()`/`log_image_request()`/`init_usage_table()`/`shutdown_writer()`, plus `log_ai_request_sync()` for testing
+- **analytics/usage_service.py** — Dashboard queries (`get_today_overview`, `get_lifetime_overview`, `get_most_used`, `get_recent_activity`, `get_recent_errors`, `get_error_breakdown`, `get_daily_trend`)
+- **analytics/model_metrics.py** — Per-model rollups (`get_model_stats`, `get_fastest_slowest`, `get_most_reliable`, `detect_degraded_models`) with health labels (healthy/degraded/critical)
+- **analytics/performance_tracker.py** — Latency percentiles (p50/p95/p99) and trend calculations (`get_trends`)
+- **analytics/token_counter.py** — `MODEL_COSTS` dict updated for current production models (z-ai/glm-5.2, meta/llama-3.1-8b-instruct, meta/llama-3.3-70b-instruct, meta/llama-3.2-90b-vision-instruct, black-forest-labs/flux.1-schnell, stabilityai/stable-video-diffusion, deepseek-ai/deepseek-r1) with `estimate_cost()`, `get_provider_for_model()`, `get_model_capabilities()`
+- **EOL models removed:** z-ai/glm-5.1 (NVIDIA EOL'd 2026-07-02, HTTP 410)
+
+**Integration:**
+- **core/selftest/runner.py** — Added analytics modules to `modules_to_patch` list for temp DB isolation
+- **core/selftest/tests/test_analytics.py** — Two self-test probes: "Analytics Overview" and "Analytics Table Creation"
+- **tests/analytics/test_analytics_infrastructure.py** — 13 integration tests covering write→read roundtrip, image path, multi-user isolation, batch ingestion, schema idempotency, error logging, model stats, percentiles, trends, and pricing
+
+**Constraints honored:**
+- No OmniRoute/provider abstraction layers — NVIDIA NIM only
+- Backward compatibility maintained: all 13 existing import sites in `database.py`, `baka_brain.py`, `main.py` now resolve without error
+- Updated existing documentation files only (no new docs created)
+- STOP before Phase 5B.1D
+
+**Validation:**
+- **pytest analytics tests:** 12/12 passed
+- **Self-tests (Analytics category):** 2/2 passed (Analytics Overview, Analytics Table Creation)
+- **Full self-test suite:** 38 passed, 1 failed (AI Config - expected, no API key), 1 warning (AI Worker - Unicode logging)
+
+**Files touched:**
+- `analytics/__init__.py` (new)
+- `analytics/usage_logger.py` (new)
+- `analytics/usage_service.py` (new)
+- `analytics/model_metrics.py` (new)
+- `analytics/performance_tracker.py` (new)
+- `analytics/token_counter.py` (new)
+- `core/selftest/runner.py` (patched for analytics DB isolation)
+- `core/selftest/tests/test_analytics.py` (new — 2 self-test probes)
+- `tests/analytics/test_analytics_infrastructure.py` (new — 13 integration tests)
+
+---
+
 ## v15.6.0 — Phase 4 Characterization Testing Pipeline + Phase 5A SQLite Infrastructure Stabilization (2026-08-24/25)
 
 > **Complete characterization + regression lock + live acceptance testing pipeline + SQLite infrastructure fix.** 135 tests passing across 4 phases, self-tests fully operational.

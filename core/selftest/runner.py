@@ -58,6 +58,10 @@ def _setup_temp_db() -> str:
     for mod_name in ['database', 'scheduler']:
         if mod_name in sys.modules:
             del sys.modules[mod_name]
+    # Also clear analytics modules to ensure they pick up patched DB_NAME
+    for mod_name in list(sys.modules.keys()):
+        if mod_name.startswith('analytics.'):
+            del sys.modules[mod_name]
 
     # Create temp DB file
     _temp_db_path = os.path.join(tempfile.gettempdir(), f'planner_selftest_{os.getpid()}.db')
@@ -66,7 +70,16 @@ def _setup_temp_db() -> str:
 
     # Patch DB_NAME in all modules that reference it
     modules_to_patch = ['database', 'scheduler']
-    for mod_name in modules_to_patch:
+    # Also patch analytics modules so they use the temp DB
+    analytics_modules = [
+        'analytics.usage_logger',
+        'analytics.usage_service',
+        'analytics.model_metrics',
+        'analytics.performance_tracker',
+        'analytics.token_counter',
+    ]
+    all_modules = modules_to_patch + analytics_modules
+    for mod_name in all_modules:
         try:
             mod = sys.modules.get(mod_name) or __import__(mod_name)
             _original_db_names[mod_name] = getattr(mod, 'DB_NAME', 'planner.db')
