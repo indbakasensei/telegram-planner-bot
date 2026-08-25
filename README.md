@@ -7,9 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v15.5.0-alpha.1** (Cross-Reference Retrieval — unified
-> search across notes/media by entity/tag/workspace/date/text; 3 new
-> READ_ONLY tools; `/control` Search page; date boundary fix) — see
+> Current version: **v15.6.0** (Phase 4 Characterization Testing Pipeline + Phase 5A SQLite Infrastructure Stabilization — complete offline regression lock + live acceptance testing + self-tests fully operational on WSL) — see
 > [CHANGELOG.md](CHANGELOG.md).
 
 ---

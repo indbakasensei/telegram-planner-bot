@@ -396,7 +396,8 @@ def stat_card(stats: dict):
     if stats.get("tone"):
         lines.append(f"🎭 Style: {b(stats['tone'])}")
     if stats.get("active_hour") is not None:
-        lines.append(f"🕐 Most active around {b(f'{stats['active_hour']:02d}:00')}")
+        hour = stats['active_hour']
+        lines.append(f"🕐 Most active around {b(f'{hour:02d}:00')}")
     lines.append("")
 
     if stats.get("top_categories"):

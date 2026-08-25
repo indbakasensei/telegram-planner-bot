@@ -612,6 +612,19 @@ Flagged here rather than silently diverging without explanation.
 
 ---
 
+## ✅ v15.6 Phase 5A — SQLite Infrastructure Stabilization (completed 2026-08-25)
+
+**Resolved persistent "database is locked" error preventing self-tests from running on WSL network share.**
+
+- Root cause: WSL network share (`//wsl.localhost/Ubuntu`) doesn't support proper SQLite file locking — pytest tests passed (using `tmp_path` on local filesystem) but self-tests failed (using real `planner.db` on network share)
+- Fix: Modified self-test runner (`core/selftest/runner.py`) to create a temporary database on the local filesystem (Windows `%TEMP%`) and patch `DB_NAME` in `database.py`/`scheduler.py` before test discovery, mirroring the pytest `temp_db` fixture pattern
+- Module caching handled by clearing `sys.modules` cache for `database` and `scheduler` before patching
+- Self-test `test_database.py` simplified to use runner's temp DB instead of creating its own
+- **Validation:** 37 passed, 1 failed (AI Config - expected, no API key), 1 warning (AI Worker - Unicode logging), 0 skipped
+- Offline pytest suite fully passes (33 database tests, 40 scheduler tests, 119 habit tests, 115 task tests)
+
+---
+
 ## Fix-it list (found during the 2026-07 documentation pass)
 
 These aren't feature requests — they're real gaps between what the code

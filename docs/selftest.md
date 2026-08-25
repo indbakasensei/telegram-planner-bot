@@ -2,6 +2,8 @@
 
 *Added v14.22. Admin-only runtime regression runner.*
 
+**v15.6 Phase 5A — SQLite Infrastructure Stabilization (2026-08-25):** Resolved persistent "database is locked" error that prevented self-tests from running on the WSL network share (`//wsl.localhost/Ubuntu`). Root cause: the network share doesn't support proper SQLite file locking. Pytest tests passed because they use `tmp_path` (local filesystem) via the `temp_db` fixture, but self-tests used the real `planner.db` on the network share. Fix: Modified the self-test runner (`core/selftest/runner.py`) to create a temporary database on the local filesystem (Windows `%TEMP%`) and patch `DB_NAME` in `database.py`/`scheduler.py` before test discovery, mirroring the pytest pattern. Module caching handled by clearing `sys.modules` for `database` and `scheduler` before patching. Self-test `test_database.py` simplified to use the runner's temp DB. **Validation:** 37 passed, 1 failed (AI Config - expected, no API key), 1 warning (AI Worker - Unicode logging), 0 skipped. Offline pytest suite fully passes.
+
 ## What it is (and is not)
 
 A **registration-based runner that verifies BAKA's major features work

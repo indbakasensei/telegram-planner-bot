@@ -11,11 +11,11 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
-## v15.6.0 — Phase 4 Characterization Testing Pipeline (2026-08-24)
+## v15.6.0 — Phase 4 Characterization Testing Pipeline + Phase 5A SQLite Infrastructure Stabilization (2026-08-24/25)
 
-> **Complete characterization + regression lock + live acceptance testing pipeline.** 135 tests passing across 4 phases.
+> **Complete characterization + regression lock + live acceptance testing pipeline + SQLite infrastructure fix.** 135 tests passing across 4 phases, self-tests fully operational.
 
-**What shipped:**
+**What shipped (Phase 4 — 2026-08-24):**
 
 - **Phase 4A — Habit Behavior Characterization** (`tests/behavior/test_habit_behavior.py`, 37 tests)
   Habit CRUD, completion, streaks, reminders, list views — frozen as regression baseline
@@ -25,6 +25,17 @@ session can find the relevant code quickly.
   All 20+ callback actions verified: dashboard, task, project, vision, developer, control plane, route dashboard, UI card callbacks, integration snapshots
 - **Phase 4D — Live Telegram Acceptance Testing** (`testing/playwright/`, 3 tests)
   Playwright automation against QA bot (`Baka_qa_bot`): `00_bootstrap_login`, `01_start`, `02_commands` with screenshots
+
+**What shipped (Phase 5A — 2026-08-25):**
+
+- **Phase 5A — SQLite Infrastructure Stabilization**
+  Resolved persistent "database is locked" error preventing self-tests from running on WSL network share (`//wsl.localhost/Ubuntu`).
+  - Root cause: WSL network share doesn't support proper SQLite file locking — pytest tests passed (using `tmp_path` on local filesystem via `temp_db` fixture) but self-tests failed (using real `planner.db` on network share)
+  - Fix: Modified self-test runner (`core/selftest/runner.py`) to create a temporary database on the local filesystem (Windows `%TEMP%`) and patch `DB_NAME` in `database.py`/`scheduler.py` before test discovery, mirroring the pytest `temp_db` fixture pattern
+  - Module caching handled by clearing `sys.modules` cache for `database` and `scheduler` before patching
+  - Self-test `test_database.py` simplified to use runner's temp DB instead of creating its own
+  - **Validation:** 37 passed, 1 failed (AI Config - expected, no API key), 1 warning (AI Worker - Unicode logging), 0 skipped
+  - Offline pytest suite fully passes (33 database tests, 40 scheduler tests, 119 habit tests, 115 task tests)
 
 **Infrastructure fixes:**
 - `instance_lock.py` — Cross-platform singleton lock (fcntl on Linux, CreateMutexW `Global\BAKA_Bot_Lock` on Windows)
@@ -41,6 +52,8 @@ session can find the relevant code quickly.
 - `tests/behavior/test_callback_behavior.py` (58 tests, 5 assertions fixed)
 - `instance_lock.py` (rewritten cross-platform)
 - `testing/playwright/playwright.config.ts` (workers: 1, fullyParallel: false)
+- `core/selftest/runner.py` (temp DB on local filesystem, sys.modules cache clearing)
+- `core/selftest/tests/test_database.py` (simplified to use runner's temp DB)
 - `testing/playwright/tests/00_bootstrap_login.spec.ts` (new)
 - `testing/playwright/tests/01_start.spec.ts` (rewritten)
 - `testing/playwright/tests/02_commands.spec.ts` (rewritten)
