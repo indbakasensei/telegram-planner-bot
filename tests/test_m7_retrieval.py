@@ -24,7 +24,7 @@ SELFTEST_USER_ID = 999997777  # matches core/selftest/models.py
 
 
 @pytest.fixture(scope="function")
-def engine():
+def engine(temp_db):
     """Fresh EntityEngine per test."""
     return EntityEngine()
 

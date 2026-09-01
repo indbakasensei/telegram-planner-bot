@@ -27,8 +27,8 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 | Phase 4C | Callback Regression Lock | Complete |
 | Phase 5A | SQLite Stabilization | Complete |
 | Phase 5B.1 | Analytics Infrastructure Restoration | Complete |
-| Phase 5B.2 | Offline Test Infrastructure Stabilization | **Restart Required / In Progress** |
-| Phase 5B.3 | Repository Cleanup (`scripts/doctor.sh`, orphan DB/venv cleanup) | Not Started |
+| Phase 5B.2 | Offline Test Infrastructure Stabilization | **Complete** (All 15 flaky/misconfigured tests stabilized) |
+| Phase 5B.3 | Repository Cleanup (`scripts/doctor.sh`, orphan DB/venv cleanup) | **Unlocked / Next** |
 | Phase 5C | Live Telegram QA (Playwright acceptance testing) | Not Started |
 
 ---

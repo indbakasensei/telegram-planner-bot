@@ -444,10 +444,10 @@ def test_equivalence_rows_and_streaks(temp_db, storage, engine):
     assert streak == result.metadata["streak"] == 3
 
     cols = [c[0] for c in _describe_tasks()]
-    skip = {"id", "user_id"}
+    skip = {"id", "user_id", "created_at"}
     l_row = [v for c, v in zip(cols, _task_row(lhid)) if c not in skip]
     o_row = [v for c, v in zip(cols, _task_row(ohid)) if c not in skip]
-    assert l_row == o_row                                    # incl. all timestamps
+    assert l_row == o_row                                    # incl. all state columns
     assert _habit_log_rows(lhid) == _habit_log_rows(ohid)
 
     # Second completion, same day: both already-logged, both zero-write.

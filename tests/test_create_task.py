@@ -274,7 +274,7 @@ def test_equivalence_task_with_date_time_recurrence(temp_db, uid):
     # Legacy path: same recurrence-mapping logic as main.py:665-676 for a
     # weekly-recurring task, applied by hand here (mirrors what
     # execute_task_action() does before calling add_task()).
-    legacy_id = db.add_task(uid, "Team sync", "2027-01-05", "10:00",
+    legacy_id = db.add_task(uid, "Team sync", "2027-01-05", "23:00",
                              "General", "medium", "weekly", 1, None)
     legacy_row = db.get_task_by_id(legacy_id, uid)
 
@@ -288,7 +288,7 @@ def test_equivalence_task_with_date_time_recurrence(temp_db, uid):
     # in the past by the time commit() re-validates it.
     offline_uid = uid + 1
     proposed = create_task.propose(
-        ctx("add task Team sync every tuesday at 10am", offline_uid,
+        ctx("add task Team sync every tuesday at 11pm", offline_uid,
             now=datetime.now(IST)),
         Storage(),
     )
@@ -298,7 +298,7 @@ def test_equivalence_task_with_date_time_recurrence(temp_db, uid):
     # Recurrence type and weekday must match; date_str will legitimately
     # differ (Legacy's example uses a fixed date, Offline resolves "every
     # tuesday" relative to `now`) -- not a claimed equivalence dimension.
-    assert offline_row[3] == "10:00"
+    assert offline_row[3] == "23:00"
     assert offline_row[6] == "weekly"
     assert legacy_row[6] == offline_row[6]
 

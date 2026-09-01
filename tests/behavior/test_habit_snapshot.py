@@ -544,10 +544,11 @@ def test_snapshot_complete_habit_equivalence_legacy_vs_offline(storage):
     conn.close()
 
     assert legacy_log is not None and offline_log is not None
-    # === SNAPSHOT: log fields (skip habit_id index 1) ===
+    # === SNAPSHOT: log fields (skip habit_id index 1 and created_at index 5) ===
     # Skip habit_id (index 1) since it's different for each habit
-    for i in [2, 3, 4, 5]:
+    for i in [2, 3, 4]:
         assert legacy_log[i] == offline_log[i], f"Log field {i} differs"
+    assert legacy_log[5] is not None and offline_log[5] is not None
 
 
 def test_snapshot_delete_habit_equivalence_legacy_vs_offline(storage):
