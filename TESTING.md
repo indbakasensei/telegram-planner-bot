@@ -533,3 +533,8 @@ Playwright persistent Chromium profiles for QA testing are validated and stored 
 ### Dual Runtime Scripts
 
 Verified execution of `status.sh`, `start_planner.sh`, `start_qa.sh`, `start_all.sh`, `stop_qa.sh`, `stop_all.sh` strictly enforcing separate PID locks natively handled by `instance_lock.py`.
+
+
+### Phase 5C.3B Live Scheduler QA
+
+Verified one-time, daily, weekly, monthly reminders natively via Playwright + Telegram UI (`baka_qa_bot`), including ✅ Done, 🗑 Delete, `/pause <id>`, `/resume <id>`, and offline crash recovery. Traces persisted.

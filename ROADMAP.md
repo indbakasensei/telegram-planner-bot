@@ -817,3 +817,6 @@ built; kept here only where still true:
 
 
 - [x] Phase 5C.2 Hotfix: Dual Runtime shell scripts committed to repo.
+
+
+- [x] Phase 5C.3B: Scheduler & Reminder Live QA completed against Llama 3.2 NIM.

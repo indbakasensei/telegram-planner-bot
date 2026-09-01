@@ -5017,3 +5017,6 @@ New file: `debug_system.py`. Modified: `main.py`
 
 ### v16.0.0-beta.2 (Hotfix)
 - Re-implemented missing shell scripts (`start_all.sh`, `stop_all.sh`, `stop_qa.sh`, etc.) to enforce independent `.env` separation, isolated PID tracking, and distinct logs (`planner.log`, `baka_qa.log`).
+
+
+- Verified complete end-to-end reminder delivery, inline callbacks, and restart recovery mechanics via Telegram E2E Playwright suite (`smoke_scheduler.py`).
