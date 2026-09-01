@@ -292,6 +292,7 @@ def test_average_classification_latency_under_5ms(engine):
     for text in samples:
         engine.classify(text, ctx())
 
+    import os
     import time
     iterations = 200
     start = time.perf_counter()
@@ -300,4 +301,5 @@ def test_average_classification_latency_under_5ms(engine):
             engine.classify(text, ctx())
     elapsed_ms = (time.perf_counter() - start) * 1000
     avg_ms = elapsed_ms / (iterations * len(samples))
-    assert avg_ms < 25.0, f"average classification latency {avg_ms:.4f}ms exceeds 25ms budget"
+    max_ms = 5.0 if os.environ.get("CI") else 25.0
+    assert avg_ms < max_ms, f"average classification latency {avg_ms:.4f}ms exceeds {max_ms}ms budget"

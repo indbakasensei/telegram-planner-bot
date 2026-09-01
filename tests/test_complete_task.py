@@ -11,6 +11,7 @@ database locked, duplicate completion, concurrent completion, invalid
 state (a habit -- Legacy's streak logic owns those, Offline must branch
 away untouched).
 """
+import os
 import sqlite3
 import time
 import tracemalloc
@@ -362,10 +363,10 @@ def test_performance_benchmark_legacy_vs_offline_complete(temp_db, uid):
         complete_task.execute(tid, offline_uid, storage, NOW)
     offline_ms = (time.perf_counter() - start) * 1000 / n
 
-    # Loose sanity bounds only -- measurement, not optimization.
-    # Calibrated threshold: 150ms accounts for CI variability and current hardware
-    assert legacy_ms < 150
-    assert offline_ms < 150
+    # Environment-aware threshold: strict 50ms in CI, relaxed 150ms in dev/WSL
+    max_ms = 50 if os.environ.get("CI") else 150
+    assert legacy_ms < max_ms, f"legacy completion latency {legacy_ms:.2f}ms exceeds {max_ms}ms"
+    assert offline_ms < max_ms, f"offline completion latency {offline_ms:.2f}ms exceeds {max_ms}ms"
 
 
 def test_performance_memory_offline_complete(temp_db, uid):

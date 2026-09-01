@@ -510,8 +510,11 @@ def test_snapshot_create_habit_equivalence_legacy_vs_offline(storage):
     legacy_row = storage.tasks.get_by_id(legacy_hid, UID)
     offline_row = storage.tasks.get_by_id(offline_hid, UID)
 
-    # === SNAPSHOT: all task fields must match ===
+    # === SNAPSHOT: all task fields must match (skip created_at index 11) ===
     for i in range(1, len(legacy_row)):
+        if i == 11:
+            assert legacy_row[11] is not None and offline_row[11] is not None
+            continue
         assert legacy_row[i] == offline_row[i], f"Field {i} differs: legacy={legacy_row[i]} offline={offline_row[i]}"
 
 
@@ -532,8 +535,11 @@ def test_snapshot_complete_habit_equivalence_legacy_vs_offline(storage):
     legacy_row = storage.tasks.get_by_id(legacy_hid, UID)
     offline_row = storage.tasks.get_by_id(offline_hid, UID)
 
-    # === SNAPSHOT: task fields must match ===
+    # === SNAPSHOT: task fields must match (skip created_at index 11) ===
     for i in range(1, len(legacy_row)):
+        if i == 11:
+            assert legacy_row[11] is not None and offline_row[11] is not None
+            continue
         assert legacy_row[i] == offline_row[i], f"Task field {i} differs"
 
     # Check habit_log - columns: id(0), habit_id(1), user_id(2), log_date(3), completed(4), created_at(5)

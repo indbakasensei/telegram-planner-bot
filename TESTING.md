@@ -8,13 +8,20 @@ testing via `/selftest` for everything that actually requires a live bot
 
 ## Automated test suite (`tests/`)
 
-**1700+ tests, all offline** — no Telegram, no NVIDIA API, no network, and
+**1990+ tests, all offline** — no Telegram, no NVIDIA API, no network, and
 every database test runs against an isolated temporary SQLite file (never
-`planner.db`). Run with:
+`planner.db`).
+
+### Antigravity Test Discipline (v16.0 Phase 5B.2)
+- **Deterministic Fixture Isolation**: Every DB-accessing test or engine fixture (including `EntityEngine` in `test_m7_retrieval.py`) explicitly declares `temp_db` fixture dependency to eliminate test-order state leakage.
+- **Environment-Aware Performance Benchmarks**: Micro-benchmarks use dynamic budgets (`50ms` / `5.0ms` in CI environments where `CI` is set, and `150ms` / `25.0ms` in local dev / WSL environments to prevent virtualization false positives).
+- **Sub-Second Timestamp Rollover Safety**: Logical equivalence assertions compare domain-relevant fields and avoid raw comparison on sub-second `created_at` timestamp columns across separate SQL transactions.
+
+Run with:
 
 ```bash
-pip install -r requirements.txt   # includes pytest + pytest-asyncio
-pytest                             # ~25 seconds, all 1631 tests
+source venv/bin/activate
+pytest -q                             # full offline test suite
 ```
 
 | File | Tests | Covers |

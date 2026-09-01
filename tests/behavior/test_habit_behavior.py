@@ -499,7 +499,11 @@ def test_create_habit_equivalence_legacy_vs_offline(storage):
     legacy_row = storage.tasks.get_by_id(legacy_hid, UID)
     offline_row = storage.tasks.get_by_id(offline_hid, UID)
 
+    # Compare all fields except created_at (index 11) which can differ across second boundary
     for i in range(1, len(legacy_row)):
+        if i == 11:  # created_at
+            assert legacy_row[11] is not None and offline_row[11] is not None
+            continue
         assert legacy_row[i] == offline_row[i], f"Field {i} differs: legacy={legacy_row[i]} offline={offline_row[i]}"
 
 

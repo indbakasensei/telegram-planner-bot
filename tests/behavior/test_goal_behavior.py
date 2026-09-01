@@ -248,8 +248,12 @@ def test_goal_get_goals_excludes_done(storage):
     assert "Completed goal" not in titles
 
 
+@pytest.mark.xfail(
+    reason="Production Bug Candidate: database.get_goals_full() filters done goals (AND COALESCE(done,0)=0), inconsistent with full dashboard contract",
+    strict=False
+)
 def test_goal_get_goals_full_includes_done(storage):
-    """get_goals_full production behavior (Note: filters done goals per production implementation)."""
+    """get_goals_full includes all goals regardless of done status (contract expectation)."""
     g1 = db.add_goal(UID, "Active goal full")
     g2 = db.add_goal(UID, "Completed goal full")
     db.update_goal_progress(g2, UID, 100)
@@ -257,8 +261,7 @@ def test_goal_get_goals_full_includes_done(storage):
     goals = db.get_goals_full(UID)
     titles = [g[1] for g in goals]
     assert "Active goal full" in titles
-    # Current production implementation: get_goals_full filters out done goals
-    assert "Completed goal full" not in titles
+    assert "Completed goal full" in titles
 
 
 def test_goal_get_goals_full_progress_target(storage):
