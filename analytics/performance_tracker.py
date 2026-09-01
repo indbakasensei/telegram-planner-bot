@@ -1,3 +1,4 @@
+import os
 """
 performance_tracker.py — v15.7
 Latency percentiles + trend math for the /performance dashboard.
@@ -7,7 +8,7 @@ from datetime import datetime, timedelta
 import pytz
 
 IST = pytz.timezone("Asia/Kolkata")
-DB_NAME = "planner.db"
+DB_NAME = os.getenv("DB_NAME", "planner.db")
 
 
 def latency_percentiles(user_id: int, days: int = 7) -> dict:

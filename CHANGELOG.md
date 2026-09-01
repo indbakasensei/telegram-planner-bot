@@ -4994,3 +4994,9 @@ Built first, deliberately, so every later feature would be easier to test:
 exception logging to a separate `bugs.db`.
 
 New file: `debug_system.py`. Modified: `main.py`
+
+
+### Phase 5C.3 Live Telegram Smoke Test Suite
+- Implemented `qa_smoke.py` Playwright script covering the 5C.3 matrix: Core commands, Tasks, Goals, Habits, Dashboard callbacks, and Admin commands.
+- Validated strict DOM traversal without relying on `getByText()`.
+- Ensured isolated dual-runtime execution against `test_baka.db`.

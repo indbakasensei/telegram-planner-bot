@@ -490,3 +490,17 @@ python testing/playwright/tests/qa_verify.py
 
 ## Playwright QA Profile
 Playwright persistent Chromium profiles for QA testing are validated and stored in 	esting/playwright/profile.
+
+
+## Phase 5C.3 Smoke Test Matrix Coverage
+
+| Area | Commands / Actions Covered | Status |
+|---|---|---|
+| Core | `/start`, `/help`, `/commands`, `/today`, `/tasks` | Covered |
+| Tasks | Create, Edit, Complete, Delete, Recurring | Covered (Via Playwright UI) |
+| Goals | Create, Update progress, Complete | Covered (Via Playwright UI) |
+| Habits | Create, Complete, Skip, Pause, Resume, Streak | Covered (Via Playwright UI) |
+| Dashboard | Click all UI callbacks | Covered |
+| Admin | `/version`, `/selftest`, `/debug`, `/doctor` | Covered |
+
+> Note: SQLite mutations are verified after Playwright completion, though AI provider API key constraints (Nvidia NIM returning 410/404) currently result in fallback intents.

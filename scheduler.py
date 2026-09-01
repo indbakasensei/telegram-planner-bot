@@ -1,3 +1,4 @@
+import os
 """
 scheduler.py — v2.1 Fixed Reminder Engine
 
@@ -11,7 +12,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import pytz
 
-DB_NAME = "planner.db"
+DB_NAME = os.getenv("DB_NAME", "planner.db")
 IST = pytz.timezone("Asia/Kolkata")
 
 # How many minutes back we look for missed reminders (catches restarts/busy bot)

@@ -1,3 +1,4 @@
+import os
 """
 analytics — v15.7 AI Usage Monitoring & Analytics
 

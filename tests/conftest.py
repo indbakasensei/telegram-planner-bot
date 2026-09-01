@@ -58,3 +58,27 @@ def raw_db_path(monkeypatch, tmp_path):
 def uid():
     """A representative user_id for tests that need one."""
     return 555000111
+
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+IST = ZoneInfo('Asia/Kolkata')
+
+@pytest.fixture
+def now():
+    '''Injected deterministic now fixture.'''
+    return datetime(2026, 8, 24, 10, 0, tzinfo=IST)
+
+@pytest.fixture(autouse=True)
+def freeze_clock(monkeypatch, now):
+    '''Freeze the system clock to the exact NOW datetime used across test
+    contexts.'''
+    import date_parser
+    monkeypatch.setattr(date_parser, '_now', lambda: now)
+
+@pytest.fixture(autouse=True)
+def disable_runner_db_patch(monkeypatch):
+    # selftest.run() deletes sys.modules['database'] which causes catastrophic
+    # split-brain bugs in pytest because modules imported earlier hold old refs.
+    # We disable it globally here since pytest temp_db already isolates everything.
+    from core.selftest import runner
+    monkeypatch.setattr(runner, '_setup_temp_db', lambda: None)

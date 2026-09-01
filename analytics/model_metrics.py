@@ -1,3 +1,4 @@
+import os
 """
 model_metrics.py — v15.7
 Per-model performance rollups + automatic health-degradation detection.
@@ -7,7 +8,7 @@ from datetime import datetime, timedelta
 import pytz
 
 IST = pytz.timezone("Asia/Kolkata")
-DB_NAME = "planner.db"
+DB_NAME = os.getenv("DB_NAME", "planner.db")
 
 
 def get_model_stats(user_id: int, model_name: str = None) -> list:

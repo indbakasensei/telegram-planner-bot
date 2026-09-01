@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 IST = ZoneInfo("Asia/Kolkata")
 
-DB_NAME = "planner.db"
+DB_NAME = os.getenv("DB_NAME", "planner.db")
 
 # v13.2: bumped whenever init_db() adds a new migration step. Purely a
 # diagnostic marker (read by verify_schema_integrity() at startup) --

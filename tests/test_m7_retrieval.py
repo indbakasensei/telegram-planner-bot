@@ -524,25 +524,25 @@ class TestDateRangeFilters:
     def test_created_after(self, service, workspace_a, sample_note):
         """created_after returns items on or after date."""
         from datetime import timedelta
-        from date_parser import _now
-        tomorrow = (_now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        from datetime import datetime as _dt
+        tomorrow = (_dt.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         # Note was created today, so tomorrow should return 0
         results = service.search_notes_only(SELFTEST_USER_ID, workspace_a, created_after=tomorrow)
         assert len(results) == 0
 
-        yesterday = (_now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        yesterday = (_dt.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         results = service.search_notes_only(SELFTEST_USER_ID, workspace_a, created_after=yesterday)
         assert len(results) == 1
 
     def test_created_before(self, service, workspace_a, sample_note):
         """created_before returns items on or before date."""
         from datetime import timedelta
-        from date_parser import _now
-        yesterday = (_now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        from datetime import datetime as _dt
+        yesterday = (_dt.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         results = service.search_notes_only(SELFTEST_USER_ID, workspace_a, created_before=yesterday)
         assert len(results) == 0
 
-        tomorrow = (_now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        tomorrow = (_dt.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         results = service.search_notes_only(SELFTEST_USER_ID, workspace_a, created_before=tomorrow)
         assert len(results) == 1
 

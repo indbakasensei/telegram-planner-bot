@@ -1001,7 +1001,12 @@ class TestCallbackIntegrationSnapshots:
             # Verify database was updated
             task = storage.tasks.get_by_id(tid, UID)
             assert task is not None
-            assert task[6] == 1  # done column
+            import sqlite3
+            import database as db
+            conn = sqlite3.connect(db.DB_NAME)
+            r = conn.execute('SELECT done FROM tasks WHERE id=?', (tid,)).fetchone()
+            conn.close()
+            assert r[0] == 1
 
             mock_edit.assert_called()
             text, _ = get_edit_call(mock_edit)

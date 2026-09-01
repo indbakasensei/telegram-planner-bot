@@ -1,3 +1,4 @@
+import os
 """
 token_counter.py — v15.7
 Cost estimation per model. Prices are USD per 1 million tokens.

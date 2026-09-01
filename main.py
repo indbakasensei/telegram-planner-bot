@@ -171,7 +171,7 @@ load_dotenv(_env_path)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 # v6.1: Admin lock — the first user to run /claimadmin becomes the sole admin.
 # Stored in a tiny file so it survives restarts. Only the admin can use admin tools.
-ADMIN_FILE = "admin_id.txt"
+ADMIN_FILE = os.getenv("BAKA_ADMIN_FILE", "admin_id.txt")
 
 def get_admin_id():
     try:
@@ -2815,7 +2815,7 @@ async def checktasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Diagnose why reminders may not be firing."""
     user_id = update.message.from_user.id
     import sqlite3
-    conn = sqlite3.connect("planner.db")
+    conn = sqlite3.connect(os.getenv("DB_NAME", "planner.db"))
     c = conn.cursor()
     c.execute("""SELECT id, title, due_date, due_time, done, paused,
                  snooze_until, last_reminded, reminder_count
@@ -3328,7 +3328,7 @@ async def sql_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         import sqlite3
-        conn = sqlite3.connect("planner.db")
+        conn = sqlite3.connect(os.getenv("DB_NAME", "planner.db"))
         c = conn.cursor()
         c.execute(query)
         rows = c.fetchall()
@@ -3503,7 +3503,7 @@ def _build_today_groups(user_id):
     todays = get_tasks_by_date(user_id, today)
     overdue = get_overdue_tasks(user_id, today, current_time)
     # done today
-    conn = __import__("sqlite3").connect("planner.db")
+    conn = __import__("sqlite3").connect(os.getenv("DB_NAME", "planner.db"))
     c = conn.cursor()
     c.execute("""SELECT id,title,due_date,due_time,category,priority,done
                  FROM tasks WHERE user_id=? AND done=1
@@ -3854,7 +3854,7 @@ async def deadline_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Toggle
         import sqlite3
-        conn = sqlite3.connect("planner.db"); c = conn.cursor()
+        conn = sqlite3.connect(os.getenv("DB_NAME", "planner.db")); c = conn.cursor()
         c.execute("SELECT COALESCE(is_deadline,0) FROM tasks WHERE id=?", (tid,))
         row = c.fetchone()
         new_state = not bool(row[0]) if row else True
@@ -5992,7 +5992,7 @@ def main() -> None:
         """v1.2: Warn users about tasks due within 24 hours — runs every hour."""
         try:
             import sqlite3
-            conn = sqlite3.connect("planner.db")
+            conn = sqlite3.connect(os.getenv("DB_NAME", "planner.db"))
             c = conn.cursor()
             c.execute("SELECT DISTINCT user_id FROM tasks WHERE done=0")
             users = [r[0] for r in c.fetchall()]

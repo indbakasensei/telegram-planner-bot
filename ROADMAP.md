@@ -805,3 +805,6 @@ built; kept here only where still true:
 - Deployment target: To Be Documented — `README.md` said "hosted locally
   (WSL), not yet deployed to Railway cloud" as of its last update; confirm
   current hosting status before relying on this.
+
+
+- [x] Phase 5C.3: Live Telegram Smoke Test Suite (Matrix Coverage added)

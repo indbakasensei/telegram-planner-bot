@@ -1,3 +1,4 @@
+import os
 """
 usage_logger.py — v15.7
 
@@ -22,7 +23,7 @@ from .token_counter import estimate_cost, get_provider_for_model
 
 logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
-DB_NAME = "planner.db"
+DB_NAME = os.getenv("DB_NAME", "planner.db")
 
 # Process-level session id — survives until restart, lets us group calls
 _SESSION_ID = str(uuid.uuid4())[:12]
