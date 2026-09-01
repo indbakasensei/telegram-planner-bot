@@ -1,7 +1,29 @@
 from playwright.sync_api import sync_playwright
 import os
+import subprocess
+import time
+
+def ensure_qa_bot():
+    print("Checking if QA bot is running...")
+    status = subprocess.run(['./scripts/status.sh'], capture_output=True, text=True)
+    if 'QA Bot         : RUNNING' not in status.stdout:
+        print('QA Bot not running. Starting...')
+        subprocess.Popen(['./scripts/start_qa.sh'])
+        # wait for it to start
+        for _ in range(30):
+            status = subprocess.run(['./scripts/status.sh'], capture_output=True, text=True)
+            if 'QA Bot         : RUNNING' in status.stdout:
+                print('QA Bot started.')
+                time.sleep(5)  # Give it a bit to connect to telegram
+                return
+            time.sleep(1)
+        raise Exception("QA Bot failed to start")
+    else:
+        print('QA Bot is already running.')
 
 def run_tests():
+    ensure_qa_bot()
+    
     reports_dir = os.path.abspath('testing/playwright/reports/html')
     os.makedirs(reports_dir, exist_ok=True)
     html_report_path = os.path.join(reports_dir, 'index.html')
@@ -84,7 +106,7 @@ def run_tests():
         # Instead of waiting for specific text, just wait a bit, then take screenshot
         # If it doesn't render, we'll still succeed the script but the screenshot will show it
         try:
-            page.locator('text="Everyday is a chance"').first.wait_for(state='visible', timeout=10000)
+            page.locator('text="Hey Baka"').first.wait_for(state='visible', timeout=15000)
         except Exception as e:
             print(f'Dashboard text not found: {e}')
             

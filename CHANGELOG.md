@@ -9,6 +9,19 @@ session can find the relevant code quickly.
 
 ---
 <!-- Markdown header for new version separators -->
+## v16.0.0-beta.2 — Phase 5C.2B Dual Bot Runtime Infrastructure (2026-09-01)
+
+> **Introduced permanent dual-runtime system for Production and QA environments.** Separated configurations, logging, and processes to run simultaneously without conflicts.
+
+**Key Deliverables:**
+- **Multi-Bot Scripts:** Added `start_planner.sh`, `start_qa.sh`, `start_all.sh`, `stop_all.sh`, and `status.sh` in `scripts/`.
+- **Environment Separation:** Shifted environment variables from root `.env` to `env/.env.production` and `env/.env.qa` with dynamic loading via `ENV_FILE`.
+- **Log Isolation:** Placed all logs into `logs/` directory and routed Production and QA logs independently (e.g. `logs/planner.log`, `logs/baka_qa.log`) based on the new `BAKA_LOG_FILE` environment variable.
+- **PID Management:** Shifted lockfiles to `logs/planner.pid` and `logs/baka_qa.pid` and adapted `instance_lock.py` to support `BAKA_PID_FILE`.
+- **Doctor Script Upgrade:** Upgraded `doctor.sh` with 8 new explicit checks validating both environments.
+- **Playwright Integration:** Updated `qa_verify.py` to auto-ensure the QA bot is running prior to execution.
+
+---
 ## v16.0.0-beta.1 — Phase 5C.1 QA Fixture Refresh (2026-09-01)
 
 > **QA suite preparation for live Telegram testing.** Replaced absolute hardcoded dates with deterministic fixtures across `tests/behavior/test_task_behavior.py`. Fixed test isolation leakage in `tests/test_workspace_selftest.py` ensuring complete sandbox reset between test runs. Doctor validation confirmed 8/8 PASS.

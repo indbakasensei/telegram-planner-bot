@@ -480,5 +480,13 @@ See [docs/testing/index.md](docs/testing/index.md) for complete testing guide.
   (`conversation_state.py`, `debug_system.py`'s debug-mode/trace state) —
   see [ROADMAP.md](ROADMAP.md) fix-it list
 
+## Dual Bot Runtime (Playwright QA)
+The repository now features a dual-runtime architecture. Production (`start_planner.sh`) and QA (`start_qa.sh`) can run simultaneously using completely separate environments, databases (`planner.db` vs `test_baka.db`), and lockfiles.
+
+Playwright scripts in `testing/playwright/tests/qa_verify.py` will automatically launch the QA bot in the background if it is not already polling. Run the suite normally:
+```bash
+python testing/playwright/tests/qa_verify.py
+```
+
 ## Playwright QA Profile
 Playwright persistent Chromium profiles for QA testing are validated and stored in 	esting/playwright/profile.

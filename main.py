@@ -103,7 +103,7 @@ from core.workspace.adapters.projection import TelegramProjection
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
+    handlers=[logging.FileHandler(os.getenv("BAKA_LOG_FILE", "bot.log")), logging.StreamHandler()]
 )
 
 # v14.21: dedicated developer debug log. Production logging is
@@ -119,7 +119,7 @@ logging.basicConfig(
 for _h in logging.getLogger().handlers:
     _h.setLevel(logging.INFO)
 _debug_handler = logging.handlers.RotatingFileHandler(
-    "debugbot.log", maxBytes=2_000_000, backupCount=3, delay=True,
+    os.getenv("BAKA_DEBUG_LOG_FILE", "debugbot.log"), maxBytes=2_000_000, backupCount=3, delay=True,
     encoding="utf-8")
 _debug_handler.setLevel(logging.DEBUG)
 _debug_handler.setFormatter(
@@ -166,7 +166,7 @@ except Exception as _e:
     logger.warning(f"log sanitizer not installed: {_e}")
 
 # Bulletproof .env loading (matches baka_brain.py pattern)
-_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+_env_path = os.getenv("ENV_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 load_dotenv(_env_path)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 # v6.1: Admin lock — the first user to run /claimadmin becomes the sole admin.
@@ -213,7 +213,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # Deliberately not threaded into user-facing text like /help -- that's
 # Telegram UX, out of scope for the infrastructure sprint that added
 # this; see CHANGELOG.md.
-BAKA_VERSION = "16.0.0-beta.1"
+BAKA_VERSION = "v16.0.0-beta.2"
 
 
 # ── Menus ─────────────────────────────────────────────
@@ -5178,7 +5178,7 @@ def main() -> None:
     # duplicate instance should exit before touching the database, the
     # Telegram API, or anything else. Raises InstanceAlreadyRunningError,
     # handled distinctly in the `if __name__ == "__main__":` block below.
-    instance_lock.acquire()
+    instance_lock.acquire(os.getenv("BAKA_PID_FILE", "bot.pid"))
 
     # ── Startup validation ─────────────────────────────
     if sys.version_info < (3, 12):
@@ -6048,7 +6048,7 @@ if __name__ == "__main__":
     try:
         main()
     except instance_lock.InstanceAlreadyRunningError:
-        # Message already printed/logged inside instance_lock.acquire();
+        # Message already printed/logged inside instance_lock.acquire(os.getenv("BAKA_PID_FILE", "bot.pid"));
         # distinct exit code (2) so this is distinguishable from a real
         # crash (1) if anything scripted around run.sh ever cares to check.
         sys.exit(2)

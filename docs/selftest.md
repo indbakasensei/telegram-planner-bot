@@ -26,7 +26,7 @@ It is **not** a replacement for the offline `pytest` suite:
 
 Both matter; they check different things.
 
-## How an admin runs it
+## Dual Runtime QA Isolation\n\nThe self-tests can now be safely executed via the dedicated QA Bot (see \TESTING.md\) which operates strictly on a \	est_baka.db\ separate from production data.\n\n## How an admin runs it
 
 `/debug` (owner only) → **🧪 Self Test** → **▶ Run All Tests**. The
 screen shows each test's result, then a summary (passed / failed /

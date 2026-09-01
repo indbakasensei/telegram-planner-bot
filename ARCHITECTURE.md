@@ -30,6 +30,28 @@ Telegram ──▶ python-telegram-bot (polling) ──▶ main.py handlers
 all proactive behavior — reminders, deadline buffers, wellness nudges,
 stagnation nudges, daily/weekly digests.
 
+## Dual Runtime Architecture
+
+BAKA operates in a permanent dual-runtime configuration for simultaneous Production and QA execution without locking conflicts. 
+
+```mermaid
+graph TD
+    A[Environment Variables] --> B[start_planner.sh]
+    A --> C[start_qa.sh]
+    
+    B -->|ENV_FILE=env/.env.production| D[main.py: Planner]
+    C -->|ENV_FILE=env/.env.qa| E[main.py: QA]
+    
+    D --> F[logs/planner.log]
+    D --> G[logs/planner.pid]
+    D --> H[(planner.db)]
+    
+    E --> I[logs/baka_qa.log]
+    E --> J[logs/baka_qa.pid]
+    E --> K[(test_baka.db)]
+```
+Both runtimes use the same unmodified `main.py` entrypoint. Configuration strictly cascades from shell variables mapping unique token sets, databases, lock files, and log destinations.
+
 ## Message lifecycle
 
 **Before v14.0:**

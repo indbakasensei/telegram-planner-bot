@@ -47,3 +47,4 @@ playwright/.auth/
 testing/playwright/profile/
 testing/playwright/screenshots/
 testing/playwright/traces/
+logs/
