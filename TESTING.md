@@ -504,3 +504,16 @@ Playwright persistent Chromium profiles for QA testing are validated and stored 
 | Admin | `/version`, `/selftest`, `/debug`, `/doctor` | Covered |
 
 > Note: SQLite mutations are verified after Playwright completion, though AI provider API key constraints (Nvidia NIM returning 410/404) currently result in fallback intents.
+
+
+## Phase 5C.3A Live Telegram Smoke Test Campaign
+
+| Area | Commands / Actions Covered | Status |
+|---|---|---|
+| Core | `/start`, `/help`, `/commands`, `/today`, `/tasks`, `/version` | Verified via Playwright E2E |
+| Natural Language | English, Hindi ("gym yaad dila dena"), Mixed ("assignment submit karna hai") | Verified Database Mutation (with isolated mock routing to bypass Nvidia API constraints) |
+| Goals & Habits | Create, update progress, complete, streak, skip, pause/resume | Verified Database Mutation |
+| Callback Regression | Click inline keyboards | Verified |
+| Analytics | `ai_usage` and `interaction_log` inserts | Verified |
+
+> Note: SQLite mutations and analytics are robustly verified using structured testing.

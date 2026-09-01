@@ -5000,3 +5000,10 @@ New file: `debug_system.py`. Modified: `main.py`
 - Implemented `qa_smoke.py` Playwright script covering the 5C.3 matrix: Core commands, Tasks, Goals, Habits, Dashboard callbacks, and Admin commands.
 - Validated strict DOM traversal without relying on `getByText()`.
 - Ensured isolated dual-runtime execution against `test_baka.db`.
+
+
+### Phase 5C.3A Live Telegram Smoke Test Campaign
+- Implemented `testing/playwright/tests/smoke_live.py` covering Core commands, Natural Language (English, Hindi, Mixed), Goals, Habits, and Callbacks.
+- Mocked `baka_brain.py` dynamically during QA run to isolate testing from external Nvidia NIM API key failures (`404 Not Found`).
+- Verified complete analytics regression, capturing all interaction and AI usage inserts accurately.
+- Maintained Dual Runtime safety across `test_baka.db` throughout testing.

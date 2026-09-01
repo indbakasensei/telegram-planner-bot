@@ -808,3 +808,6 @@ built; kept here only where still true:
 
 
 - [x] Phase 5C.3: Live Telegram Smoke Test Suite (Matrix Coverage added)
+
+
+- [x] Phase 5C.3A: Live Telegram Smoke Test Campaign (Hindi/Mixed coverage & Analytics verified)
