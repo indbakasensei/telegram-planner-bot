@@ -814,3 +814,6 @@ built; kept here only where still true:
 
 
 - [x] Phase 5C.3A.1: AI Connectivity & Smoke Completion (Native Models and Callbacks)
+
+
+- [x] Phase 5C.2 Hotfix: Dual Runtime shell scripts committed to repo.

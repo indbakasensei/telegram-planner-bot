@@ -1,27 +1,33 @@
 #!/usr/bin/env bash
-# status.sh
+# scripts/status.sh
 
 cd "$(dirname "$0")/.." || exit 1
-
-check_status() {
-    local pid_file=$1
-    if [ -f "$pid_file" ]; then
-        local pid=$(cat "$pid_file")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "RUNNING (PID $pid)"
-        else
-            echo "STOPPED (stale PID $pid)"
-        fi
-    else
-        echo "STOPPED"
-    fi
-}
 
 echo "BAKA Runtime Status"
 echo ""
 
-printf "%-15s: %s\n" "Planner Bot" "$(check_status logs/planner.pid)"
-printf "%-15s: %s\n" "QA Bot" "$(check_status logs/baka_qa.pid)"
+if [ -f "logs/planner.pid" ]; then
+    PID=$(cat logs/planner.pid)
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "Planner Bot    : RUNNING (PID $PID)"
+    else
+        echo "Planner Bot    : STOPPED (Stale PID $PID)"
+    fi
+else
+    echo "Planner Bot    : STOPPED"
+fi
+
+if [ -f "logs/baka_qa.pid" ]; then
+    PID=$(cat logs/baka_qa.pid)
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "QA Bot         : RUNNING (PID $PID)"
+    else
+        echo "QA Bot         : STOPPED (Stale PID $PID)"
+    fi
+else
+    echo "QA Bot         : STOPPED"
+fi
+
 echo ""
-printf "%-15s: %s\n" "Planner Log" "logs/planner.log"
-printf "%-15s: %s\n" "QA Log" "logs/baka_qa.log"
+echo "Planner Log    : logs/planner.log"
+echo "QA Log         : logs/baka_qa.log"

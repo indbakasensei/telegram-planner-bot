@@ -528,3 +528,8 @@ Playwright persistent Chromium profiles for QA testing are validated and stored 
 | Goals & Habits | Create, update progress, complete, streak, skip, pause/resume | Verified Live |
 | Callback Regression | Click inline keyboards | Verified via `smoke_callbacks.py` (dash:*, dev:*, proj:*, ctl:*, cmd:*) |
 | Analytics | `ai_usage` and `interaction_log` inserts | Verified with token logging |
+
+
+### Dual Runtime Scripts
+
+Verified execution of `status.sh`, `start_planner.sh`, `start_qa.sh`, `start_all.sh`, `stop_qa.sh`, `stop_all.sh` strictly enforcing separate PID locks natively handled by `instance_lock.py`.

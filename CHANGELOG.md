@@ -5013,3 +5013,7 @@ New file: `debug_system.py`. Modified: `main.py`
 - Audited Nvidia NIM providers via `test_all.py` (resolved mass 404/410 by migrating provider to `meta/llama-3.2-11b-vision-instruct`).
 - Deployed `testing/playwright/tests/smoke_callbacks.py` testing every Phase 4C callback cluster via active Playwright injection.
 - Validated Live Telegram NLP pipeline natively against the Llama-3.2 endpoint.
+
+
+### v16.0.0-beta.2 (Hotfix)
+- Re-implemented missing shell scripts (`start_all.sh`, `stop_all.sh`, `stop_qa.sh`, etc.) to enforce independent `.env` separation, isolated PID tracking, and distinct logs (`planner.log`, `baka_qa.log`).

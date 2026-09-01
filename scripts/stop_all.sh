@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
-# stop_all.sh
+# scripts/stop_all.sh
 
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")" || exit 1
+./stop_qa.sh
 
-if [ -f logs/planner.pid ]; then
-    PLANNER_PID=$(cat logs/planner.pid)
-    if kill -0 "$PLANNER_PID" 2>/dev/null; then
-        echo "Stopping Planner Bot (PID: $PLANNER_PID)..."
-        kill "$PLANNER_PID"
+cd ..
+if [ -f "logs/planner.pid" ]; then
+    PID=$(cat logs/planner.pid)
+    echo "Stopping Planner Bot (PID $PID)..."
+    kill "$PID" 2>/dev/null
+    sleep 2
+    if kill -0 "$PID" 2>/dev/null; then
+        kill -9 "$PID"
     fi
-    rm -f logs/planner.pid
+    echo "Planner Bot stopped."
+else
+    echo "Planner Bot not running (no PID file)."
 fi
 
-if [ -f logs/baka_qa.pid ]; then
-    QA_PID=$(cat logs/baka_qa.pid)
-    if kill -0 "$QA_PID" 2>/dev/null; then
-        echo "Stopping QA Bot (PID: $QA_PID)..."
-        kill "$QA_PID"
-    fi
-    rm -f logs/baka_qa.pid
-fi
-
-echo "All bots stopped."
+cd scripts
+./status.sh
