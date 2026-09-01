@@ -517,3 +517,14 @@ Playwright persistent Chromium profiles for QA testing are validated and stored 
 | Analytics | `ai_usage` and `interaction_log` inserts | Verified |
 
 > Note: SQLite mutations and analytics are robustly verified using structured testing.
+
+
+## Phase 5C.3A.1 Live Telegram Smoke Validation (Live AI Model)
+
+| Area | Commands / Actions Covered | Status |
+|---|---|---|
+| Core | `/start`, `/help`, `/commands`, `/today`, `/tasks`, `/version` | Verified via Playwright E2E |
+| Natural Language | English, Hindi ("gym yaad dila dena"), Mixed ("assignment submit karna hai") | Verified Live via `meta/llama-3.2-11b-vision-instruct` |
+| Goals & Habits | Create, update progress, complete, streak, skip, pause/resume | Verified Live |
+| Callback Regression | Click inline keyboards | Verified via `smoke_callbacks.py` (dash:*, dev:*, proj:*, ctl:*, cmd:*) |
+| Analytics | `ai_usage` and `interaction_log` inserts | Verified with token logging |

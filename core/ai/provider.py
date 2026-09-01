@@ -52,9 +52,9 @@ PRESETS: dict[str, ProviderPreset] = {
         # is briefly degraded; vision stays on the Llama vision model
         # (z-ai/glm-5.2 is text-only on NIM). Override any of these via env.
         base_url="https://integrate.api.nvidia.com/v1",
-        model_main="mistralai/mixtral-8x22b-v0.1",
-        model_fast="mistralai/mixtral-8x22b-v0.1",
-        model_reasoning="mistralai/mixtral-8x22b-v0.1",
+        model_main="meta/llama-3.2-11b-vision-instruct",
+        model_fast="meta/llama-3.2-11b-vision-instruct",
+        model_reasoning="meta/llama-3.2-11b-vision-instruct",
         model_vision="meta/llama-3.2-90b-vision-instruct",
         api_key_env=("AI_API_KEY", "NVIDIA_API_KEY"),
         note="OpenAI-compatible NVIDIA NIM. Default main model: z-ai/glm-5.2.",
