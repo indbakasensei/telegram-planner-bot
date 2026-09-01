@@ -7,7 +7,7 @@
 > 📚 This README is the quick-start guide. For full documentation —
 > architecture, command reference, database schema, known issues, and
 > more — start at [CLAUDE.md](CLAUDE.md) or [PROJECT.md](PROJECT.md).
-> Current version: **v16.0.0-alpha.1** (Antigravity Era Foundation Bootstrap — initial Antigravity baseline, runtime & test infrastructure audit) — see
+> Current version: **v16.0.0-beta.1** (Antigravity Era Foundation Bootstrap — initial Antigravity baseline, runtime & test infrastructure audit) — see
 > [CHANGELOG.md](CHANGELOG.md).
 
 ---
@@ -588,7 +588,7 @@ Full annotated module map: [ARCHITECTURE.md](ARCHITECTURE.md#module-map).
 | v15.5 | Cross-Reference Retrieval (M7): unified search across notes/media by entity/tag/workspace/date/text. `CrossReferenceService` via M6 NoteStorage/AttachmentStorage + EntityEngine (no new tables). |
 | v15.6 | Regression Lock Release: Phase 4A/4B/4C Characterization, Snapshot, and Callback regression suites; Playwright live QA foundation. |
 | v15.7 | Technical Debt Series: Phase 5A SQLite stabilization, Phase 5B.1 Analytics infrastructure restoration. |
-| v16.0.0-alpha.1 | **Antigravity Era Foundation**: Canonical runtime audit (Python 3.12, PTB 20.7, Analytics, Self-tests), offline test infra stabilization baseline. |
+| v16.0.0-beta.1 | **Antigravity Era Foundation**: Canonical runtime audit (Python 3.12, PTB 20.7, Analytics, Self-tests), offline test infra stabilization baseline. |
 
 Early history (v1–v11) and full detail per version:
 [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md)

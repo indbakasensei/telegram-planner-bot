@@ -29,7 +29,7 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 | Phase 5B.1 | Analytics Infrastructure Restoration | Complete |
 | Phase 5B.2 | Offline Test Infrastructure Stabilization | **Complete** (All 15 flaky/misconfigured tests stabilized) |
 | Phase 5B.3 | Repository Cleanup (`scripts/doctor.sh`, orphan DB/venv cleanup) | **Complete** |
-| Phase 5C | Live Telegram QA (Playwright acceptance testing) | **Unlocked / Next** |
+| Phase 5C | Live Telegram QA (Playwright acceptance testing) | **In Progress (5C.2 Verified)** | |
 
 ---
 

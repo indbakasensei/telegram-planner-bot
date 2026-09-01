@@ -479,3 +479,6 @@ See [docs/testing/index.md](docs/testing/index.md) for complete testing guide.
 - No coverage for restart behavior of in-memory state
   (`conversation_state.py`, `debug_system.py`'s debug-mode/trace state) —
   see [ROADMAP.md](ROADMAP.md) fix-it list
+
+## Playwright QA Profile
+Playwright persistent Chromium profiles for QA testing are validated and stored in 	esting/playwright/profile.
