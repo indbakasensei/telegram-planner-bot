@@ -15,10 +15,10 @@ planner.db
 bugs.db
 
 # Logs
-bot.log
-debugbot.log
-debugbot.log.*
-*.logbot.log
+*.log
+logs/*.log
+logs/*.pid
+logs/archive/
 
 # Runtime state
 bot.pid
@@ -43,8 +43,11 @@ test_baka.db
 testing/reports/
 playwright/.auth/
 
-# Playwright Telegram session
-testing/playwright/profile/
+# Playwright artifacts
+testing/playwright/reports/
+testing/playwright/test-results/
 testing/playwright/screenshots/
 testing/playwright/traces/
-logs/
+
+# Keep QA browser profile local only
+testing/playwright/profile/
