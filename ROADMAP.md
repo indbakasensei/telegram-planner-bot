@@ -12,8 +12,8 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 
 | Version | Milestone | Status |
 |---|---|---|
-| `v16.0.0-alpha.1` | Foundation Bootstrap & Runtime Audit | **Current Baseline** |
-| `v16.0.0-alpha.2` | Runtime & Environment Lock | Upcoming |
+| `v16.0.0-beta.1` | Foundation Bootstrap & Runtime Audit | **Current Baseline** |
+| `v16.0.0-beta.1` | Runtime & Environment Lock | Upcoming |
 | `v16.0.0-beta.1` | Offline Test Infrastructure Stabilization (Phase 5B.2) | Upcoming |
 | `v16.0.0-rc.1` | Repository Cleanup & Live QA Ready (Phase 5B.3 + Phase 5C) | Upcoming |
 | `v16.0.0` | Antigravity Era Stable Release | Target |

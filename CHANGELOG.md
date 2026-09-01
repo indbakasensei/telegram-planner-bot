@@ -9,6 +9,11 @@ session can find the relevant code quickly.
 
 ---
 <!-- Markdown header for new version separators -->
+## v16.0.0-beta.1 — Phase 5C.1 QA Fixture Refresh (2026-09-01)
+
+> **QA suite preparation for live Telegram testing.** Replaced absolute hardcoded dates with deterministic fixtures across `tests/behavior/test_task_behavior.py`. Fixed test isolation leakage in `tests/test_workspace_selftest.py` ensuring complete sandbox reset between test runs. Doctor validation confirmed 8/8 PASS.
+
+---
 ---
 
 ## v16.0.0-alpha.2 — Phase 5B.3 Repository Cleanup & Hygiene (2026-09-01)
