@@ -550,6 +550,8 @@ telegram-planner-bot/
 ├── fmt.py                — Telegram HTML helpers
 ├── ui.py / debug_system.py / preferences.py / notification_service.py
 ├── tests/                — 1300+ offline tests (pytest)
+├── scripts/              — Maintenance and validation scripts (e.g. doctor.sh)
+├── logs/                 — Application logs (bot.log, debugbot.log)
 ├── docs/
 │   ├── adr/              — ADR-001 … ADR-013 (design decisions)
 │   ├── architecture/     — Subsystem deep-dives (intent, routing, offline, …)

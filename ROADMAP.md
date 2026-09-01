@@ -28,8 +28,8 @@ Limitations", and gaps found during the 2026-07 documentation pass.
 | Phase 5A | SQLite Stabilization | Complete |
 | Phase 5B.1 | Analytics Infrastructure Restoration | Complete |
 | Phase 5B.2 | Offline Test Infrastructure Stabilization | **Complete** (All 15 flaky/misconfigured tests stabilized) |
-| Phase 5B.3 | Repository Cleanup (`scripts/doctor.sh`, orphan DB/venv cleanup) | **Unlocked / Next** |
-| Phase 5C | Live Telegram QA (Playwright acceptance testing) | Not Started |
+| Phase 5B.3 | Repository Cleanup (`scripts/doctor.sh`, orphan DB/venv cleanup) | **Complete** |
+| Phase 5C | Live Telegram QA (Playwright acceptance testing) | **Unlocked / Next** |
 
 ---
 
@@ -638,7 +638,7 @@ Flagged here rather than silently diverging without explanation.
 - **Workspace Selftest**: 7 passed (template, engine, groups, cognitive, retrieval)
 
 ### Documentation
-- Live testing workflow: [docs/testing/index.md](../testing/index.md)
+- Live testing workflow: [docs/testing/index.md](docs/testing/index.md)
 - Playwright QA infrastructure in `testing/playwright/`
 
 ---

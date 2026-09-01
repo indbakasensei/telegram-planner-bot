@@ -453,8 +453,18 @@ npx playwright show-report ../reports/html  # View report
 - `screenshots/help-command.png` — `/help` response
 - `screenshots/tasks-command.png` — `/tasks` response
 
+### Repository Cleanup & Hygiene
+
+The repository includes a health-check script at `scripts/doctor.sh` to verify environment correctness. It checks for:
+- Correct Python virtual environment (`venv/`)
+- Extraneous test databases and orphaned virtual environments
+- Missing critical dependencies (e.g., PTB 20.7, Playwright)
+- SQLite WAL mode
+
+Run `./scripts/doctor.sh` periodically to ensure your workspace remains clean.
+
 ### Full Documentation
-See [docs/testing/index.md](../testing/index.md) for complete testing guide.
+See [docs/testing/index.md](docs/testing/index.md) for complete testing guide.
 
 ---
 

@@ -11,6 +11,23 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v16.0.0-alpha.2 — Phase 5B.3 Repository Cleanup & Hygiene (2026-09-01)
+
+> **Repository cleanup and hygiene.** Eliminated extraneous files, test databases, overlapping virtual environments, and nested repositories. Introduced the `doctor.sh` validation script to monitor health state moving forward. Zero production behavior changes.
+
+**What was cleaned:**
+- **Nested Repository:** Removed accidental `telegram-planner-bot/telegram-planner-bot/`.
+- **Orphan Environments:** Deleted `venv3`, `venv_wsl`, `venv_broken_backup`. Validated canonical `venv/` is fully operational.
+- **Database Hygiene:** Archived/deleted temporary `planner_*.db`, `test_*.db`, and `fresh_test.db` test fixtures. Retained canonical `planner.db` and `bugs.db`.
+- **Logs Organized:** Consolidated all `.log*` files (`bot.log`, `debugbot.log*`) into the `logs/` directory.
+- **Pycache Sweep:** Recursively removed all `__pycache__` directories.
+- **Links Repaired:** Fixed broken documentation links in `ROADMAP.md` and `TESTING.md`.
+
+**Tools Introduced:**
+- Added `scripts/doctor.sh` to continually verify environment health, dependency checks, and hygiene invariants.
+
+---
+
 ## v16.0.0-alpha.1 — Phase 5B.2 Offline Test Infrastructure Stabilization (2026-09-01)
 
 > **Stabilized offline test suite across all domains.** Fixed 15 test failures spanning fixture isolation, timestamp drift, performance benchmark thresholds, and goal test alignment with existing production APIs. Zero production files modified.
