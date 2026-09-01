@@ -119,3 +119,11 @@ Non-user-visible / infra changes need at least 1, 6, and the relevant
 docs. This is enforced by review, and increasingly by automatable
 checks (a Self-Test asserting every `CommandHandler` appears in
 `help_cards`).
+
+## Antigravity Era Engineering Constitution (Permanent Rules)
+
+1. **RULE 1 — Documentation Synchronization (MANDATORY)**: Every completed phase updates `README.md`, `ROADMAP.md`, `CHANGELOG.md`, `ARCHITECTURE.md`, and feature docs in `docs/`. If commands change, update help documentation, dashboard, and reference tables.
+2. **RULE 2 — No Random Markdown Files**: Do NOT create ad-hoc markdown files (e.g., `PHASE_REPORT.md`, `SUMMARY.md`, `FIXES.md`). Update existing permanent docs.
+3. **RULE 3 — Organized Docs**: Keep directory hierarchy clean without duplicate or obsolete files.
+4. **RULE 4 — Explain Every Change**: Every implementation must detail: Purpose, Files changed, Risk, Rollback strategy, Validation, Documentation updated, and Git commands.
+5. **RULE 5 — No Silent Production Changes**: Never modify production logic (`database.py`, `main.py`, `baka_brain.py`, callback handlers, storage APIs, conversation engine) during test stabilization phases without explicit review and approval. If a test exposes a production defect, document it and stop.

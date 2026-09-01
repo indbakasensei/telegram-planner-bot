@@ -4,6 +4,37 @@ This consolidates every "not yet built" idea found across the old
 `VERSION.md`'s planned-roadmap section, `feature_list.md`'s "Known
 Limitations", and gaps found during the 2026-07 documentation pass.
 
+---
+
+## 🚀 Antigravity Era Roadmap (v16.0+)
+
+### Release Flow
+
+| Version | Milestone | Status |
+|---|---|---|
+| `v16.0.0-alpha.1` | Foundation Bootstrap & Runtime Audit | **Current Baseline** |
+| `v16.0.0-alpha.2` | Runtime & Environment Lock | Upcoming |
+| `v16.0.0-beta.1` | Offline Test Infrastructure Stabilization (Phase 5B.2) | Upcoming |
+| `v16.0.0-rc.1` | Repository Cleanup & Live QA Ready (Phase 5B.3 + Phase 5C) | Upcoming |
+| `v16.0.0` | Antigravity Era Stable Release | Target |
+
+### Current Phase Status
+
+| Phase | Description | Status |
+|---|---|---|
+| Phase 4A | Habit Behavior Characterization | Complete |
+| Phase 4B | Snapshot Regression Lock | Complete |
+| Phase 4C | Callback Regression Lock | Complete |
+| Phase 5A | SQLite Stabilization | Complete |
+| Phase 5B.1 | Analytics Infrastructure Restoration | Complete |
+| Phase 5B.2 | Offline Test Infrastructure Stabilization | **Restart Required / In Progress** |
+| Phase 5B.3 | Repository Cleanup (`scripts/doctor.sh`, orphan DB/venv cleanup) | Not Started |
+| Phase 5C | Live Telegram QA (Playwright acceptance testing) | Not Started |
+
+---
+
+## 🏛 Claude Era (Frozen Archive: v14.x – v15.7)
+
 > **v15.0 — Workspace OS**: the next major evolution unifies
 > Tasks/Habits/Projects/Goals/Memory under a single **Workspace**
 > abstraction (Project/Book/Game/… = same engine, different template),

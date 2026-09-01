@@ -11,6 +11,20 @@ session can find the relevant code quickly.
 <!-- Markdown header for new version separators -->
 ---
 
+## v16.0.0-alpha.1 — Antigravity Era Foundation Bootstrap (2026-09-01)
+
+> **Antigravity Era commences.** Established the canonical engineering baseline on branch `antigravity/v16.0-foundation`. Performed full runtime verification, analytics integration check, self-test health run, and comprehensive offline test suite audit. Claude Era (v14.x – v15.7) is permanently archived.
+
+**Baseline Audit:**
+- **Canonical Runtime**: Python 3.12.13 in `venv/`, python-telegram-bot 20.7, httpx pinned to 0.25.2.
+- **Analytics Package**: 20 exported symbols operational; 12/12 integration tests pass.
+- **Self-Test Framework**: 39 passed, 0 failed, 2 warnings (AI config - expected no live API key in offline environment), 0 skipped.
+- **Offline Pytest Baseline**: 1992 total tests collected; 1975 passed, 17 failed (in goal behavior, habit snapshots/equivalence, task completion benchmarks, and retrieval characterization), 10 warnings.
+- **Documentation Synchronized**: `README.md`, `ROADMAP.md`, `CHANGELOG.md`, `ARCHITECTURE.md`, `CLAUDE.md`, and `main.py` updated to `v16.0.0-alpha.1`.
+- **Engineering Branch**: `antigravity/v16.0-foundation`.
+
+---
+
 ## v15.7.0 — Phase 5B.1C Analytics Implementation (2026-08-25)
 
 > **Restored and modernized the analytics package for NVIDIA NIM architecture.** The analytics package was deleted in v14.12 during repository cleanup (the stranded source files were never importable). This rebuilds it cleanly for current production models with zero-latency async logging, self-test integration, and comprehensive pytest coverage.
