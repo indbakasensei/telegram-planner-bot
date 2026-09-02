@@ -5020,3 +5020,9 @@ New file: `debug_system.py`. Modified: `main.py`
 
 
 - Verified complete end-to-end reminder delivery, inline callbacks, and restart recovery mechanics via Telegram E2E Playwright suite (`smoke_scheduler.py`).
+
+### Known Issues
+- **AG-16 Scheduler Intent Classification Bug**: 
+  - *Input*: `Remind me to drink water in 1 minute`
+  - *Observed*: Task stored with `recurrence_type='daily'` due to over-eager habit detection.
+  - *Expected*: One-time reminder.
